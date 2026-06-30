@@ -1,0 +1,36 @@
+{
+    "name": "cipi/gui",
+    "description": "Cipi GUI — Multi-server control panel for Cipi Server Control Panel via REST API",
+    "keywords": [
+        "cipi",
+        "laravel",
+        "gui",
+        "dashboard",
+        "server",
+        "deploy",
+        "control-panel"
+    ],
+    "license": "MIT",
+    "type": "library",
+    "require": {
+        "php": "^8.3",
+        "laravel/framework": "^12.0 || ^13.0",
+        "livewire/livewire": "^3.5",
+        "pragmarx/google2fa-laravel": "^2.2",
+        "bacon/bacon-qr-code": "^3.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "CipiGui\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "CipiGui\\CipiGuiServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
