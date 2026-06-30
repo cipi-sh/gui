@@ -110,15 +110,42 @@ _gui_ensure_laravel_app() {
 _gui_update_package() {
     local pkg_dir
     pkg_dir=$(_gui_pkg_dir)
+
+    step "Syncing cipi/gui source from ${pkg_dir}..."
+
+    if [[ -d "${pkg_dir}/.git" ]]; then
+        (cd "${pkg_dir}" && git fetch origin 2>/dev/null && git pull --ff-only origin main 2>/dev/null) \
+            || (cd "${pkg_dir}" && git pull --ff-only 2>/dev/null) \
+            || warn "Could not git pull ${pkg_dir} — update the source manually"
+    else
+        warn "No git repo at ${pkg_dir} — copy the latest cipi-sh/gui release there first"
+    fi
+
     if [[ -d "$pkg_dir" ]]; then
         (cd "${CIPI_GUI_ROOT}" && composer config repositories.cipi-gui path "$pkg_dir" 2>/dev/null) || true
     fi
-    (cd "${CIPI_GUI_ROOT}" && composer update cipi/gui --no-interaction 2>/dev/null) || true
+
+    (cd "${CIPI_GUI_ROOT}" && composer update cipi/gui --no-interaction 2>/dev/null) || {
+        error "composer update cipi/gui failed"
+        exit 1
+    }
+
     chown -R www-data:www-data "${CIPI_GUI_ROOT}" 2>/dev/null || true
     (cd "${CIPI_GUI_ROOT}" && sudo -u www-data php artisan vendor:publish --tag=cipi-gui-config --force 2>/dev/null) || true
     (cd "${CIPI_GUI_ROOT}" && sudo -u www-data php artisan migrate --force 2>/dev/null) || true
     _gui_clear_caches
-    success "cipi/gui package updated"
+
+    local fp
+    fp=$(cd "${CIPI_GUI_ROOT}" && sudo -u www-data php artisan tinker --execute="echo \\CipiGui\\Support\\Theme::fingerprint();" 2>/dev/null | tail -1)
+    if [[ -n "$fp" && "$fp" != "missing" ]]; then
+        success "cipi/gui updated — theme fingerprint: ${fp}"
+    else
+        success "cipi/gui package updated (run: cd ${CIPI_GUI_ROOT} && php artisan cipi:gui-refresh-theme)"
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl reload php8.5-fpm 2>/dev/null || systemctl reload php-fpm 2>/dev/null || true
+    fi
 }
 
 # ── PHP-FPM + Nginx ───────────────────────────────────────────────

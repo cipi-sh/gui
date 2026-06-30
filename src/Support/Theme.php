@@ -4,6 +4,8 @@ namespace CipiGui\Support;
 
 class Theme
 {
+    public const VERSION = '2.0.0';
+
     public static function packageRoot(): string
     {
         return dirname(__DIR__, 2);

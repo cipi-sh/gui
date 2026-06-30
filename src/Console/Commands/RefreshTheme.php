@@ -27,6 +27,7 @@ class RefreshTheme extends Command
         Artisan::call('view:clear');
         Artisan::call('optimize:clear');
 
+        $this->info('Theme version: '.Theme::VERSION);
         $this->info('Theme fingerprint: '.Theme::fingerprint());
         $this->info('CSS path: '.Theme::cssPath());
         $this->info('Done. Hard-refresh the browser (Cmd+Shift+R).');

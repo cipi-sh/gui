@@ -78,3 +78,37 @@ cipi gui fix-permissions
 - [ ] Bundle `cipi-gui` in `setup.sh` + `self-update.sh`
 - [ ] Document in Cipi docs / changelog
 - [ ] Optional migration script for existing installs
+
+## 7. Theme not updating (still blue)?
+
+**Diagnosis:** view page source. If you see `--color-brand-600: #2563eb` and `bg-brand-600` in the sidebar, the server is still on the **old package** (First Commit). The new theme shows:
+
+```html
+<!-- cipi-gui v2.0.0 theme:d2c4bac3... -->
+```
+
+and `--bg: #0a0a0a` (not `--color-brand-600`).
+
+On the GUI host (`/opt/cipi/gui`):
+
+```bash
+# 1. Update package SOURCE (path repo used by Cipi)
+cd /opt/cipi/cipi-gui
+git pull origin main
+
+# 2. Reinstall into Laravel host + clear caches
+cd /opt/cipi/gui
+composer update cipi/gui --no-interaction
+php artisan cipi:gui-refresh-theme
+sudo systemctl reload php8.5-fpm
+```
+
+Or with Cipi CLI (after syncing `lib/gui.sh`):
+
+```bash
+cipi gui update
+```
+
+Verify: hard refresh (Cmd+Shift+R) → view source must contain `cipi-gui v2.0.0`.
+
+**Do not** run `vendor:publish --tag=cipi-gui-views`.
