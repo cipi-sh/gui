@@ -30,23 +30,42 @@ class Servers extends Component
         $this->error = null;
         $this->success = null;
 
+        $this->name = trim($this->name);
+        $this->url = $this->normalizeUrl($this->url);
+        $this->token = $this->normalizeToken($this->token);
+
         $validated = $this->validate([
             'name' => ['required', 'string', 'max:64', 'unique:cipi_servers,name', 'regex:/^[a-zA-Z0-9_-]+$/'],
             'url' => ['required', 'url', 'max:255'],
             'token' => ['required', 'string', 'min:10'],
         ], [
             'name.regex' => 'Name may only contain letters, numbers, hyphens and underscores.',
+            'name.unique' => 'A server with this name already exists.',
+            'url.url' => 'Enter a valid URL (e.g. https://vps.example.com).',
+            'token.min' => 'The API token looks too short.',
         ]);
 
-        $validated['url'] = rtrim($validated['url'], '/');
+        try {
+            $server = CipiServer::create($validated);
+        } catch (\Illuminate\Database\QueryException $e) {
+            report($e);
+            $this->error = 'Could not save the server. Ensure migrations ran: php artisan migrate';
 
-        $server = CipiServer::create($validated);
+            return;
+        } catch (\Throwable $e) {
+            report($e);
+            $this->error = 'Could not save the server: '.$e->getMessage();
+
+            return;
+        }
 
         try {
             CipiApiClient::for($server)->testConnection();
             $this->success = "Server \"{$server->name}\" connected successfully.";
+            $this->dispatch('notify', type: 'success', message: $this->success);
         } catch (CipiApiException $e) {
             $this->error = "Server saved but connection test failed: {$e->getMessage()}";
+            $this->dispatch('notify', type: 'error', message: $this->error);
         }
 
         $this->reset(['name', 'url', 'token']);
@@ -54,6 +73,28 @@ class Servers extends Component
         if (! session('cipi_gui_server_id')) {
             session(['cipi_gui_server_id' => $server->id]);
         }
+    }
+
+    private function normalizeUrl(string $url): string
+    {
+        $url = trim($url);
+
+        if ($url !== '' && ! preg_match('#^https?://#i', $url)) {
+            $url = 'https://'.$url;
+        }
+
+        return rtrim($url, '/');
+    }
+
+    private function normalizeToken(string $token): string
+    {
+        $token = trim($token);
+
+        if (preg_match('/^bearer\s+/i', $token)) {
+            $token = trim((string) preg_replace('/^bearer\s+/i', '', $token));
+        }
+
+        return $token;
     }
 
     public function testConnection(int $id): void

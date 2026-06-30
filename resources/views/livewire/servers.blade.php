@@ -10,6 +10,15 @@
     @if($error)
         <div class="card border-red-800 bg-red-900/20 mb-4 text-sm text-red-400">{{ $error }}</div>
     @endif
+    @if ($errors->any())
+        <div class="card border-red-800 bg-red-900/20 mb-4 text-sm text-red-400">
+            <ul class="space-y-1">
+                @foreach ($errors->all() as $message)
+                    <li>{{ $message }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div class="lg:col-span-2">
@@ -64,24 +73,30 @@
         <div>
             <div class="card">
                 <h3 class="font-semibold text-white mb-4">Add Server</h3>
-                <form wire:submit="addServer" class="space-y-4">
+                <form wire:submit.prevent="addServer" novalidate class="space-y-4">
                     <div>
                         <label>Name</label>
-                        <input type="text" wire:model="name" placeholder="production">
+                        <input type="text" wire:model="name" placeholder="production" autocomplete="off">
                         @error('name') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                        <p class="text-xs text-surface-500 mt-1">Letters, numbers, hyphens and underscores only.</p>
                     </div>
                     <div>
                         <label>Server URL</label>
-                        <input type="url" wire:model="url" placeholder="https://vps.example.com">
+                        <input type="text" wire:model="url" placeholder="https://vps.example.com" autocomplete="off" inputmode="url">
                         @error('url') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
                     </div>
                     <div>
                         <label>API Token</label>
-                        <input type="password" wire:model="token" placeholder="Bearer token from cipi api token create">
+                        <input type="password" wire:model="token" placeholder="Token from cipi api token create" autocomplete="off">
                         @error('token') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
                     </div>
                     <p class="text-xs text-surface-500">Requires <code class="text-link">cipi api</code> enabled on the target server. Create a token with all required abilities.</p>
-                    <button type="submit" class="btn btn-primary w-full">Add Server</button>
+                    <button type="submit" class="btn btn-primary w-full" wire:loading.attr="disabled" wire:target="addServer">
+                        <span wire:loading.remove wire:target="addServer">Add Server</span>
+                        <span wire:loading wire:target="addServer" class="inline-flex items-center gap-2">
+                            <span class="spinner"></span> Saving…
+                        </span>
+                    </button>
                 </form>
             </div>
         </div>
