@@ -353,6 +353,38 @@ gui_fix_permissions() {
     success "GUI permissions fixed"
 }
 
+gui_reset_user() {
+    [[ ! -f "${CIPI_GUI_ROOT}/artisan" ]] && { error "Laravel GUI app not found."; exit 1; }
+
+    local email="" password="" name="" arg
+    for arg in "$@"; do
+        case "$arg" in
+            --email=*) email="${arg#--email=}" ;;
+            --password=*) password="${arg#--password=}" ;;
+            --name=*) name="${arg#--name=}" ;;
+        esac
+    done
+
+    if [[ -z "$password" ]]; then
+        if declare -F validate_admin_password >/dev/null 2>&1; then
+            password=$(validate_admin_password "Admin password") || exit 1
+        else
+            read -rsp "Admin password: " password; echo ""
+            read -rsp "Confirm password: " local confirm; echo ""
+            [[ "$password" != "$confirm" ]] && { error "Passwords do not match."; exit 1; }
+        fi
+    fi
+
+    step "Resetting GUI admin user..."
+
+    local cmd=(php artisan cipi:seed-gui-user --reset --password="$password")
+    [[ -n "$email" ]] && cmd+=(--email="$email")
+    [[ -n "$name" ]] && cmd+=(--name="$name")
+
+    (cd "${CIPI_GUI_ROOT}" && sudo -u www-data "${cmd[@]}") || exit 1
+    success "GUI admin user reset"
+}
+
 gui_command() {
     local sub="${1:-}"
     shift || true
@@ -360,7 +392,8 @@ gui_command() {
     case "$sub" in
         "")
             error "Usage: cipi gui <domain>"
-            echo "       cipi gui ssl | update | upgrade | status | fix-permissions"
+            echo "       cipi gui ssl | update | upgrade | status | fix-permissions | repair"
+            echo "       cipi gui reset-user [--email=] [--password=] [--name=]"
             exit 1
             ;;
         ssl) gui_ssl ;;
@@ -368,6 +401,7 @@ gui_command() {
         upgrade) gui_upgrade ;;
         status) gui_status ;;
         fix-permissions) gui_fix_permissions ;;
+        reset-user) gui_reset_user "$@" ;;
         *)
             validate_domain "$sub" && gui_setup "$sub" || exit 1
             ;;

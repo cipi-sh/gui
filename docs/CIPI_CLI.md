@@ -68,7 +68,7 @@ cipi gui fix-permissions
 | Auth | Sanctum tokens | Session + optional 2FA |
 | Queue worker | Required (`cipi-queue.service`) | Not required (polls remote API jobs) |
 | `SESSION_DRIVER` | `array` | `file` |
-| Seed command | `cipi:seed-user` | `cipi:seed-gui-user` |
+| Seed command | `cipi:seed-user` | `cipi:seed-gui-user` (add `--reset` to reset password + clear 2FA) |
 | Depends on | Cipi CLI sudoers | **Remote** `cipi api` on managed servers |
 
 ## 6. PR checklist for `cipi-sh/cipi`
