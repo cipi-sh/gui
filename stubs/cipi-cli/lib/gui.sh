@@ -366,22 +366,33 @@ gui_reset_user() {
     done
 
     if [[ -z "$password" ]]; then
-        if declare -F validate_admin_password >/dev/null 2>&1; then
+        if declare -F validate_gui_password >/dev/null 2>&1; then
+            password=$(validate_gui_password "Admin password") || exit 1
+        elif declare -F validate_admin_password >/dev/null 2>&1; then
             password=$(validate_admin_password "Admin password") || exit 1
         else
+            echo -e "  ${DIM}Min 12 chars · upper + lower + digit + special · max 4 identical in a row${NC}"
             read -rsp "Admin password: " password; echo ""
-            read -rsp "Confirm password: " local confirm; echo ""
+            local confirm=""
+            read -rsp "Confirm password: " confirm; echo ""
             [[ "$password" != "$confirm" ]] && { error "Passwords do not match."; exit 1; }
+            [[ ${#password} -lt 12 ]] && { error "Password must be at least 12 characters"; exit 1; }
         fi
     fi
 
     step "Resetting GUI admin user..."
 
-    local cmd=(php artisan cipi:seed-gui-user --reset --password="$password")
-    [[ -n "$email" ]] && cmd+=(--email="$email")
-    [[ -n "$name" ]] && cmd+=(--name="$name")
+    # Use artisan directly — never a /tmp/*.php script (www-data cannot read root-owned temp files).
+    local artisan_args=(artisan cipi:seed-gui-user --reset --no-interaction)
+    [[ -n "$email" ]] && artisan_args+=(--email="$email")
+    [[ -n "$name" ]] && artisan_args+=(--name="$name")
 
-    (cd "${CIPI_GUI_ROOT}" && sudo -u www-data "${cmd[@]}") || exit 1
+    if ! (cd "${CIPI_GUI_ROOT}" && sudo -u www-data env CIPI_GUI_RESET_PASSWORD="$password" php "${artisan_args[@]}"); then
+        error "Failed to reset GUI admin user"
+        exit 1
+    fi
+
+    unset CIPI_GUI_RESET_PASSWORD
     success "GUI admin user reset"
 }
 

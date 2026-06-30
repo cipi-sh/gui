@@ -5,7 +5,6 @@ namespace CipiGui\Console\Commands;
 use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
@@ -23,7 +22,7 @@ class SeedGuiUser extends Command
     {
         $email = $this->option('email') ?? config('cipi-gui.default_admin_email');
         $name = $this->option('name') ?? config('cipi-gui.default_admin_name');
-        $password = $this->option('password');
+        $password = $this->resolvePassword();
 
         if ($this->option('reset')) {
             return $this->resetAdmin($email, $name, $password);
@@ -35,7 +34,7 @@ class SeedGuiUser extends Command
             ['email' => $email],
             [
                 'name' => $name,
-                'password' => Hash::make($password),
+                'password' => $password,
             ],
         );
 
@@ -46,6 +45,23 @@ class SeedGuiUser extends Command
         $this->comment('Store the password securely. Enable 2FA from Settings after first login.');
 
         return self::SUCCESS;
+    }
+
+    private function resolvePassword(): ?string
+    {
+        $password = $this->option('password');
+
+        if ($password !== null && $password !== '') {
+            return $password;
+        }
+
+        $fromEnv = getenv('CIPI_GUI_RESET_PASSWORD');
+
+        if ($fromEnv !== false && $fromEnv !== '') {
+            return $fromEnv;
+        }
+
+        return null;
     }
 
     private function resetAdmin(string $email, string $name, ?string $password): int
@@ -66,7 +82,7 @@ class SeedGuiUser extends Command
 
         $attributes = [
             'name' => $name,
-            'password' => Hash::make($password),
+            'password' => $password,
         ];
 
         if (Schema::hasColumn('users', 'two_factor_secret')) {

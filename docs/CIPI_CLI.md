@@ -112,3 +112,18 @@ cipi gui update
 Verify: hard refresh (Cmd+Shift+R) → view source must contain `cipi-gui v2.0.0`.
 
 **Do not** run `vendor:publish --tag=cipi-gui-views`.
+
+## 8. `cipi gui reset-user` fails on `/tmp/cipi-gui-reset.*.php`
+
+Older `lib/gui.sh` versions wrote a temp PHP script in `/tmp` as root, then ran it as `www-data` — which cannot read root-owned temp files.
+
+**Fix:** sync `stubs/cipi-cli/lib/gui.sh` → `/opt/cipi/lib/gui.sh` on the server (uses `php artisan cipi:seed-gui-user --reset` instead).
+
+**Immediate workaround** (after `composer update cipi/gui` with `--reset` support):
+
+```bash
+cd /opt/cipi/gui
+read -rsp "New password: " PW; echo ""
+sudo -u www-data env CIPI_GUI_RESET_PASSWORD="$PW" php artisan cipi:seed-gui-user --reset --no-interaction
+unset PW
+```
