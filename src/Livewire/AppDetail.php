@@ -48,7 +48,7 @@ class AppDetail extends Component
 
     public ?string $generatedPassword = null;
 
-    public function mount(): void
+    public function mount(string $name): void
     {
         $this->appName = $name;
         $this->ensureServerSelected();
