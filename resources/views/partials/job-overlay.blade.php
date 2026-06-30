@@ -1,5 +1,5 @@
-@if($jobRunning ?? false)
-<div class="modal-overlay" wire:poll.{{ config('cipi-gui.job_poll_interval_ms', 1500) }}ms="pollJob">
+@if($showJobOverlay ?? false)
+<div class="modal-overlay" @if($jobRunning ?? false) wire:poll.{{ config('cipi-gui.job_poll_interval_ms', 1500) }}ms="pollJob" @endif>
     <div class="modal-content" style="max-width:36rem;">
         <div class="p-6">
             <div class="flex items-center gap-4 mb-4">
@@ -7,7 +7,7 @@
                     <div class="spinner spinner-lg"></div>
                 </div>
                 <div>
-                    <h3 class="text-lg font-semibold text-white">{{ $jobLabel ?? 'Processing...' }}</h3>
+                    <h3 class="text-lg font-semibold">{{ $jobLabel ?? 'Processing...' }}</h3>
                     <p class="text-sm text-surface-400 mt-1">
                         Status: <span class="badge badge-blue">{{ ucfirst($activeJobStatus ?? 'pending') }}</span>
                     </p>
@@ -16,6 +16,23 @@
 
             @if($activeJobId)
                 <p class="text-xs text-surface-500 font-mono mb-4">Job ID: {{ $activeJobId }}</p>
+            @endif
+
+            @if($activeJobError)
+                <div class="card border-red-800 bg-red-900/20 mb-4">
+                    <p class="text-sm font-medium text-red-400">{{ $activeJobError }}</p>
+                </div>
+            @endif
+
+            @if($showDeployHints && !empty($deployHints))
+                <div class="card border-amber-600/30 bg-amber-600/10 mb-4">
+                    <p class="text-sm font-medium text-amber-400 mb-2">Deploy troubleshooting</p>
+                    <ul class="text-xs text-amber-400/90 space-y-1" style="list-style:disc;padding-left:1.25rem;">
+                        @foreach($deployHints as $hint)
+                            <li>{{ $hint }}</li>
+                        @endforeach
+                    </ul>
+                </div>
             @endif
 
             @if($activeJobOutput)
@@ -47,8 +64,7 @@
                 @else
                     <button wire:click="dismissJob" class="btn btn-secondary">Run in background</button>
                 @endif
-            </div>
-        </div>
+            </div>        </div>
     </div>
 </div>
 @endif

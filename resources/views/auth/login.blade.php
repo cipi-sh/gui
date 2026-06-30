@@ -22,7 +22,7 @@
 
         <div class="flex items-center gap-2">
             <input type="checkbox" id="remember" name="remember" value="1">
-            <label for="remember" style="margin:0;font-weight:400;color:var(--color-surface-400);">Remember me</label>
+            <label for="remember" class="text-surface-400" style="margin:0;font-weight:400;">Remember me</label>
         </div>
 
         <button type="submit" class="btn btn-primary w-full py-3">Sign in</button>

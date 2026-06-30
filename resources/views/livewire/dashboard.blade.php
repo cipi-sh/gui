@@ -46,14 +46,14 @@
                                 <p class="text-xs text-surface-500 uppercase">CPU</p>
                                 <p class="text-lg font-semibold text-white">{{ $status['resources']['cpu']['usage_percent'] ?? '—' }}%</p>
                                 <div class="progress-bar mt-1">
-                                    <div class="progress-fill bg-brand-600" style="width:{{ $status['resources']['cpu']['usage_percent'] ?? 0 }}%"></div>
+                                    <div class="progress-fill" style="width:{{ $status['resources']['cpu']['usage_percent'] ?? 0 }}%"></div>
                                 </div>
                             </div>
                             <div>
                                 <p class="text-xs text-surface-500 uppercase">Memory</p>
                                 <p class="text-lg font-semibold text-white">{{ $status['resources']['memory']['usage_percent'] ?? '—' }}%</p>
                                 <div class="progress-bar mt-1">
-                                    <div class="progress-fill bg-emerald-600" style="width:{{ $status['resources']['memory']['usage_percent'] ?? 0 }}%"></div>
+                                    <div class="progress-fill progress-fill-alt" style="width:{{ $status['resources']['memory']['usage_percent'] ?? 0 }}%"></div>
                                 </div>
                             </div>
                             <div>

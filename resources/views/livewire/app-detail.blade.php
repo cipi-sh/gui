@@ -29,10 +29,10 @@
         @include('cipi-gui::partials.server-selector')
 
         {{-- Tabs --}}
-        <div class="flex gap-1 mb-6 border-b border-surface-800 pb-px">
+        <div class="flex flex-wrap gap-1 mb-6">
             @foreach(['overview' => 'Overview', 'aliases' => 'Aliases & SSL', 'deploy' => 'Deploy', 'basicauth' => 'Basic Auth', 'logs' => 'Logs'] as $tab => $label)
                 <button wire:click="setTab('{{ $tab }}')"
-                        class="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors {{ $activeTab === $tab ? 'bg-surface-800 text-white' : 'text-surface-400 hover:text-surface-200' }}">
+                        class="tab-btn {{ $activeTab === $tab ? 'active' : '' }}">
                     {{ $label }}
                 </button>
             @endforeach
@@ -149,9 +149,9 @@
                 @endif
 
                 @if($generatedPassword)
-                    <div class="mt-4 p-3 rounded-lg bg-amber-600/10 border border-amber-600/30">
+                    <div class="mt-4 p-3 rounded-lg border border-amber-600/30 bg-amber-600/10">
                         <p class="text-sm text-amber-400">Auto-generated password (save it now):</p>
-                        <code class="font-mono text-white">{{ $generatedPassword }}</code>
+                        <code>{{ $generatedPassword }}</code>
                     </div>
                 @endif
             </div>

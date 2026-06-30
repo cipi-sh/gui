@@ -1,14 +1,10 @@
-<aside class="hidden md:flex w-64 flex-col border-r border-surface-800 bg-surface-900/50">
-    <div class="flex h-16 items-center gap-3 px-4 border-b border-surface-800">
-        <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600">
-            <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008V15m0 3h.008v.008h-.008V18" />
-            </svg>
-        </div>
-        <span class="font-semibold text-white">Cipi GUI</span>
+<aside class="hidden md:flex w-64 flex-col border-r bg-surface-950">
+    <div class="flex h-16 items-center gap-2.5 px-4 border-b">
+        <div class="logo-mark">C</div>
+        <span class="text-sm font-semibold tracking-tight">Cipi</span>
     </div>
 
-    <nav class="flex-1 space-y-1 p-3">
+    <nav class="flex-1 p-3 space-y-0.5">
         <a href="{{ route('cipi-gui.dashboard') }}" class="nav-link {{ request()->routeIs('cipi-gui.dashboard') ? 'active' : '' }}">
             <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" /></svg>
             Dashboard
@@ -31,10 +27,10 @@
         </a>
     </nav>
 
-    <div class="border-t border-surface-800 p-3">
+    <div class="border-t p-3">
         <form method="POST" action="{{ route('cipi-gui.logout') }}">
             @csrf
-            <button type="submit" class="nav-link w-full text-left" style="border:none;background:none;cursor:pointer;">
+            <button type="submit" class="nav-link w-full text-left" style="border:none;background:none;cursor:pointer;width:100%;">
                 <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9" /></svg>
                 Sign out
             </button>
