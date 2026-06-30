@@ -4,7 +4,7 @@ namespace CipiGui\Support;
 
 class Theme
 {
-    public const VERSION = '2.0.0';
+    public const VERSION = '2.1.0';
 
     public static function packageRoot(): string
     {
@@ -14,6 +14,11 @@ class Theme
     public static function cssPath(): string
     {
         return self::packageRoot().'/resources/css/cipi-gui.css';
+    }
+
+    public static function faviconPath(): string
+    {
+        return self::packageRoot().'/resources/assets/favicon.svg';
     }
 
     public static function css(): string

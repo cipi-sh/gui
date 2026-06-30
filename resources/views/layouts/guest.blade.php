@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $title ?? 'Sign in' }} — Cipi GUI</title>
+    @include('cipi-gui::partials.favicon')
     @include('cipi-gui::partials.theme-script')
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=inter:400,500,600" rel="stylesheet">
@@ -18,7 +19,7 @@
 
         <div class="sm:mx-auto sm:w-full sm:max-w-md">
             <div class="flex justify-center mb-6">
-                <div class="logo-mark">C</div>
+                @include('cipi-gui::partials.logo', ['large' => true])
             </div>
             <h2 class="text-center text-xl font-semibold tracking-tight">Cipi</h2>
             <p class="mt-1 text-center text-sm text-surface-400">@yield('subtitle', 'Sign in to manage your servers')</p>

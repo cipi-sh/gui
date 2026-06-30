@@ -1,5 +1,6 @@
 <?php
 
+use CipiGui\Http\Controllers\AssetsController;
 use CipiGui\Http\Controllers\Auth\LoginController;
 use CipiGui\Http\Controllers\Auth\TwoFactorController;
 use CipiGui\Livewire\AppDetail;
@@ -9,6 +10,9 @@ use CipiGui\Livewire\Databases;
 use CipiGui\Livewire\Settings;
 use CipiGui\Livewire\Servers;
 use Illuminate\Support\Facades\Route;
+
+Route::get('/favicon.svg', [AssetsController::class, 'favicon'])->name('cipi-gui.assets.favicon');
+Route::redirect('/favicon.ico', '/favicon.svg', 301);
 
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'show'])->name('cipi-gui.login');

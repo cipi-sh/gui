@@ -1,6 +1,6 @@
 <header class="cipi-gui-header flex h-16 items-center justify-between border-b px-4 sm:px-6">
     <div class="flex items-center gap-3 min-w-0 md:hidden">
-        <div class="logo-mark">C</div>
+        @include('cipi-gui::partials.logo')
         <span class="text-sm font-semibold">Cipi</span>
     </div>
     <div class="hidden md:block"></div>
