@@ -93,6 +93,8 @@ The GUI consumes the full [Cipi API OpenAPI spec](https://vps.deploying.it/docs)
 
 Same integration model as [`cipi/api`](https://github.com/cipi-sh/api): a Laravel **library** package bootstrapped by `CipiGuiServiceProvider` into a host runtime provisioned by `cipi gui`.
 
+See [`docs/CIPI_CLI.md`](docs/CIPI_CLI.md) for integrating `cipi gui` into the Cipi server CLI, and [`dev/README.md`](dev/README.md) for local development.
+
 ```
 cipi/gui/
 ├── config/cipi-gui.php

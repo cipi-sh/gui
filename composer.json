@@ -16,7 +16,7 @@
         "php": "^8.3",
         "laravel/framework": "^12.0 || ^13.0",
         "livewire/livewire": "^3.5",
-        "pragmarx/google2fa-laravel": "^2.2",
+        "pragmarx/google2fa": "^8.0",
         "bacon/bacon-qr-code": "^3.0"
     },
     "autoload": {
