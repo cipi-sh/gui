@@ -50,10 +50,10 @@
                     @foreach($apps as $app)
                         <tr>
                             <td>
-                                <a href="{{ route('cipi-gui.apps.show', $app['app']) }}" class="font-medium text-brand-400">{{ $app['app'] }}</a>
+                                <a href="{{ route('cipi-gui.apps.show', $app['app']) }}" class="font-medium text-link">{{ $app['app'] }}</a>
                             </td>
                             <td class="text-surface-300">{{ $app['domain'] }}</td>
-                            <td><span class="badge badge-blue">{{ $app['php'] }}</span></td>
+                            <td><span class="badge badge-neutral">{{ $app['php'] }}</span></td>
                             <td class="text-surface-400 text-sm">{{ $app['branch'] ?? '—' }}</td>
                             <td>
                                 @if($app['suspended'] ?? false)

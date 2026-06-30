@@ -2,10 +2,15 @@
 
 namespace CipiGui;
 
+use CipiGui\Console\Commands\RefreshTheme;
 use CipiGui\Console\Commands\SeedGuiUser;
 use CipiGui\Http\Middleware\EnsureTwoFactorVerified;
 use CipiGui\Services\CipiApiException;
+use CipiGui\Support\Theme;
 use Illuminate\Auth\Middleware\Authenticate;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Livewire\Livewire;
@@ -27,6 +32,8 @@ class CipiGuiServiceProvider extends ServiceProvider
             return route('cipi-gui.login');
         });
 
+        $this->purgePublishedViews();
+        $this->clearViewCacheIfThemeUpdated();
         $this->registerExceptionHandlers();
         $this->registerRoutes();
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
@@ -44,15 +51,12 @@ class CipiGuiServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 SeedGuiUser::class,
+                RefreshTheme::class,
             ]);
 
             $this->publishes([
                 __DIR__.'/../config/cipi-gui.php' => config_path('cipi-gui.php'),
             ], 'cipi-gui-config');
-
-            $this->publishes([
-                __DIR__.'/../resources/views' => resource_path('views/vendor/cipi-gui'),
-            ], 'cipi-gui-views');
         }
 
         Route::aliasMiddleware('cipi-gui.2fa', EnsureTwoFactorVerified::class);
@@ -68,6 +72,34 @@ class CipiGuiServiceProvider extends ServiceProvider
         ], function () {
             $this->loadRoutesFrom(__DIR__.'/../routes/web.php');
         });
+    }
+
+    /** Published views always override the package and block theme updates. */
+    private function purgePublishedViews(): void
+    {
+        $dir = resource_path('views/vendor/cipi-gui');
+
+        if (is_dir($dir)) {
+            File::deleteDirectory($dir);
+        }
+    }
+
+    private function clearViewCacheIfThemeUpdated(): void
+    {
+        $hash = Theme::fingerprint();
+        $key = 'cipi-gui.theme-css-hash';
+
+        if ($hash === 'missing' || Cache::get($key) === $hash) {
+            return;
+        }
+
+        try {
+            Artisan::call('view:clear');
+        } catch (\Throwable) {
+            // Host may not be fully bootstrapped yet.
+        }
+
+        Cache::forever($key, $hash);
     }
 
     private function registerExceptionHandlers(): void

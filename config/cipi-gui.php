@@ -61,4 +61,11 @@ return [
     'default_admin_email' => env('CIPI_GUI_ADMIN_EMAIL', 'admin@cipi.local'),
     'default_admin_name' => env('CIPI_GUI_ADMIN_NAME', 'Cipi Admin'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Theme assets (bump after CSS changes to bust browser cache)
+    |--------------------------------------------------------------------------
+    */
+    'assets_version' => '3',
+
 ];

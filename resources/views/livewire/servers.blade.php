@@ -80,7 +80,7 @@
                         <input type="password" wire:model="token" placeholder="Bearer token from cipi api token create">
                         @error('token') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
                     </div>
-                    <p class="text-xs text-surface-500">Requires <code class="text-brand-400">cipi api</code> enabled on the target server. Create a token with all required abilities.</p>
+                    <p class="text-xs text-surface-500">Requires <code class="text-link">cipi api</code> enabled on the target server. Create a token with all required abilities.</p>
                     <button type="submit" class="btn btn-primary w-full">Add Server</button>
                 </form>
             </div>

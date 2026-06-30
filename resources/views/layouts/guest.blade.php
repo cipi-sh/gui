@@ -10,7 +10,7 @@
     <link href="https://fonts.bunny.net/css?family=inter:400,500,600" rel="stylesheet">
     @include('cipi-gui::partials.styles')
 </head>
-<body class="h-full font-sans antialiased">
+<body class="cipi-gui h-full font-sans antialiased">
     <div class="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8 relative">
         <div class="absolute top-4 right-4 sm:top-6 sm:right-6">
             @include('cipi-gui::partials.theme-toggle')

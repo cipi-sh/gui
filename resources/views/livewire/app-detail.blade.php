@@ -9,7 +9,7 @@
         <a href="{{ route('cipi-gui.apps') }}" class="btn btn-secondary mt-4">Back to apps</a>
     @elseif($app)
         <div class="mb-6">
-            <a href="{{ route('cipi-gui.apps') }}" class="text-sm text-surface-400 hover:text-brand-400">&larr; Back to apps</a>
+            <a href="{{ route('cipi-gui.apps') }}" class="text-sm text-surface-400 hover:text-link">&larr; Back to apps</a>
             <div class="flex items-center justify-between mt-2">
                 <div>
                     <h2 class="text-2xl font-semibold text-white">{{ $app['app'] }}</h2>

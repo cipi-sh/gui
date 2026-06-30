@@ -9,7 +9,7 @@
                 <div>
                     <h3 class="text-lg font-semibold">{{ $jobLabel ?? 'Processing...' }}</h3>
                     <p class="text-sm text-surface-400 mt-1">
-                        Status: <span class="badge badge-blue">{{ ucfirst($activeJobStatus ?? 'pending') }}</span>
+                        Status: <span class="badge badge-neutral">{{ ucfirst($activeJobStatus ?? 'pending') }}</span>
                     </p>
                 </div>
             </div>

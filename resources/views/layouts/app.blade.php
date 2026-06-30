@@ -11,15 +11,15 @@
     @include('cipi-gui::partials.styles')
     @livewireStyles
 </head>
-<body class="h-full font-sans antialiased" x-data="{ toasts: [] }"
+<body class="cipi-gui h-full font-sans antialiased" x-data="{ toasts: [] }"
       @notify.window="toasts.push({ id: Date.now(), type: $event.detail.type, message: $event.detail.message }); setTimeout(() => toasts.shift(), 5000)">
-    <div class="flex h-full">
+    <div class="cipi-gui-shell flex h-full">
         @include('cipi-gui::partials.sidebar')
 
         <div class="flex flex-1 flex-col min-w-0">
             @include('cipi-gui::partials.header')
 
-            <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+            <main class="cipi-gui-main flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
                 {{ $slot }}
             </main>
         </div>

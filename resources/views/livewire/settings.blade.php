@@ -29,7 +29,7 @@
         @elseif($setupSecret)
             <div class="space-y-4">
                 @if($qrCodeSvg)
-                    <div class="flex justify-center p-4 bg-white rounded-lg">{!! $qrCodeSvg !!}</div>
+                    <div class="flex justify-center p-4 qr-box">{!! $qrCodeSvg !!}</div>
                 @endif
                 <p class="text-xs text-surface-500 font-mono text-center break-all">Secret: {{ $setupSecret }}</p>
                 <form wire:submit="confirmTwoFactor" class="space-y-3">

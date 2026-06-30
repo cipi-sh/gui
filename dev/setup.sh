@@ -53,6 +53,8 @@ echo '<?php' > "${HOST}/routes/web.php"
 echo "==> Publishing config & migrating..."
 (cd "${HOST}" && php artisan vendor:publish --tag=cipi-gui-config --force)
 (cd "${HOST}" && php artisan migrate --force)
+rm -rf "${HOST}/resources/views/vendor/cipi-gui" 2>/dev/null || true
+(cd "${HOST}" && php artisan cipi:gui-refresh-theme 2>/dev/null) || (cd "${HOST}" && php artisan view:clear)
 
 echo "==> Seeding admin user..."
 (cd "${HOST}" && php artisan cipi:seed-gui-user --password=admin)

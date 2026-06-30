@@ -59,6 +59,13 @@ ensure_cipi_gui_permissions() {
 
 # ── Laravel host + cipi/gui package ─────────────────────────────
 
+_gui_clear_caches() {
+    rm -rf "${CIPI_GUI_ROOT}/resources/views/vendor/cipi-gui" 2>/dev/null || true
+    (cd "${CIPI_GUI_ROOT}" && sudo -u www-data php artisan cipi:gui-refresh-theme 2>/dev/null) \
+        || (cd "${CIPI_GUI_ROOT}" && sudo -u www-data php artisan view:clear 2>/dev/null) \
+        || true
+}
+
 _gui_ensure_laravel_app() {
     if [[ ! -f "${CIPI_GUI_ROOT}/artisan" ]]; then
         step "Installing Laravel GUI app..."
@@ -92,6 +99,7 @@ _gui_ensure_laravel_app() {
         rm -rf "${CIPI_GUI_ROOT}" 2>/dev/null
         mv /tmp/cipi-gui-build "${CIPI_GUI_ROOT}"
         chown -R www-data:www-data "${CIPI_GUI_ROOT}"
+        _gui_clear_caches
         success "Laravel GUI app + cipi/gui package"
     else
         step "Updating cipi/gui package..."
@@ -109,6 +117,7 @@ _gui_update_package() {
     chown -R www-data:www-data "${CIPI_GUI_ROOT}" 2>/dev/null || true
     (cd "${CIPI_GUI_ROOT}" && sudo -u www-data php artisan vendor:publish --tag=cipi-gui-config --force 2>/dev/null) || true
     (cd "${CIPI_GUI_ROOT}" && sudo -u www-data php artisan migrate --force 2>/dev/null) || true
+    _gui_clear_caches
     success "cipi/gui package updated"
 }
 

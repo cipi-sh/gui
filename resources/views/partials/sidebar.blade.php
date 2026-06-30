@@ -1,4 +1,4 @@
-<aside class="hidden md:flex w-64 flex-col border-r bg-surface-950">
+<aside class="cipi-gui-sidebar hidden md:flex w-64 flex-col border-r">
     <div class="flex h-16 items-center gap-2.5 px-4 border-b">
         <div class="logo-mark">C</div>
         <span class="text-sm font-semibold tracking-tight">Cipi</span>
