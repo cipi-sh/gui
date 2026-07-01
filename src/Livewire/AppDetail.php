@@ -284,7 +284,6 @@ class AppDetail extends Component
     public function render()
     {
         return view('cipi-gui::livewire.app-detail', [
-            'servers' => CipiServer::where('is_active', true)->orderBy('name')->get(),
             'phpVersions' => config('cipi-gui.php_versions'),
         ])->title($this->appName.' — App');
     }

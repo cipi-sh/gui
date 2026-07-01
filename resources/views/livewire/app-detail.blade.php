@@ -27,8 +27,6 @@
             </div>
         </div>
 
-        @include('cipi-gui::partials.server-selector')
-
         {{-- Tabs --}}
         <div class="flex flex-wrap gap-1 mb-6">
             @foreach(['overview' => 'Overview', 'aliases' => 'Aliases & SSL', 'deploy' => 'Deploy', 'basicauth' => 'Basic Auth', 'logs' => 'Logs'] as $tab => $label)
@@ -158,7 +156,11 @@
             </div>
 
         @elseif($activeTab === 'logs')
-            @livewire('cipi-gui.log-viewer', ['app' => $appName, 'serverId' => $serverId], key('logs-'.$appName))
+            @livewire('cipi-gui.log-viewer', [
+                'app' => $appName,
+                'serverId' => $serverId,
+                'isCustomApp' => $app['custom'] ?? false,
+            ], key('logs-'.$appName))
         @endif
 
         @include('cipi-gui::partials.job-overlay')

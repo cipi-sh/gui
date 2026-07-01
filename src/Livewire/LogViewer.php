@@ -14,6 +14,8 @@ class LogViewer extends Component
 
     public string $logType = 'all';
 
+    public bool $isCustomApp = false;
+
     public int $page = 1;
 
     public int $perPage = 100;
@@ -31,10 +33,12 @@ class LogViewer extends Component
 
     public bool $autoRefresh = false;
 
-    public function mount(string $app, ?int $serverId = null): void
+    public function mount(string $app, ?int $serverId = null, bool $isCustomApp = false): void
     {
         $this->appName = $app;
         $this->serverId = $serverId ?? session('cipi_gui_server_id');
+        $this->isCustomApp = $isCustomApp;
+        $this->logType = $isCustomApp ? 'all' : 'laravel';
         $this->loadLogs();
     }
 

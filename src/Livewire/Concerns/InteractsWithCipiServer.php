@@ -53,6 +53,7 @@ trait InteractsWithCipiServer
     protected function normalizeApp(array $app): array
     {
         $app['suspended'] = $this->appFlagIsTrue($app['suspended'] ?? false);
+        $app['custom'] = $this->appFlagIsTrue($app['custom'] ?? false);
 
         return $app;
     }
