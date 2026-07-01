@@ -66,6 +66,6 @@ return [
     | Theme assets (bump after CSS changes to bust browser cache)
     |--------------------------------------------------------------------------
     */
-    'assets_version' => '3',
+    'assets_version' => '4',
 
 ];
