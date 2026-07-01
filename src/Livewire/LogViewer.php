@@ -13,6 +13,8 @@ class LogViewer extends Component
     /** @var list<string> */
     private const LOG_TYPES = ['all', 'nginx', 'php', 'worker', 'deploy', 'laravel'];
 
+    private const LARAVEL_LOG_PATH = '/shared/storage/logs/';
+
     public string $appName;
 
     public string $logType = 'all';
@@ -98,16 +100,16 @@ class LogViewer extends Component
 
             if ($this->files === [] && $this->logType === 'laravel') {
                 $fallback = $this->fetchLogs('all');
-                if ($this->hasLogContent($fallback['files'] ?? [])) {
-                    $this->logType = 'all';
-                    $this->applyLogPayload($fallback);
-                    $this->hint = 'No Laravel logs in shared/storage/logs/. Showing all log types instead.';
+                $laravelFiles = $this->filterFilesForType($fallback['files'] ?? [], 'laravel');
+                if ($laravelFiles !== []) {
+                    $this->applyLogPayload(array_merge($fallback, ['files' => $laravelFiles]));
+                    $this->hint = 'Loaded Laravel logs from the combined app log snapshot.';
                 }
             }
 
             if ($this->files === [] && $this->logType === 'laravel') {
-                $this->hint = 'Laravel logs live in shared/storage/logs/ (laravel-YYYY-MM-DD.log). '
-                    .'If the directory is missing or empty, trigger some app traffic or check logging on the server.';
+                $this->hint = 'Laravel logs were not returned by the server API. '
+                    .'Ensure Cipi 4.7.8+ and cipi-api 1.11.9+ are installed, then run `cipi self-update` on the server.';
             } elseif ($this->files === []) {
                 $this->hint = 'No log output for filter "'.ucfirst($this->logType).'". Try "All logs" or generate activity on the app.';
             }
@@ -134,7 +136,20 @@ class LogViewer extends Component
     {
         $this->availableTypes = $data['available_types'] ?? [];
         $this->warnings = $data['warnings'] ?? [];
-        $this->files = $this->normalizeFiles($data['files'] ?? []);
+        $this->files = $this->normalizeFiles($this->filterFilesForType($data['files'] ?? [], $this->logType));
+    }
+
+    /** @param  array<int, array<string, mixed>>  $files */
+    protected function filterFilesForType(array $files, string $type): array
+    {
+        if ($type !== 'laravel') {
+            return $files;
+        }
+
+        return array_values(array_filter(
+            $files,
+            fn (array $file) => str_contains((string) ($file['path'] ?? ''), self::LARAVEL_LOG_PATH),
+        ));
     }
 
     /** @param  array<int, array<string, mixed>>  $files */
@@ -159,12 +174,6 @@ class LogViewer extends Component
         }
 
         return $normalized;
-    }
-
-    /** @param  array<int, array<string, mixed>>  $files */
-    protected function hasLogContent(array $files): bool
-    {
-        return $this->normalizeFiles($files) !== [];
     }
 
     /** @return list<string> */
