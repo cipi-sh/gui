@@ -200,6 +200,10 @@ class AppDetail extends Component
     {
         try {
             $this->basicAuth = $this->client()->basicAuthStatus($this->appName);
+
+            if (is_array($this->basicAuth) && array_key_exists('enabled', $this->basicAuth)) {
+                $this->basicAuth['enabled'] = $this->appFlagIsTrue($this->basicAuth['enabled']);
+            }
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -215,10 +219,15 @@ class AppDetail extends Component
         try {
             $result = $this->client()->basicAuthEnable($this->appName, $payload);
             $this->basicAuth = $result;
+            if (array_key_exists('enabled', $this->basicAuth)) {
+                $this->basicAuth['enabled'] = $this->appFlagIsTrue($this->basicAuth['enabled']);
+            }
             $this->generatedPassword = $result['password'] ?? null;
             $this->basicAuthPassword = '';
+            $this->patchApp(['basic_auth' => true]);
             $this->dispatch('notify', type: 'success', message: 'Basic auth enabled.');
             $this->loadApp();
+            $this->patchApp(['basic_auth' => true]);
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -229,11 +238,23 @@ class AppDetail extends Component
         try {
             $this->client()->basicAuthDisable($this->appName);
             $this->basicAuth = ['enabled' => false, 'users' => []];
+            $this->patchApp(['basic_auth' => false]);
             $this->dispatch('notify', type: 'success', message: 'Basic auth disabled.');
             $this->loadApp();
+            $this->patchApp(['basic_auth' => false]);
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
+    }
+
+    /** @param  array<string, mixed>  $patch */
+    protected function patchApp(array $patch): void
+    {
+        if ($this->app !== null) {
+            $this->app = array_merge($this->app, $patch);
+        }
+
+        $this->rememberAppPatch($this->appName, $patch);
     }
 
     public function confirmDeleteApp(): void
@@ -273,11 +294,11 @@ class AppDetail extends Component
 
         $result = $data['result'] ?? null;
         if (is_array($result) && array_key_exists('suspended', $result)) {
-            $this->app['suspended'] = (bool) $result['suspended'];
+            $this->patchApp(['suspended' => $this->appFlagIsTrue($result['suspended'])]);
         } elseif ($this->jobLabel === 'Suspend app') {
-            $this->app['suspended'] = true;
+            $this->patchApp(['suspended' => true]);
         } elseif ($this->jobLabel === 'Unsuspend app') {
-            $this->app['suspended'] = false;
+            $this->patchApp(['suspended' => false]);
         }
     }
 
@@ -285,6 +306,7 @@ class AppDetail extends Component
     {
         return view('cipi-gui::livewire.app-detail', [
             'phpVersions' => config('cipi-gui.php_versions'),
+            'server' => $this->currentServer(),
         ])->title($this->appName.' — App');
     }
 }

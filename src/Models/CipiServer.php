@@ -10,6 +10,7 @@ class CipiServer extends Model
     protected $fillable = [
         'name',
         'url',
+        'ip',
         'token',
         'is_active',
         'last_connected_at',

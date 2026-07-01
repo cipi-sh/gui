@@ -47,8 +47,9 @@ class Dashboard extends Component
         foreach ($servers as $server) {
             try {
                 $status = CipiApiClient::for($server)->getStatus();
+                $this->syncIpFromStatus($server, $status);
                 $this->serverStatuses[$server->id] = [
-                    'server' => $server,
+                    'server' => $server->fresh(),
                     'status' => $status,
                     'error' => null,
                 ];
@@ -59,6 +60,20 @@ class Dashboard extends Component
                     'error' => $e->getMessage(),
                 ];
             }
+        }
+    }
+
+    /** @param  array<string, mixed>  $status */
+    protected function syncIpFromStatus(CipiServer $server, array $status): void
+    {
+        $ip = $status['system']['ip'] ?? $status['system']['ipv4'] ?? null;
+
+        if (! is_string($ip) || ! filter_var($ip, FILTER_VALIDATE_IP)) {
+            return;
+        }
+
+        if ($server->ip !== $ip) {
+            $server->update(['ip' => $ip]);
         }
     }
 

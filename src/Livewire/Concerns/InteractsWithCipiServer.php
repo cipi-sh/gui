@@ -55,7 +55,59 @@ trait InteractsWithCipiServer
         $app['suspended'] = $this->appFlagIsTrue($app['suspended'] ?? false);
         $app['custom'] = $this->appFlagIsTrue($app['custom'] ?? false);
 
+        if (array_key_exists('basic_auth', $app)) {
+            $app['basic_auth'] = $this->appFlagIsTrue($app['basic_auth']);
+        }
+
         return $app;
+    }
+
+    /** @param  array<string, mixed>  $patch */
+    protected function rememberAppPatch(string $appName, array $patch): void
+    {
+        $patches = session('cipi_gui_app_patches', []);
+        $patches[$appName] = array_merge($patches[$appName] ?? [], $patch);
+        session(['cipi_gui_app_patches' => $patches]);
+
+        $this->dispatch('app-changed', name: $appName, patch: $patch);
+    }
+
+    /** @param  array<int, array<string, mixed>>  $apps */
+    protected function applySessionAppPatches(array $apps): array
+    {
+        $patches = session('cipi_gui_app_patches', []);
+        if ($patches === []) {
+            return $apps;
+        }
+
+        $remaining = [];
+
+        foreach ($apps as $i => $app) {
+            $name = $app['app'] ?? '';
+            if ($name === '' || ! isset($patches[$name])) {
+                continue;
+            }
+
+            $patch = $patches[$name];
+            $stillNeeded = false;
+
+            foreach ($patch as $key => $value) {
+                if (($app[$key] ?? null) !== $value) {
+                    $stillNeeded = true;
+
+                    break;
+                }
+            }
+
+            if ($stillNeeded) {
+                $apps[$i] = array_merge($app, $patch);
+                $remaining[$name] = $patch;
+            }
+        }
+
+        session(['cipi_gui_app_patches' => $remaining]);
+
+        return $apps;
     }
 
     protected function ensureServerSelected(): void

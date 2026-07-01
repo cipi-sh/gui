@@ -19,7 +19,7 @@
            x-transition:leave-start="translate-x-0"
            x-transition:leave-end="-translate-x-full">
         <div class="flex h-16 items-center justify-between px-4 border-b">
-            <div class="flex items-center gap-2.5">
+            <div class="flex items-center gap-3.5">
                 @include('cipi-gui::partials.logo')
                 <span class="text-sm font-semibold tracking-tight">Cipi</span>
             </div>

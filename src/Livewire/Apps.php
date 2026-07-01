@@ -7,6 +7,7 @@ use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
 use CipiGui\Models\CipiServer;
 use CipiGui\Services\CipiApiException;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
@@ -72,6 +73,7 @@ class Apps extends Component
                 fn (array $app) => $this->normalizeApp($app),
                 $this->client()->listApps(),
             );
+            $this->apps = $this->applySessionAppPatches($this->apps);
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         } finally {
@@ -165,6 +167,21 @@ class Apps extends Component
     protected function onJobCompleted(array $data): void
     {
         $this->loadApps();
+    }
+
+    /** @param  array<string, mixed>  $patch */
+    #[On('app-changed')]
+    public function onAppChanged(string $name, array $patch): void
+    {
+        foreach ($this->apps as $index => $app) {
+            if (($app['app'] ?? '') !== $name) {
+                continue;
+            }
+
+            $this->apps[$index] = array_merge($app, $patch);
+
+            return;
+        }
     }
 
     public function render()

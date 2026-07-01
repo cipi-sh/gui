@@ -24,6 +24,10 @@
                     $server = $entry['server'];
                     $status = $entry['status'];
                     $error = $entry['error'];
+                    $displayIp = $server->ip;
+                    if (! $displayIp && is_array($status)) {
+                        $displayIp = $status['system']['ip'] ?? $status['system']['ipv4'] ?? null;
+                    }
                 @endphp
                 <div class="card card-hover cursor-pointer w-full" wire:click="selectServer({{ $id }})">
                     <div class="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-8">
@@ -31,6 +35,9 @@
                             <div class="min-w-0">
                                 <h3 class="font-semibold text-white">{{ $server->name }}</h3>
                                 <p class="text-xs text-surface-500 truncate mt-1">{{ $server->url }}</p>
+                                @if($displayIp)
+                                    <p class="text-xs text-surface-500 font-mono truncate mt-1">{{ $displayIp }}</p>
+                                @endif
                             </div>
                             @if($error)
                                 <span class="badge badge-red flex-shrink-0">Offline</span>
@@ -71,14 +78,14 @@
 
                     @if(!$error && $status)
                         @if(isset($status['system']))
-                            <div class="mt-4 pt-4 border-t border-surface-800 text-xs text-surface-500 space-y-1">
+                            <div class="server-card-system mt-4 pt-4 border-t border-surface-800 text-xs text-surface-500">
                                 <p>{{ $status['system']['hostname'] ?? '' }} · {{ $status['system']['os'] ?? '' }}</p>
                                 <p>Cipi {{ $status['system']['cipi'] ?? '?' }} · {{ $status['system']['uptime'] ?? '' }}</p>
                             </div>
                         @endif
 
                         @if(isset($status['services']))
-                            <div class="flex flex-wrap gap-1 mt-3">
+                            <div class="server-card-services flex flex-wrap mt-4">
                                 @foreach($status['services'] as $service => $state)
                                     <span class="badge {{ $state === 'running' ? 'badge-green' : 'badge-red' }}">{{ $service }}</span>
                                 @endforeach

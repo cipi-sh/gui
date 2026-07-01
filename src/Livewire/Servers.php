@@ -17,6 +17,8 @@ class Servers extends Component
 
     public string $url = '';
 
+    public string $ip = '';
+
     public string $token = '';
 
     public ?string $error = null;
@@ -32,18 +34,25 @@ class Servers extends Component
 
         $this->name = trim($this->name);
         $this->url = $this->normalizeUrl($this->url);
+        $this->ip = trim($this->ip);
         $this->token = $this->normalizeToken($this->token);
 
         $validated = $this->validate([
             'name' => ['required', 'string', 'max:64', 'unique:cipi_servers,name', 'regex:/^[a-zA-Z0-9_-]+$/'],
             'url' => ['required', 'url', 'max:255'],
+            'ip' => ['nullable', 'ip'],
             'token' => ['required', 'string', 'min:10'],
         ], [
             'name.regex' => 'Name may only contain letters, numbers, hyphens and underscores.',
             'name.unique' => 'A server with this name already exists.',
             'url.url' => 'Enter a valid URL (e.g. https://vps.example.com).',
+            'ip.ip' => 'Enter a valid IP address.',
             'token.min' => 'The API token looks too short.',
         ]);
+
+        if ($validated['ip'] === '') {
+            $validated['ip'] = $this->resolveIpFromUrl($validated['url']);
+        }
 
         try {
             $server = CipiServer::create($validated);
@@ -60,7 +69,8 @@ class Servers extends Component
         }
 
         try {
-            CipiApiClient::for($server)->testConnection();
+            $status = CipiApiClient::for($server)->testConnection();
+            $this->syncIpFromStatus($server, $status);
             $this->success = "Server \"{$server->name}\" connected successfully.";
             $this->dispatch('notify', type: 'success', message: $this->success);
         } catch (CipiApiException $e) {
@@ -68,7 +78,7 @@ class Servers extends Component
             $this->dispatch('notify', type: 'error', message: $this->error);
         }
 
-        $this->reset(['name', 'url', 'token']);
+        $this->reset(['name', 'url', 'ip', 'token']);
 
         if (! session('cipi_gui_server_id')) {
             session(['cipi_gui_server_id' => $server->id]);
@@ -97,6 +107,40 @@ class Servers extends Component
         return $token;
     }
 
+    private function resolveIpFromUrl(string $url): ?string
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+        if (! is_string($host) || $host === '') {
+            return null;
+        }
+
+        if (filter_var($host, FILTER_VALIDATE_IP)) {
+            return $host;
+        }
+
+        $resolved = gethostbyname($host);
+
+        if ($resolved === $host) {
+            return null;
+        }
+
+        return filter_var($resolved, FILTER_VALIDATE_IP) ? $resolved : null;
+    }
+
+    /** @param  array<string, mixed>  $status */
+    private function syncIpFromStatus(CipiServer $server, array $status): void
+    {
+        $ip = $status['system']['ip'] ?? $status['system']['ipv4'] ?? null;
+
+        if (! is_string($ip) || ! filter_var($ip, FILTER_VALIDATE_IP)) {
+            return;
+        }
+
+        if ($server->ip !== $ip) {
+            $server->update(['ip' => $ip]);
+        }
+    }
+
     public function testConnection(int $id): void
     {
         $this->testing = true;
@@ -106,19 +150,15 @@ class Servers extends Component
         $server = CipiServer::findOrFail($id);
 
         try {
-            CipiApiClient::for($server)->testConnection();
+            $status = CipiApiClient::for($server)->testConnection();
+            $this->syncIpFromStatus($server, $status);
+            $server->refresh();
             $this->success = "Connection to \"{$server->name}\" OK.";
         } catch (CipiApiException $e) {
             $this->error = $e->getMessage();
         } finally {
             $this->testing = false;
         }
-    }
-
-    public function toggleActive(int $id): void
-    {
-        $server = CipiServer::findOrFail($id);
-        $server->update(['is_active' => ! $server->is_active]);
     }
 
     public function deleteServer(int $id): void
@@ -131,12 +171,6 @@ class Servers extends Component
 
         $server->delete();
         $this->success = 'Server removed.';
-    }
-
-    public function selectServer(int $id): void
-    {
-        session(['cipi_gui_server_id' => $id]);
-        $this->redirect(route('cipi-gui.dashboard'), navigate: true);
     }
 
     public function render()

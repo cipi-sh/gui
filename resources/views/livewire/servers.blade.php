@@ -33,6 +33,7 @@
                                 <tr>
                                     <th>Name</th>
                                     <th>URL</th>
+                                    <th>IP</th>
                                     <th>Status</th>
                                     <th>Last connected</th>
                                     <th></th>
@@ -43,6 +44,7 @@
                                     <tr>
                                         <td class="font-medium text-white">{{ $server->name }}</td>
                                         <td class="text-surface-400 text-sm">{{ $server->url }}</td>
+                                        <td class="text-surface-400 text-sm font-mono">{{ $server->ip ?? '—' }}</td>
                                         <td>
                                             @if(!$server->is_active)
                                                 <span class="badge badge-gray">Disabled</span>
@@ -55,9 +57,7 @@
                                         <td class="text-sm text-surface-400">{{ $server->last_connected_at?->diffForHumans() ?? 'Never' }}</td>
                                         <td>
                                             <div class="flex gap-1 justify-end">
-                                                <button wire:click="selectServer({{ $server->id }})" class="btn btn-ghost btn-sm">Use</button>
                                                 <button wire:click="testConnection({{ $server->id }})" class="btn btn-ghost btn-sm" @if($testing) disabled @endif>Test</button>
-                                                <button wire:click="toggleActive({{ $server->id }})" class="btn btn-ghost btn-sm">{{ $server->is_active ? 'Disable' : 'Enable' }}</button>
                                                 <button wire:click="deleteServer({{ $server->id }})" wire:confirm="Remove this server?" class="btn btn-ghost btn-sm text-red-400">Remove</button>
                                             </div>
                                         </td>
@@ -84,6 +84,12 @@
                         <label>Server URL</label>
                         <input type="text" wire:model="url" placeholder="https://vps.example.com" autocomplete="off" inputmode="url">
                         @error('url') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label>IP Address <span class="text-surface-500 font-normal">(optional)</span></label>
+                        <input type="text" wire:model="ip" placeholder="203.0.113.10" autocomplete="off" inputmode="decimal">
+                        @error('ip') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                        <p class="text-xs text-surface-500 mt-1">Auto-detected from URL when possible. Override if needed.</p>
                     </div>
                     <div>
                         <label>API Token</label>
