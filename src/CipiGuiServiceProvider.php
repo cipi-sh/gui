@@ -2,6 +2,7 @@
 
 namespace CipiGui;
 
+use CipiGui\Console\Commands\GuiVersion;
 use CipiGui\Console\Commands\RefreshTheme;
 use CipiGui\Console\Commands\SeedGuiUser;
 use CipiGui\Http\Middleware\EnsureTwoFactorVerified;
@@ -52,6 +53,7 @@ class CipiGuiServiceProvider extends ServiceProvider
             $this->commands([
                 SeedGuiUser::class,
                 RefreshTheme::class,
+                GuiVersion::class,
             ]);
 
             $this->publishes([

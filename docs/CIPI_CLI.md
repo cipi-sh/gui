@@ -109,7 +109,27 @@ Or with Cipi CLI (after syncing `lib/gui.sh`):
 cipi gui update
 ```
 
-Verify: hard refresh (Cmd+Shift+R) → view source must contain `cipi-gui v2.0.0`.
+Verify the update actually landed:
+
+```bash
+cd /opt/cipi/cipi-gui && git log -1 --oneline
+grep 'mount(string $name)' /opt/cipi/gui/vendor/cipi/gui/src/Livewire/AppDetail.php
+cd /opt/cipi/gui && php artisan cipi:seed-gui-user --help | grep reset
+```
+
+You should see commit `11db51c` or newer, the `mount(string $name)` line, and `--reset` in the seed command help.
+
+If `cipi gui update` only prints `Composer update...` / `cipi/gui package updated` **without** `Syncing cipi/gui source`, your `/opt/cipi/lib/gui.sh` is outdated — update the source manually:
+
+```bash
+cd /opt/cipi/cipi-gui && git pull origin main
+cd /opt/cipi/gui && composer update cipi/gui --no-interaction
+php artisan optimize:clear
+php artisan cipi:gui-refresh-theme
+sudo systemctl reload php8.5-fpm
+```
+
+Verify: hard refresh (Cmd+Shift+R) → view source must contain `cipi-gui v2.1.1`.
 
 **Do not** run `vendor:publish --tag=cipi-gui-views`.
 

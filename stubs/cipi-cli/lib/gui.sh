@@ -121,6 +121,12 @@ _gui_update_package() {
         warn "No git repo at ${pkg_dir} — copy the latest cipi-sh/gui release there first"
     fi
 
+    local src_rev="unknown"
+    if [[ -d "${pkg_dir}/.git" ]]; then
+        src_rev=$(cd "${pkg_dir}" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        echo "  Source commit: ${src_rev}"
+    fi
+
     if [[ -d "$pkg_dir" ]]; then
         (cd "${CIPI_GUI_ROOT}" && composer config repositories.cipi-gui path "$pkg_dir" 2>/dev/null) || true
     fi
@@ -135,17 +141,49 @@ _gui_update_package() {
     (cd "${CIPI_GUI_ROOT}" && sudo -u www-data php artisan migrate --force 2>/dev/null) || true
     _gui_clear_caches
 
-    local fp
+    local theme_ver fp
+    theme_ver=$(cd "${CIPI_GUI_ROOT}" && sudo -u www-data php artisan tinker --execute="echo \\CipiGui\\Support\\Theme::VERSION;" 2>/dev/null | tail -1)
     fp=$(cd "${CIPI_GUI_ROOT}" && sudo -u www-data php artisan tinker --execute="echo \\CipiGui\\Support\\Theme::fingerprint();" 2>/dev/null | tail -1)
-    if [[ -n "$fp" && "$fp" != "missing" ]]; then
-        success "cipi/gui updated — theme fingerprint: ${fp}"
+
+    if ! _gui_verify_installed_package "$pkg_dir" "$src_rev"; then
+        warn "Package on disk may still be outdated — see messages above"
+    fi
+
+    if [[ -n "$theme_ver" && "$theme_ver" != "missing" ]]; then
+        success "cipi/gui v${theme_ver} installed (source ${src_rev}, theme ${fp})"
     else
-        success "cipi/gui package updated (run: cd ${CIPI_GUI_ROOT} && php artisan cipi:gui-refresh-theme)"
+        success "cipi/gui package updated (source ${src_rev})"
+        echo "  Run: cd ${CIPI_GUI_ROOT} && php artisan cipi:gui-refresh-theme"
     fi
 
     if command -v systemctl >/dev/null 2>&1; then
         systemctl reload php8.5-fpm 2>/dev/null || systemctl reload php-fpm 2>/dev/null || true
     fi
+}
+
+_gui_verify_installed_package() {
+    local pkg_dir="$1" src_rev="$2"
+    local vendor="${CIPI_GUI_ROOT}/vendor/cipi/gui"
+    local ok=0
+
+    if [[ ! -f "${vendor}/src/Livewire/AppDetail.php" ]]; then
+        warn "vendor/cipi/gui not found — check composer path repo (${pkg_dir})"
+        return 1
+    fi
+
+    if ! grep -qE 'function mount\(.*\$name|request\(\)->route\('"'"'name'"'"'\)' "${vendor}/src/Livewire/AppDetail.php" 2>/dev/null; then
+        warn "AppDetail fix missing in vendor (still broken app pages)."
+        warn "  cd ${pkg_dir} && git pull origin main"
+        warn "  cd ${CIPI_GUI_ROOT} && composer update cipi/gui --no-interaction"
+        ok=1
+    fi
+
+    if ! (cd "${CIPI_GUI_ROOT}" && sudo -u www-data php artisan cipi:seed-gui-user --help 2>/dev/null | grep -q '\-\-reset'); then
+        warn "cipi:seed-gui-user --reset not available (cipi gui reset-user will fail)."
+        ok=1
+    fi
+
+    return "$ok"
 }
 
 # ── PHP-FPM + Nginx ───────────────────────────────────────────────
