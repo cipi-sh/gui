@@ -57,8 +57,19 @@
                                         <div class="progress-fill" style="width:{{ $status['resources']['cpu']['usage_percent'] ?? 0 }}%"></div>
                                     </div>
                                 </div>
+                                @php
+                                    $disk = $status['resources']['disk'] ?? null;
+                                    $diskPercent = $disk['usage_percent'] ?? null;
+                                    $diskUsed = $disk['used'] ?? '';
+                                    $diskTotal = $disk['total'] ?? '';
+                                    if (($diskUsed === '' || $diskTotal === '') && ! empty($disk['display']) && preg_match('/^(\S+)\/(\S+)\s*\((\d+)%\)/', $disk['display'], $diskMatch)) {
+                                        $diskUsed = $diskUsed !== '' ? $diskUsed : $diskMatch[1];
+                                        $diskTotal = $diskTotal !== '' ? $diskTotal : $diskMatch[2];
+                                        $diskPercent = $diskPercent ?? (int) $diskMatch[3];
+                                    }
+                                @endphp
                                 <div>
-                                    <p class="text-xs text-surface-500 uppercase">Memory</p>
+                                    <p class="text-xs text-surface-500 uppercase">RAM</p>
                                     <p class="text-lg font-semibold text-white">{{ $status['resources']['memory']['usage_percent'] ?? '—' }}%</p>
                                     <div class="progress-bar mt-1">
                                         <div class="progress-fill progress-fill-alt" style="width:{{ $status['resources']['memory']['usage_percent'] ?? 0 }}%"></div>
@@ -66,7 +77,17 @@
                                 </div>
                                 <div>
                                     <p class="text-xs text-surface-500 uppercase">Disk</p>
-                                    <p class="text-sm font-medium text-white">{{ $status['resources']['disk']['display'] ?? '—' }}</p>
+                                    @if($diskPercent !== null)
+                                        <p class="text-lg font-semibold text-white">{{ $diskPercent }}%</p>
+                                        @if($diskUsed !== '' && $diskTotal !== '')
+                                            <p class="text-xs text-surface-400 mt-0.5">{{ $diskUsed }} / {{ $diskTotal }}</p>
+                                        @endif
+                                        <div class="progress-bar mt-1">
+                                            <div class="progress-fill" style="width:{{ $diskPercent }}%"></div>
+                                        </div>
+                                    @else
+                                        <p class="text-sm font-medium text-white">{{ $disk['display'] ?? '—' }}</p>
+                                    @endif
                                 </div>
                                 <div>
                                     <p class="text-xs text-surface-500 uppercase">Apps</p>
