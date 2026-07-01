@@ -68,7 +68,7 @@ class AppDetail extends Component
         $this->error = null;
 
         try {
-            $this->app = $this->client()->showApp($this->appName);
+            $this->app = $this->normalizeApp($this->client()->showApp($this->appName));
             $this->aliases = $this->client()->listAliases($this->appName);
             $this->editPhp = $this->app['php'] ?? '8.4';
             $this->editBranch = $this->app['branch'] ?? '';
@@ -266,6 +266,19 @@ class AppDetail extends Component
         }
 
         $this->loadApp();
+
+        if ($this->app === null) {
+            return;
+        }
+
+        $result = $data['result'] ?? null;
+        if (is_array($result) && array_key_exists('suspended', $result)) {
+            $this->app['suspended'] = (bool) $result['suspended'];
+        } elseif ($this->jobLabel === 'Suspend app') {
+            $this->app['suspended'] = true;
+        } elseif ($this->jobLabel === 'Unsuspend app') {
+            $this->app['suspended'] = false;
+        }
     }
 
     public function render()

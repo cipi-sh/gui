@@ -68,7 +68,10 @@ class Apps extends Component
         }
 
         try {
-            $this->apps = $this->client()->listApps();
+            $this->apps = array_map(
+                fn (array $app) => $this->normalizeApp($app),
+                $this->client()->listApps(),
+            );
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         } finally {

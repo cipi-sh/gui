@@ -40,6 +40,23 @@ trait InteractsWithCipiServer
         $this->dispatch('notify', type: 'error', message: $e->getMessage());
     }
 
+    protected function appFlagIsTrue(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return in_array($value, ['true', '1', 1], true);
+    }
+
+    /** @param  array<string, mixed>  $app */
+    protected function normalizeApp(array $app): array
+    {
+        $app['suspended'] = $this->appFlagIsTrue($app['suspended'] ?? false);
+
+        return $app;
+    }
+
     protected function ensureServerSelected(): void
     {
         if ($this->serverId) {
