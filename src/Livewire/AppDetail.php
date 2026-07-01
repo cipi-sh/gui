@@ -70,7 +70,7 @@ class AppDetail extends Component
         try {
             $this->app = $this->normalizeApp($this->client()->showApp($this->appName));
             $this->aliases = $this->client()->listAliases($this->appName);
-            $this->editPhp = $this->app['php'] ?? '8.4';
+            $this->editPhp = $this->app['php'] ?? '8.5';
             $this->editBranch = $this->app['branch'] ?? '';
             $this->editRepository = $this->app['repository'] ?? '';
             $this->editDomain = $this->app['domain'] ?? '';

@@ -37,7 +37,7 @@ class Apps extends Component
 
     public string $branch = 'main';
 
-    public string $php = '8.4';
+    public string $php = '8.5';
 
     public bool $custom = false;
 
@@ -84,7 +84,7 @@ class Apps extends Component
     public function openCreate(): void
     {
         $this->reset(['user', 'domain', 'repository', 'branch', 'docroot', 'error']);
-        $this->php = '8.4';
+        $this->php = '8.5';
         $this->custom = false;
         $this->showCreateModal = true;
     }
