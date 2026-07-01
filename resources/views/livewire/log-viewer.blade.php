@@ -2,9 +2,8 @@
     <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-3">
             <select wire:model.live="logType" class="text-sm" style="width:auto;">
-                <option value="all">All logs</option>
-                @foreach($availableTypes as $type)
-                    <option value="{{ $type }}">{{ ucfirst($type) }}</option>
+                @foreach($this->logTypeOptions() as $type)
+                    <option value="{{ $type }}">{{ $type === 'all' ? 'All logs' : ucfirst($type) }}</option>
                 @endforeach
             </select>
             <label class="flex items-center gap-2 text-sm text-surface-400" style="margin:0;">
@@ -13,15 +12,19 @@
             </label>
         </div>
         <div class="flex items-center gap-2">
-            <button wire:click="prevPage" @if($page <= 1) disabled @endif class="btn btn-ghost btn-sm">Older</button>
+            <button wire:click="nextPage" class="btn btn-ghost btn-sm">Older</button>
             <span class="text-sm text-surface-400">Page {{ $page }}</span>
-            <button wire:click="nextPage" class="btn btn-ghost btn-sm">Newer</button>
+            <button wire:click="prevPage" @if($page <= 1) disabled @endif class="btn btn-ghost btn-sm">Newer</button>
             <button wire:click="refresh" class="btn btn-secondary btn-sm">Refresh</button>
         </div>
     </div>
 
     @if($error)
         <div class="card border-red-800 bg-red-900/20 mb-4 text-sm text-red-400">{{ $error }}</div>
+    @endif
+
+    @if($hint)
+        <div class="card border-surface-700 bg-surface-900/40 mb-4 text-sm text-surface-300">{{ $hint }}</div>
     @endif
 
     @if($loading)
@@ -35,17 +38,17 @@
                 <div class="terminal-dot" style="background:#ff5f57;"></div>
                 <div class="terminal-dot" style="background:#febc2e;"></div>
                 <div class="terminal-dot" style="background:#28c840;"></div>
-                <span class="text-xs text-surface-400 ml-2">{{ $appName }} — logs</span>
+                <span class="text-xs text-surface-400 ml-2">{{ $appName }} — {{ $logType === 'all' ? 'all logs' : $logType }}</span>
             </div>
             <div class="terminal-body">
-                <div class="terminal-line dim">No log files found for this app.</div>
+                <div class="terminal-line dim">No log output for this filter.</div>
             </div>
         </div>
     @else
         @foreach($files as $file)
             @include('cipi-gui::partials.terminal', [
                 'lines' => $file['lines'] ?? [],
-                'title' => basename($file['path'] ?? 'log'),
+                'title' => $file['path'] ?? 'log',
                 'subtitle' => ($file['total_lines'] ?? 0).' lines · page '.$file['page'].'/'.$file['total_pages'],
             ])
             @if(!$loop->last)<div class="mb-4"></div>@endif

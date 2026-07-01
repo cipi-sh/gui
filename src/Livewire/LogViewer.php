@@ -10,6 +10,9 @@ class LogViewer extends Component
 {
     use InteractsWithCipiServer;
 
+    /** @var list<string> */
+    private const LOG_TYPES = ['all', 'nginx', 'php', 'worker', 'deploy', 'laravel'];
+
     public string $appName;
 
     public string $logType = 'all';
@@ -29,6 +32,8 @@ class LogViewer extends Component
     /** @var array<int, string> */
     public array $warnings = [];
 
+    public ?string $hint = null;
+
     public bool $loading = true;
 
     public bool $autoRefresh = false;
@@ -37,8 +42,8 @@ class LogViewer extends Component
     {
         $this->appName = $app;
         $this->serverId = $serverId ?? session('cipi_gui_server_id');
-        $this->isCustomApp = $isCustomApp;
-        $this->logType = $isCustomApp ? 'all' : 'laravel';
+        $this->isCustomApp = filter_var($isCustomApp, FILTER_VALIDATE_BOOLEAN);
+        $this->logType = 'all';
         $this->loadLogs();
     }
 
@@ -85,23 +90,95 @@ class LogViewer extends Component
     {
         $this->loading = true;
         $this->error = null;
+        $this->hint = null;
 
         try {
-            $data = $this->client()->appLogs($this->appName, [
-                'type' => $this->logType,
-                'page' => $this->page,
-                'per_page' => $this->perPage,
-            ]);
+            $data = $this->fetchLogs($this->logType);
+            $this->applyLogPayload($data);
 
-            $this->files = $data['files'] ?? [];
-            $this->availableTypes = $data['available_types'] ?? [];
-            $this->warnings = $data['warnings'] ?? [];
+            if ($this->files === [] && $this->logType === 'laravel') {
+                $fallback = $this->fetchLogs('all');
+                if ($this->hasLogContent($fallback['files'] ?? [])) {
+                    $this->logType = 'all';
+                    $this->applyLogPayload($fallback);
+                    $this->hint = 'No Laravel logs in shared/storage/logs/. Showing all log types instead.';
+                }
+            }
+
+            if ($this->files === [] && $this->logType === 'laravel') {
+                $this->hint = 'Laravel logs live in shared/storage/logs/ (laravel-YYYY-MM-DD.log). '
+                    .'If the directory is missing or empty, trigger some app traffic or check logging on the server.';
+            } elseif ($this->files === []) {
+                $this->hint = 'No log output for filter "'.ucfirst($this->logType).'". Try "All logs" or generate activity on the app.';
+            }
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
             $this->files = [];
         } finally {
             $this->loading = false;
         }
+    }
+
+    /** @return array<string, mixed> */
+    protected function fetchLogs(string $type): array
+    {
+        return $this->client()->appLogs($this->appName, [
+            'type' => $type,
+            'page' => $this->page,
+            'per_page' => $this->perPage,
+        ]);
+    }
+
+    /** @param  array<string, mixed>  $data */
+    protected function applyLogPayload(array $data): void
+    {
+        $this->availableTypes = $data['available_types'] ?? [];
+        $this->warnings = $data['warnings'] ?? [];
+        $this->files = $this->normalizeFiles($data['files'] ?? []);
+    }
+
+    /** @param  array<int, array<string, mixed>>  $files */
+    protected function normalizeFiles(array $files): array
+    {
+        $normalized = [];
+
+        foreach ($files as $file) {
+            $lines = $file['lines'] ?? [];
+            if (! is_array($lines)) {
+                $lines = [];
+            }
+
+            $lines = array_values(array_filter($lines, fn ($line) => is_string($line) && $line !== ''));
+
+            if ($lines === []) {
+                continue;
+            }
+
+            $file['lines'] = $lines;
+            $normalized[] = $file;
+        }
+
+        return $normalized;
+    }
+
+    /** @param  array<int, array<string, mixed>>  $files */
+    protected function hasLogContent(array $files): bool
+    {
+        return $this->normalizeFiles($files) !== [];
+    }
+
+    /** @return list<string> */
+    public function logTypeOptions(): array
+    {
+        $options = self::LOG_TYPES;
+
+        foreach ($this->availableTypes as $type) {
+            if (! in_array($type, $options, true)) {
+                $options[] = $type;
+            }
+        }
+
+        return $options;
     }
 
     public function render()

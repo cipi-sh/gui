@@ -152,7 +152,7 @@
             @livewire('cipi-gui.log-viewer', [
                 'app' => $appName,
                 'serverId' => $serverId,
-                'isCustomApp' => $app['custom'] ?? false,
+                'isCustomApp' => (bool) ($app['custom'] ?? false),
             ], key('logs-'.$appName))
         @endif
 
