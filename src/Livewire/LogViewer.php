@@ -109,9 +109,11 @@ class LogViewer extends Component
 
             if ($this->files === [] && $this->logType === 'laravel') {
                 $this->hint = 'Laravel logs were not returned by the server API. '
-                    .'Ensure Cipi 4.7.8+ and cipi-api 1.11.9+ are installed, then run `cipi self-update` on the server.';
+                    .'On the server run: cipi self-update && cipi api update, then test '
+                    .'`sudo -u www-data sudo cipi app logs read '.$this->appName.' --type=laravel --page=1 --per-page=20`';
             } elseif ($this->files === []) {
-                $this->hint = 'No log output for filter "'.ucfirst($this->logType).'". Try "All logs" or generate activity on the app.';
+                $this->hint = 'No log output for filter "'.ucfirst($this->logType).'". '
+                    .'On the server test: `sudo -u www-data sudo cipi app logs read '.$this->appName.' --type=all --page=1 --per-page=20`';
             }
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
