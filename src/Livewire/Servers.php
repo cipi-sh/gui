@@ -27,6 +27,22 @@ class Servers extends Component
 
     public bool $testing = false;
 
+    public bool $showAddModal = false;
+
+    public function openAdd(): void
+    {
+        $this->reset(['name', 'url', 'ip', 'token']);
+        $this->resetErrorBag();
+        $this->showAddModal = true;
+    }
+
+    public function closeAdd(): void
+    {
+        $this->showAddModal = false;
+        $this->reset(['name', 'url', 'ip', 'token']);
+        $this->resetErrorBag();
+    }
+
     public function addServer(): void
     {
         $this->error = null;
@@ -78,7 +94,7 @@ class Servers extends Component
             $this->dispatch('notify', type: 'error', message: $this->error);
         }
 
-        $this->reset(['name', 'url', 'ip', 'token']);
+        $this->closeAdd();
 
         if (! session('cipi_gui_server_id')) {
             session(['cipi_gui_server_id' => $server->id]);
