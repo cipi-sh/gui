@@ -44,7 +44,7 @@ class Settings extends Component
         $qrUrl = $twoFactor->getQrCodeUrl($user, $this->setupSecret);
 
         $renderer = new ImageRenderer(
-            new RendererStyle(200),
+            new RendererStyle(280, 2),
             new SvgImageBackEnd,
         );
         $writer = new Writer($renderer);

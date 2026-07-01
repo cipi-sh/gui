@@ -15,13 +15,14 @@
                     <h2 class="text-2xl font-semibold text-white">{{ $app['app'] }}</h2>
                     <p class="text-sm text-surface-400">{{ $app['domain'] }}</p>
                 </div>
-                <div class="flex gap-2">
+                <div class="flex flex-wrap gap-2">
                     @if($app['suspended'] ?? false)
                         <button wire:click="unsuspend" class="btn btn-primary btn-sm">Unsuspend</button>
                     @else
                         <button wire:click="suspend" wire:confirm="Take this app offline?" class="btn btn-secondary btn-sm">Suspend</button>
                     @endif
                     <button wire:click="deploy" class="btn btn-primary btn-sm">Deploy</button>
+                    <button wire:click="confirmDeleteApp" class="btn btn-danger btn-sm">Delete</button>
                 </div>
             </div>
         </div>
@@ -161,5 +162,25 @@
         @endif
 
         @include('cipi-gui::partials.job-overlay')
+
+        @if($showDeleteModal)
+            <div class="modal-overlay" wire:click.self="cancelDeleteApp">
+                <div class="modal-content">
+                    <div class="p-6 border-b border-surface-800">
+                        <h3 class="text-lg font-semibold text-white">Delete app</h3>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <p class="text-sm text-surface-300">
+                            Permanently delete <span class="font-mono text-white">{{ $appName }}</span>?
+                            This removes the app, its web config, and files from the server. This action cannot be undone.
+                        </p>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" wire:click="cancelDeleteApp" class="btn btn-secondary">Cancel</button>
+                            <button type="button" wire:click="deleteApp" class="btn btn-danger">Delete app</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        @endif
     @endif
 </div>

@@ -24,6 +24,10 @@ class Apps extends Component
 
     public bool $showCreateModal = false;
 
+    public bool $showDeleteModal = false;
+
+    public string $deleteAppName = '';
+
     public string $user = '';
 
     public string $domain = '';
@@ -125,10 +129,30 @@ class Apps extends Component
         }
     }
 
-    public function deleteApp(string $name): void
+    public function confirmDeleteApp(string $name): void
     {
+        $this->deleteAppName = $name;
+        $this->showDeleteModal = true;
+    }
+
+    public function cancelDeleteApp(): void
+    {
+        $this->showDeleteModal = false;
+        $this->deleteAppName = '';
+    }
+
+    public function deleteApp(): void
+    {
+        if ($this->deleteAppName === '') {
+            return;
+        }
+
+        $name = $this->deleteAppName;
+
         try {
             $response = $this->client()->deleteApp($name);
+            $this->showDeleteModal = false;
+            $this->deleteAppName = '';
             $this->dispatchJob($response, "Delete app {$name}");
         } catch (CipiApiException $e) {
             $this->handleApiError($e);

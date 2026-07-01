@@ -18,54 +18,58 @@
             <a href="{{ route('cipi-gui.servers') }}" class="btn btn-primary">Add Server</a>
         </div>
     @else
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="space-y-4">
             @foreach($serverStatuses as $id => $entry)
                 @php
                     $server = $entry['server'];
                     $status = $entry['status'];
                     $error = $entry['error'];
                 @endphp
-                <div class="card card-hover cursor-pointer" wire:click="selectServer({{ $id }})">
-                    <div class="flex items-start justify-between mb-4">
-                        <div>
-                            <h3 class="font-semibold text-white">{{ $server->name }}</h3>
-                            <p class="text-xs text-surface-500 truncate mt-1">{{ $server->url }}</p>
+                <div class="card card-hover cursor-pointer w-full" wire:click="selectServer({{ $id }})">
+                    <div class="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-8">
+                        <div class="flex items-start justify-between gap-4 lg:flex-col lg:items-start server-card-info flex-shrink-0">
+                            <div class="min-w-0">
+                                <h3 class="font-semibold text-white">{{ $server->name }}</h3>
+                                <p class="text-xs text-surface-500 truncate mt-1">{{ $server->url }}</p>
+                            </div>
+                            @if($error)
+                                <span class="badge badge-red flex-shrink-0">Offline</span>
+                            @else
+                                <span class="badge badge-green flex-shrink-0">Online</span>
+                            @endif
                         </div>
+
                         @if($error)
-                            <span class="badge badge-red">Offline</span>
-                        @else
-                            <span class="badge badge-green">Online</span>
+                            <p class="text-sm text-red-400 flex-1">{{ $error }}</p>
+                        @elseif($status)
+                            <div class="server-card-metrics">
+                                <div>
+                                    <p class="text-xs text-surface-500 uppercase">CPU</p>
+                                    <p class="text-lg font-semibold text-white">{{ $status['resources']['cpu']['usage_percent'] ?? '—' }}%</p>
+                                    <div class="progress-bar mt-1">
+                                        <div class="progress-fill" style="width:{{ $status['resources']['cpu']['usage_percent'] ?? 0 }}%"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-surface-500 uppercase">Memory</p>
+                                    <p class="text-lg font-semibold text-white">{{ $status['resources']['memory']['usage_percent'] ?? '—' }}%</p>
+                                    <div class="progress-bar mt-1">
+                                        <div class="progress-fill progress-fill-alt" style="width:{{ $status['resources']['memory']['usage_percent'] ?? 0 }}%"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-surface-500 uppercase">Disk</p>
+                                    <p class="text-sm font-medium text-white">{{ $status['resources']['disk']['display'] ?? '—' }}</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-surface-500 uppercase">Apps</p>
+                                    <p class="text-lg font-semibold text-white">{{ $status['apps'] ?? 0 }}</p>
+                                </div>
+                            </div>
                         @endif
                     </div>
 
-                    @if($error)
-                        <p class="text-sm text-red-400">{{ $error }}</p>
-                    @elseif($status)
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <p class="text-xs text-surface-500 uppercase">CPU</p>
-                                <p class="text-lg font-semibold text-white">{{ $status['resources']['cpu']['usage_percent'] ?? '—' }}%</p>
-                                <div class="progress-bar mt-1">
-                                    <div class="progress-fill" style="width:{{ $status['resources']['cpu']['usage_percent'] ?? 0 }}%"></div>
-                                </div>
-                            </div>
-                            <div>
-                                <p class="text-xs text-surface-500 uppercase">Memory</p>
-                                <p class="text-lg font-semibold text-white">{{ $status['resources']['memory']['usage_percent'] ?? '—' }}%</p>
-                                <div class="progress-bar mt-1">
-                                    <div class="progress-fill progress-fill-alt" style="width:{{ $status['resources']['memory']['usage_percent'] ?? 0 }}%"></div>
-                                </div>
-                            </div>
-                            <div>
-                                <p class="text-xs text-surface-500 uppercase">Disk</p>
-                                <p class="text-sm font-medium text-white">{{ $status['resources']['disk']['display'] ?? '—' }}</p>
-                            </div>
-                            <div>
-                                <p class="text-xs text-surface-500 uppercase">Apps</p>
-                                <p class="text-lg font-semibold text-white">{{ $status['apps'] ?? 0 }}</p>
-                            </div>
-                        </div>
-
+                    @if(!$error && $status)
                         @if(isset($status['system']))
                             <div class="mt-4 pt-4 border-t border-surface-800 text-xs text-surface-500 space-y-1">
                                 <p>{{ $status['system']['hostname'] ?? '' }} · {{ $status['system']['os'] ?? '' }}</p>

@@ -4,7 +4,7 @@ namespace CipiGui\Support;
 
 class Theme
 {
-    public const VERSION = '2.1.2';
+    public const VERSION = '2.1.3';
 
     public static function packageRoot(): string
     {

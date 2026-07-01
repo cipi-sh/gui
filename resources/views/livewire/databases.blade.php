@@ -42,6 +42,7 @@
         </div>
     @else
         <div class="card p-0 overflow-hidden">
+            <div class="table-scroll">
             <table>
                 <thead>
                     <tr>
@@ -56,17 +57,18 @@
                             <td class="font-medium text-white font-mono">{{ $db['name'] }}</td>
                             <td class="text-surface-400">{{ $db['size'] ?? '—' }}</td>
                             <td>
-                                <div class="flex gap-1 justify-end">
+                                <div class="btn-actions">
                                     <button wire:click="backupDatabase('{{ $db['name'] }}')" class="btn btn-ghost btn-sm">Backup</button>
                                     <button wire:click="openRestore('{{ $db['name'] }}')" class="btn btn-ghost btn-sm">Restore</button>
                                     <button wire:click="regeneratePassword('{{ $db['name'] }}')" wire:confirm="Regenerate password for {{ $db['name'] }}?" class="btn btn-ghost btn-sm">New Password</button>
-                                    <button wire:click="deleteDatabase('{{ $db['name'] }}')" wire:confirm="Permanently delete {{ $db['name'] }}?" class="btn btn-ghost btn-sm text-red-400">Delete</button>
+                                    <button wire:click="confirmDeleteDatabase('{{ $db['name'] }}')" class="btn btn-ghost btn-sm text-red-400">Delete</button>
                                 </div>
                             </td>
                         </tr>
                     @endforeach
                 </tbody>
             </table>
+            </div>
         </div>
     @endif
 
@@ -108,6 +110,26 @@
                         <button type="submit" class="btn btn-primary">Restore</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    @endif
+
+    @if($showDeleteModal)
+        <div class="modal-overlay" wire:click.self="cancelDeleteDatabase">
+            <div class="modal-content">
+                <div class="p-6 border-b border-surface-800">
+                    <h3 class="text-lg font-semibold text-white">Delete database</h3>
+                </div>
+                <div class="p-6 space-y-4">
+                    <p class="text-sm text-surface-300">
+                        Permanently delete <span class="font-mono text-white">{{ $deleteDbName }}</span>?
+                        This removes the database and its user from the server. This action cannot be undone.
+                    </p>
+                    <div class="flex justify-end gap-2">
+                        <button type="button" wire:click="cancelDeleteDatabase" class="btn btn-secondary">Cancel</button>
+                        <button type="button" wire:click="deleteDatabase" class="btn btn-danger">Delete database</button>
+                    </div>
+                </div>
             </div>
         </div>
     @endif

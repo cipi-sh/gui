@@ -35,6 +35,7 @@
         </div>
     @else
         <div class="card p-0 overflow-hidden">
+            <div class="table-scroll">
             <table>
                 <thead>
                     <tr>
@@ -62,16 +63,20 @@
                                     <span class="badge badge-green">Active</span>
                                 @endif
                                 @if($app['basic_auth'] ?? false)
-                                    <span class="badge badge-gray ml-1">Auth</span>
+                                    <span class="badge badge-gray ml-2">Auth</span>
                                 @endif
                             </td>
                             <td class="text-right">
-                                <a href="{{ route('cipi-gui.apps.show', $app['app']) }}" class="btn btn-ghost btn-sm">Manage</a>
+                                <div class="btn-actions">
+                                    <a href="{{ route('cipi-gui.apps.show', $app['app']) }}" class="btn btn-ghost btn-sm">Manage</a>
+                                    <button wire:click="confirmDeleteApp('{{ $app['app'] }}')" class="btn btn-ghost btn-sm text-red-400">Delete</button>
+                                </div>
                             </td>
                         </tr>
                     @endforeach
                 </tbody>
             </table>
+            </div>
         </div>
     @endif
 
@@ -147,6 +152,26 @@
                         <button type="submit" class="btn btn-primary">Create</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    @endif
+
+    @if($showDeleteModal)
+        <div class="modal-overlay" wire:click.self="cancelDeleteApp">
+            <div class="modal-content">
+                <div class="p-6 border-b border-surface-800">
+                    <h3 class="text-lg font-semibold text-white">Delete app</h3>
+                </div>
+                <div class="p-6 space-y-4">
+                    <p class="text-sm text-surface-300">
+                        Permanently delete <span class="font-mono text-white">{{ $deleteAppName }}</span>?
+                        This removes the app, its web config, and files from the server. This action cannot be undone.
+                    </p>
+                    <div class="flex justify-end gap-2">
+                        <button type="button" wire:click="cancelDeleteApp" class="btn btn-secondary">Cancel</button>
+                        <button type="button" wire:click="deleteApp" class="btn btn-danger">Delete app</button>
+                    </div>
+                </div>
             </div>
         </div>
     @endif

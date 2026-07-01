@@ -120,7 +120,44 @@ class CipiApiClient
 
     public function listDatabases(): array
     {
-        return $this->get('/dbs')['data'] ?? [];
+        $data = $this->get('/dbs')['data'] ?? [];
+
+        if (isset($data['databases']) && is_array($data['databases'])) {
+            $data = $data['databases'];
+        }
+
+        if (! is_array($data)) {
+            return [];
+        }
+
+        $normalized = [];
+
+        foreach ($data as $item) {
+            if (is_string($item)) {
+                $name = $item;
+                $size = null;
+            } elseif (is_array($item)) {
+                $name = $item['name'] ?? $item['database'] ?? null;
+                $size = $item['size'] ?? null;
+            } else {
+                continue;
+            }
+
+            if (! is_string($name) || $name === '') {
+                continue;
+            }
+
+            if (in_array(strtolower($name), ['databases', 'name', 'database', 'size'], true)) {
+                continue;
+            }
+
+            $normalized[] = [
+                'name' => $name,
+                'size' => is_string($size) ? $size : null,
+            ];
+        }
+
+        return $normalized;
     }
 
     public function createDatabase(string $name): array

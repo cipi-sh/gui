@@ -28,6 +28,10 @@ class Databases extends Component
 
     public bool $showRestoreModal = false;
 
+    public bool $showDeleteModal = false;
+
+    public string $deleteDbName = '';
+
     public string $restoreDbName = '';
 
     public string $restoreFile = '';
@@ -88,10 +92,30 @@ class Databases extends Component
         }
     }
 
-    public function deleteDatabase(string $name): void
+    public function confirmDeleteDatabase(string $name): void
     {
+        $this->deleteDbName = $name;
+        $this->showDeleteModal = true;
+    }
+
+    public function cancelDeleteDatabase(): void
+    {
+        $this->showDeleteModal = false;
+        $this->deleteDbName = '';
+    }
+
+    public function deleteDatabase(): void
+    {
+        if ($this->deleteDbName === '') {
+            return;
+        }
+
+        $name = $this->deleteDbName;
+
         try {
             $response = $this->client()->deleteDatabase($name);
+            $this->showDeleteModal = false;
+            $this->deleteDbName = '';
             $this->dispatchJob($response, "Delete database {$name}");
         } catch (CipiApiException $e) {
             $this->handleApiError($e);

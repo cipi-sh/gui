@@ -48,6 +48,8 @@ class AppDetail extends Component
 
     public ?string $generatedPassword = null;
 
+    public bool $showDeleteModal = false;
+
     public function mount(?string $name = null): void
     {
         $this->appName = $name ?? (string) request()->route('name');
@@ -234,8 +236,35 @@ class AppDetail extends Component
         }
     }
 
+    public function confirmDeleteApp(): void
+    {
+        $this->showDeleteModal = true;
+    }
+
+    public function cancelDeleteApp(): void
+    {
+        $this->showDeleteModal = false;
+    }
+
+    public function deleteApp(): void
+    {
+        try {
+            $response = $this->client()->deleteApp($this->appName);
+            $this->showDeleteModal = false;
+            $this->dispatchJob($response, "Delete app {$this->appName}");
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
     protected function onJobCompleted(array $data): void
     {
+        if (str_starts_with($this->jobLabel, 'Delete app')) {
+            $this->redirect(route('cipi-gui.apps'), navigate: true);
+
+            return;
+        }
+
         $this->loadApp();
     }
 
