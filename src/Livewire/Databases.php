@@ -26,15 +26,9 @@ class Databases extends Component
 
     public string $dbName = '';
 
-    public bool $showRestoreModal = false;
-
     public bool $showDeleteModal = false;
 
     public string $deleteDbName = '';
-
-    public string $restoreDbName = '';
-
-    public string $restoreFile = '';
 
     public ?array $lastCredentials = null;
 
@@ -117,38 +111,6 @@ class Databases extends Component
             $this->showDeleteModal = false;
             $this->deleteDbName = '';
             $this->dispatchJob($response, "Delete database {$name}");
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    public function backupDatabase(string $name): void
-    {
-        try {
-            $response = $this->client()->backupDatabase($name);
-            $this->dispatchJob($response, "Backup {$name}");
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    public function openRestore(string $name): void
-    {
-        $this->restoreDbName = $name;
-        $this->restoreFile = '';
-        $this->showRestoreModal = true;
-    }
-
-    public function restoreDatabase(): void
-    {
-        $this->validate([
-            'restoreFile' => ['required', 'string', 'max:512'],
-        ]);
-
-        try {
-            $response = $this->client()->restoreDatabase($this->restoreDbName, $this->restoreFile);
-            $this->showRestoreModal = false;
-            $this->dispatchJob($response, "Restore {$this->restoreDbName}");
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }

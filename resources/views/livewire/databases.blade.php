@@ -58,8 +58,6 @@
                             <td class="text-surface-400">{{ $db['size'] ?? '—' }}</td>
                             <td>
                                 <div class="btn-actions">
-                                    <button wire:click="backupDatabase('{{ $db['name'] }}')" class="btn btn-ghost btn-sm">Backup</button>
-                                    <button wire:click="openRestore('{{ $db['name'] }}')" class="btn btn-ghost btn-sm">Restore</button>
                                     <button wire:click="regeneratePassword('{{ $db['name'] }}')" wire:confirm="Regenerate password for {{ $db['name'] }}?" class="btn btn-ghost btn-sm">New Password</button>
                                     <button wire:click="confirmDeleteDatabase('{{ $db['name'] }}')" class="btn btn-ghost btn-sm text-red-400">Delete</button>
                                 </div>
@@ -87,27 +85,6 @@
                     <div class="flex justify-end gap-2">
                         <button type="button" wire:click="$set('showCreateModal', false)" class="btn btn-secondary">Cancel</button>
                         <button type="submit" class="btn btn-primary">Create</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    @endif
-
-    @if($showRestoreModal)
-        <div class="modal-overlay" wire:click.self="$set('showRestoreModal', false)">
-            <div class="modal-content">
-                <div class="p-6 border-b border-surface-800">
-                    <h3 class="text-lg font-semibold text-white">Restore {{ $restoreDbName }}</h3>
-                </div>
-                <form wire:submit="restoreDatabase" class="p-6 space-y-4">
-                    <div>
-                        <label>Backup file path on server</label>
-                        <input type="text" wire:model="restoreFile" placeholder="/home/cipi/backups/mydb_2026.sql.gz">
-                        @error('restoreFile') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
-                    </div>
-                    <div class="flex justify-end gap-2">
-                        <button type="button" wire:click="$set('showRestoreModal', false)" class="btn btn-secondary">Cancel</button>
-                        <button type="submit" class="btn btn-primary">Restore</button>
                     </div>
                 </form>
             </div>
