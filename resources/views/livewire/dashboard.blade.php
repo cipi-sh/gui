@@ -78,10 +78,12 @@
                                 <div>
                                     <p class="text-xs text-surface-500 uppercase">Disk</p>
                                     @if($diskPercent !== null)
-                                        <p class="text-lg font-semibold text-white">{{ $diskPercent }}%</p>
-                                        @if($diskUsed !== '' && $diskTotal !== '')
-                                            <p class="text-xs text-surface-400 mt-0.5">{{ $diskUsed }} / {{ $diskTotal }}</p>
-                                        @endif
+                                        <div class="flex items-baseline gap-2 min-w-0">
+                                            <p class="text-lg font-semibold text-white shrink-0">{{ $diskPercent }}%</p>
+                                            @if($diskUsed !== '' && $diskTotal !== '')
+                                                <p class="text-xs text-surface-400 truncate">{{ $diskUsed }} / {{ $diskTotal }}</p>
+                                            @endif
+                                        </div>
                                         <div class="progress-bar mt-1">
                                             <div class="progress-fill" style="width:{{ $diskPercent }}%"></div>
                                         </div>
