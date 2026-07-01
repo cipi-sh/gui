@@ -43,7 +43,7 @@
                         <th>Domain</th>
                         <th>PHP</th>
                         <th>Branch</th>
-                        <th>Status</th>
+                        <th>Auth</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -57,13 +57,10 @@
                             <td><span class="badge badge-neutral">{{ $app['php'] }}</span></td>
                             <td class="text-surface-400 text-sm">{{ $app['branch'] ?? '—' }}</td>
                             <td>
-                                @if($app['suspended'] ?? false)
-                                    <span class="badge badge-amber">Suspended</span>
-                                @else
-                                    <span class="badge badge-green">Active</span>
-                                @endif
                                 @if($app['basic_auth'] ?? false)
-                                    <span class="badge badge-gray ml-2">Auth</span>
+                                    <span class="badge badge-gray">Auth</span>
+                                @else
+                                    <span class="text-surface-500">—</span>
                                 @endif
                             </td>
                             <td class="text-right">

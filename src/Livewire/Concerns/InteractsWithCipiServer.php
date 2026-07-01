@@ -52,7 +52,6 @@ trait InteractsWithCipiServer
     /** @param  array<string, mixed>  $app */
     protected function normalizeApp(array $app): array
     {
-        $app['suspended'] = $this->appFlagIsTrue($app['suspended'] ?? false);
         $app['custom'] = $this->appFlagIsTrue($app['custom'] ?? false);
 
         if (array_key_exists('basic_auth', $app)) {

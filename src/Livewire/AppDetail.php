@@ -153,26 +153,6 @@ class AppDetail extends Component
         }
     }
 
-    public function suspend(): void
-    {
-        try {
-            $response = $this->client()->suspendApp($this->appName);
-            $this->dispatchJob($response, 'Suspend app');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    public function unsuspend(): void
-    {
-        try {
-            $response = $this->client()->unsuspendApp($this->appName);
-            $this->dispatchJob($response, 'Unsuspend app');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
     public function addAlias(): void
     {
         $this->validate(['newAlias' => ['required', 'string', 'max:255']]);
@@ -287,19 +267,6 @@ class AppDetail extends Component
         }
 
         $this->loadApp();
-
-        if ($this->app === null) {
-            return;
-        }
-
-        $result = $data['result'] ?? null;
-        if (is_array($result) && array_key_exists('suspended', $result)) {
-            $this->patchApp(['suspended' => $this->appFlagIsTrue($result['suspended'])]);
-        } elseif ($this->jobLabel === 'Suspend app') {
-            $this->patchApp(['suspended' => true]);
-        } elseif ($this->jobLabel === 'Unsuspend app') {
-            $this->patchApp(['suspended' => false]);
-        }
     }
 
     public function render()

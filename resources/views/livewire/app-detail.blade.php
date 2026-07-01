@@ -16,11 +16,6 @@
                     <p class="text-sm text-surface-400">{{ $app['domain'] }}</p>
                 </div>
                 <div class="flex flex-wrap gap-2">
-                    @if($app['suspended'] ?? false)
-                        <button wire:click="unsuspend" class="btn btn-primary btn-sm">Unsuspend</button>
-                    @else
-                        <button wire:click="suspend" wire:confirm="Take this app offline?" class="btn btn-secondary btn-sm">Suspend</button>
-                    @endif
                     <button wire:click="deploy" class="btn btn-primary btn-sm">Deploy</button>
                     <button wire:click="confirmDeleteApp" class="btn btn-danger btn-sm">Delete</button>
                 </div>
@@ -51,9 +46,6 @@
                         <div class="flex justify-between"><dt class="text-surface-400">Branch</dt><dd class="text-white">{{ $app['branch'] ?? '—' }}</dd></div>
                         <div class="flex justify-between"><dt class="text-surface-400">Repository</dt><dd class="text-white truncate max-w-xs">{{ $app['repository'] ?? '—' }}</dd></div>
                         <div class="flex justify-between"><dt class="text-surface-400">Created</dt><dd class="text-white">{{ $app['created_at'] ?? '—' }}</dd></div>
-                        <div class="flex justify-between"><dt class="text-surface-400">Status</dt>
-                            <dd>@if($app['suspended'] ?? false)<span class="badge badge-amber">Suspended</span>@else<span class="badge badge-green">Active</span>@endif</dd>
-                        </div>
                     </dl>
                 </div>
 

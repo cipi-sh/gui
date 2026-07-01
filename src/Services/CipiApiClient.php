@@ -45,16 +45,6 @@ class CipiApiClient
         return $this->delete("/apps/{$name}");
     }
 
-    public function suspendApp(string $name): array
-    {
-        return $this->post("/apps/{$name}/suspend");
-    }
-
-    public function unsuspendApp(string $name): array
-    {
-        return $this->post("/apps/{$name}/unsuspend");
-    }
-
     public function basicAuthStatus(string $name): array
     {
         return $this->get("/apps/{$name}/basicauth")['data'] ?? [];
