@@ -47,21 +47,21 @@ class TwoFactorService
             return false;
         }
 
-        $user->update([
+        $user->forceFill([
             'two_factor_secret' => Crypt::encryptString($secret),
             'two_factor_enabled' => true,
             'two_factor_confirmed_at' => now(),
-        ]);
+        ])->save();
 
         return true;
     }
 
     public function disable(User $user): void
     {
-        $user->update([
+        $user->forceFill([
             'two_factor_secret' => null,
             'two_factor_enabled' => false,
             'two_factor_confirmed_at' => null,
-        ]);
+        ])->save();
     }
 }

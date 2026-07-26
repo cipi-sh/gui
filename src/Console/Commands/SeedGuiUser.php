@@ -95,7 +95,7 @@ class SeedGuiUser extends Command
             $attributes['two_factor_confirmed_at'] = null;
         }
 
-        $user->update($attributes);
+        $user->forceFill($attributes)->save();
         $this->clearUserSessions($user);
 
         $this->info('Cipi GUI admin user reset.');

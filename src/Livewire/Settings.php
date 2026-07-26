@@ -57,13 +57,21 @@ class Settings extends Component
             'verificationCode' => ['required', 'string', 'size:6'],
         ]);
 
+        if (! $this->setupSecret) {
+            $this->error = 'Start 2FA setup again.';
+
+            return;
+        }
+
         $user = Auth::user();
 
         if ($twoFactor->enable($user, $this->setupSecret, $this->verificationCode)) {
+            session()->put('cipi_gui_2fa_verified', true);
             $this->twoFactorEnabled = true;
             $this->setupSecret = null;
             $this->qrCodeSvg = null;
             $this->verificationCode = '';
+            $this->error = null;
             $this->success = 'Two-factor authentication enabled.';
         } else {
             $this->error = 'Invalid verification code. Try again.';
