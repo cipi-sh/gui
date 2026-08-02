@@ -58,7 +58,39 @@ trait InteractsWithCipiServer
             $app['basic_auth'] = $this->appFlagIsTrue($app['basic_auth']);
         }
 
+        if (array_key_exists('force_https', $app)) {
+            $app['force_https'] = $this->appFlagIsTrue($app['force_https']);
+        }
+
+        if (array_key_exists('suspended', $app)) {
+            $app['suspended'] = $this->appFlagIsTrue($app['suspended']);
+        }
+
+        $engine = $app['engine'] ?? null;
+        $app['engine'] = is_string($engine) && $engine !== '' ? $engine : null;
+
+        $wwwRedirect = $app['www_redirect'] ?? null;
+        $app['www_redirect'] = is_string($wwwRedirect) && $wwwRedirect !== '' ? $wwwRedirect : null;
+
         return $app;
+    }
+
+    protected function engineLabel(?string $engine): string
+    {
+        return match ($engine) {
+            'pgsql' => 'PostgreSQL',
+            'mariadb' => 'MariaDB',
+            default => $engine ?: '—',
+        };
+    }
+
+    protected function wwwRedirectLabel(?string $mode): string
+    {
+        return match ($mode) {
+            'to-root' => 'www → apex',
+            'from-root' => 'apex → www',
+            default => 'None',
+        };
     }
 
     /** @param  array<string, mixed>  $patch */

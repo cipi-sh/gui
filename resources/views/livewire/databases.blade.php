@@ -2,7 +2,7 @@
     <div class="flex items-center justify-between mb-6">
         <div>
             <h2 class="text-2xl font-semibold text-white">Databases</h2>
-            <p class="text-sm text-surface-400 mt-1">MySQL databases on the selected server</p>
+            <p class="text-sm text-surface-400 mt-1">MariaDB and PostgreSQL databases on the selected server</p>
         </div>
         @if($servers->isNotEmpty())
             <button wire:click="openCreate" class="btn btn-primary">
@@ -26,6 +26,20 @@
         </div>
     @endif
 
+    @if(!empty($availableEngines))
+        <div class="flex flex-wrap gap-2 mb-4">
+            @foreach($availableEngines as $item)
+                <span class="badge badge-neutral">
+                    {{ $this->engineLabel($item['engine'] ?? null) }}
+                    @if(!empty($item['port'])) · {{ $item['port'] }} @endif
+                    @if(!empty($item['default']) || ($defaultEngine ?? null) === ($item['engine'] ?? null)) · default @endif
+                </span>
+            @endforeach
+        </div>
+    @elseif($enginesUnsupported && !$loading)
+        <p class="text-sm text-surface-500 mb-4">Engine listing requires API 1.12+ (Cipi 4.8). Showing databases without engine filter.</p>
+    @endif
+
     @if($servers->isEmpty())
         <div class="card text-center py-12">
             <a href="{{ route('cipi-gui.servers') }}" class="btn btn-primary">Add Server</a>
@@ -47,6 +61,8 @@
                 <thead>
                     <tr>
                         <th>Name</th>
+                        <th>Engine</th>
+                        <th>User</th>
                         <th>Size</th>
                         <th></th>
                     </tr>
@@ -55,11 +71,20 @@
                     @foreach($databases as $db)
                         <tr>
                             <td class="font-medium text-white font-mono">{{ $db['name'] }}</td>
+                            <td class="text-surface-300">{{ $this->engineLabel($db['engine'] ?? null) }}</td>
+                            <td class="text-surface-400 font-mono text-sm">{{ $db['user'] ?? '—' }}</td>
                             <td class="text-surface-400">{{ $db['size'] ?? '—' }}</td>
                             <td>
                                 <div class="btn-actions">
-                                    <button wire:click="regeneratePassword('{{ $db['name'] }}')" wire:confirm="Regenerate password for {{ $db['name'] }}?" class="btn btn-ghost btn-sm">New Password</button>
-                                    <button wire:click="confirmDeleteDatabase('{{ $db['name'] }}')" class="btn btn-ghost btn-sm text-red-400">Delete</button>
+                                    <button
+                                        wire:click="regeneratePassword('{{ $db['name'] }}', '{{ $db['engine'] ?? '' }}')"
+                                        wire:confirm="Regenerate password for {{ $db['name'] }}?"
+                                        class="btn btn-ghost btn-sm"
+                                    >New Password</button>
+                                    <button
+                                        wire:click="confirmDeleteDatabase('{{ $db['name'] }}', '{{ $db['engine'] ?? '' }}')"
+                                        class="btn btn-ghost btn-sm text-red-400"
+                                    >Delete</button>
                                 </div>
                             </td>
                         </tr>
@@ -82,6 +107,20 @@
                         <input type="text" wire:model="dbName" placeholder="mydb">
                         @error('dbName') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
                     </div>
+                    @if(count($availableEngines) > 0)
+                        <div>
+                            <label>Engine</label>
+                            <select wire:model="dbEngine">
+                                @foreach($availableEngines as $item)
+                                    <option value="{{ $item['engine'] }}">
+                                        {{ $this->engineLabel($item['engine']) }}
+                                        @if(!empty($item['default']) || ($defaultEngine ?? null) === ($item['engine'] ?? null)) (default) @endif
+                                    </option>
+                                @endforeach
+                            </select>
+                            @error('dbEngine') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                        </div>
+                    @endif
                     <div class="flex justify-end gap-2">
                         <button type="button" wire:click="$set('showCreateModal', false)" class="btn btn-secondary">Cancel</button>
                         <button type="submit" class="btn btn-primary">Create</button>
@@ -99,7 +138,11 @@
                 </div>
                 <div class="p-6 space-y-4">
                     <p class="text-sm text-surface-300">
-                        Permanently delete <span class="font-mono text-white">{{ $deleteDbName }}</span>?
+                        Permanently delete <span class="font-mono text-white">{{ $deleteDbName }}</span>
+                        @if($deleteDbEngine !== '')
+                            (<span class="text-surface-400">{{ $this->engineLabel($deleteDbEngine) }}</span>)
+                        @endif
+                        ?
                         This removes the database and its user from the server. This action cannot be undone.
                     </p>
                     <div class="flex justify-end gap-2">

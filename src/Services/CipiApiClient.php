@@ -99,6 +99,33 @@ class CipiApiClient
         return $this->post("/apps/{$app}/deploy/unlock");
     }
 
+    // ── WWW redirects (Cipi 4.8+ / API 1.12+) ─────────────────────────
+
+    public function wwwStatus(string $app): array
+    {
+        return $this->get("/apps/{$app}/www")['data'] ?? [];
+    }
+
+    public function wwwAdd(string $app): array
+    {
+        return $this->post("/apps/{$app}/www/add");
+    }
+
+    public function wwwForceToRoot(string $app): array
+    {
+        return $this->post("/apps/{$app}/www/force-to-root");
+    }
+
+    public function wwwForceFromRoot(string $app): array
+    {
+        return $this->post("/apps/{$app}/www/force-from-root");
+    }
+
+    public function wwwClear(string $app): array
+    {
+        return $this->post("/apps/{$app}/www/clear");
+    }
+
     // ── SSL ───────────────────────────────────────────────────────────
 
     public function installSsl(string $app): array
@@ -106,11 +133,26 @@ class CipiApiClient
         return $this->post("/apps/{$app}/ssl");
     }
 
+    public function forceSsl(string $app): array
+    {
+        return $this->post("/apps/{$app}/ssl/force");
+    }
+
     // ── Databases ─────────────────────────────────────────────────────
 
-    public function listDatabases(): array
+    public function listDatabaseEngines(): array
     {
-        $data = $this->get('/dbs')['data'] ?? [];
+        return $this->get('/dbs/engines')['data'] ?? [];
+    }
+
+    public function listDatabases(?string $engine = null): array
+    {
+        $query = [];
+        if ($engine !== null && $engine !== '') {
+            $query['engine'] = $engine;
+        }
+
+        $data = $this->get('/dbs', $query)['data'] ?? [];
 
         if (isset($data['databases']) && is_array($data['databases'])) {
             $data = $data['databases'];
@@ -126,9 +168,13 @@ class CipiApiClient
             if (is_string($item)) {
                 $name = $item;
                 $size = null;
+                $dbEngine = null;
+                $user = null;
             } elseif (is_array($item)) {
                 $name = $item['name'] ?? $item['database'] ?? null;
                 $size = $item['size'] ?? null;
+                $dbEngine = $item['engine'] ?? null;
+                $user = $item['user'] ?? null;
             } else {
                 continue;
             }
@@ -137,42 +183,69 @@ class CipiApiClient
                 continue;
             }
 
-            if (in_array(strtolower($name), ['databases', 'name', 'database', 'size'], true)) {
+            if (in_array(strtolower($name), ['databases', 'name', 'database', 'size', 'engine', 'user'], true)) {
                 continue;
             }
 
             $normalized[] = [
                 'name' => $name,
                 'size' => is_string($size) ? $size : null,
+                'engine' => is_string($dbEngine) && $dbEngine !== '' ? $dbEngine : null,
+                'user' => is_string($user) && $user !== '' ? $user : null,
             ];
         }
 
         return $normalized;
     }
 
-    public function createDatabase(string $name): array
+    public function createDatabase(string $name, ?string $engine = null): array
     {
-        return $this->post('/dbs', ['name' => $name]);
+        $payload = ['name' => $name];
+        if ($engine !== null && $engine !== '') {
+            $payload['engine'] = $engine;
+        }
+
+        return $this->post('/dbs', $payload);
     }
 
-    public function deleteDatabase(string $name): array
+    public function deleteDatabase(string $name, ?string $engine = null): array
     {
-        return $this->delete("/dbs/{$name}");
+        $query = [];
+        if ($engine !== null && $engine !== '') {
+            $query['engine'] = $engine;
+        }
+
+        return $this->delete("/dbs/{$name}", $query);
     }
 
-    public function backupDatabase(string $name): array
+    public function backupDatabase(string $name, ?string $engine = null): array
     {
-        return $this->post("/dbs/{$name}/backup");
+        $payload = [];
+        if ($engine !== null && $engine !== '') {
+            $payload['engine'] = $engine;
+        }
+
+        return $this->post("/dbs/{$name}/backup", $payload);
     }
 
-    public function restoreDatabase(string $name, string $file): array
+    public function restoreDatabase(string $name, string $file, ?string $engine = null): array
     {
-        return $this->post("/dbs/{$name}/restore", ['file' => $file]);
+        $payload = ['file' => $file];
+        if ($engine !== null && $engine !== '') {
+            $payload['engine'] = $engine;
+        }
+
+        return $this->post("/dbs/{$name}/restore", $payload);
     }
 
-    public function regenerateDbPassword(string $name): array
+    public function regenerateDbPassword(string $name, ?string $engine = null): array
     {
-        return $this->post("/dbs/{$name}/password");
+        $payload = [];
+        if ($engine !== null && $engine !== '') {
+            $payload['engine'] = $engine;
+        }
+
+        return $this->post("/dbs/{$name}/password", $payload);
     }
 
     // ── Jobs & Status ─────────────────────────────────────────────────
@@ -209,9 +282,9 @@ class CipiApiClient
         return $this->request('put', $path, data: $data);
     }
 
-    protected function delete(string $path): array
+    protected function delete(string $path, array $query = []): array
     {
-        return $this->request('delete', $path);
+        return $this->request('delete', $path, query: $query);
     }
 
     protected function request(string $method, string $path, array $data = [], array $query = []): array
@@ -229,7 +302,9 @@ class CipiApiClient
                 'get' => $pending->get($url, $query),
                 'post' => $pending->post($url, $data),
                 'put' => $pending->put($url, $data),
-                'delete' => $pending->delete($url),
+                'delete' => $query === []
+                    ? $pending->delete($url)
+                    : $pending->withQueryParameters($query)->delete($url),
                 default => throw new CipiApiException("Unsupported HTTP method: {$method}"),
             };
         } catch (ConnectionException $e) {

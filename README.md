@@ -26,8 +26,8 @@ php artisan cipi:seed-gui-user
 
 - **Multi-server** — Register N Cipi servers with API tokens; switch between them from any page
 - **Dashboard** — Live server status (CPU, memory, disk, services, app count) via `GET /api/status`
-- **Apps** — Create, edit, suspend, deploy Laravel and custom apps; manage aliases, SSL, basic auth
-- **Databases** — List, create, delete, backup, restore, regenerate passwords
+- **Apps** — Create, edit, deploy Laravel and custom apps; manage aliases, WWW/apex redirects, SSL (install + force HTTPS), basic auth
+- **Databases** — Multi-engine MariaDB/PostgreSQL: list, create, delete, regenerate passwords (API 1.12+ / Cipi 4.8+)
 - **Async jobs** — Interactive job overlay with spinner and terminal output while polling `GET /api/jobs/{id}`
 - **Logs** — Terminal-style log viewer with type filter, pagination, and auto-refresh
 - **Security** — Password login with optional TOTP two-factor authentication (Google Authenticator compatible)
@@ -52,7 +52,7 @@ Enable 2FA from **Settings** after first login. When enabled, a TOTP code is req
 2. Create an API token with the required abilities:
 
 ```bash
-cipi api token create --name=gui --abilities=apps-view,apps-create,apps-edit,apps-delete,apps-suspend,apps-basicauth,aliases-view,aliases-create,aliases-delete,deploy-manage,ssl-manage,dbs-view,dbs-create,dbs-delete,dbs-manage,status-view
+cipi api token create --name=gui --abilities=apps-view,apps-create,apps-edit,apps-delete,apps-suspend,apps-basicauth,aliases-view,aliases-create,aliases-delete,www-manage,deploy-manage,ssl-manage,dbs-view,dbs-create,dbs-delete,dbs-manage,status-view
 ```
 
 3. In the GUI, go to **Servers → Add Server** and enter:
@@ -82,11 +82,12 @@ The GUI consumes the full [Cipi API OpenAPI spec](https://vps.deploying.it/docs)
 | Area | Endpoints |
 |------|-----------|
 | Server | `GET /api/status` |
-| Apps | CRUD, suspend/unsuspend, basic auth, logs |
+| Apps | CRUD, basic auth, logs; create accepts `engine` (mariadb/pgsql) |
 | Aliases | List, add, remove |
+| WWW | Status, add counterpart, force-to-root / force-from-root, clear (`www-manage`) |
 | Deploy | Deploy, rollback, unlock |
-| SSL | Install Let's Encrypt |
-| Databases | List (sync), create/delete/backup/restore/password (async) |
+| SSL | Install Let's Encrypt, force HTTPS redirect |
+| Databases | Engines + list (sync); create/delete/backup/restore/password with optional `engine` (async) |
 | Jobs | Poll status and CLI output |
 
 ## Architecture

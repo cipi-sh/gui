@@ -39,6 +39,11 @@ class AppDetail extends Component
     // Alias form
     public string $newAlias = '';
 
+    // WWW redirects (Cipi 4.8+ / API 1.12+)
+    public ?array $wwwStatus = null;
+
+    public bool $wwwUnsupported = false;
+
     // Basic auth
     public ?array $basicAuth = null;
 
@@ -87,6 +92,10 @@ class AppDetail extends Component
 
         if ($tab === 'basicauth') {
             $this->loadBasicAuth();
+        }
+
+        if ($tab === 'aliases') {
+            $this->loadWwwStatus();
         }
     }
 
@@ -148,6 +157,74 @@ class AppDetail extends Component
         try {
             $response = $this->client()->installSsl($this->appName);
             $this->dispatchJob($response, 'SSL install');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function forceSsl(): void
+    {
+        try {
+            $response = $this->client()->forceSsl($this->appName);
+            $this->dispatchJob($response, 'Force HTTPS');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function loadWwwStatus(): void
+    {
+        $this->wwwUnsupported = false;
+
+        try {
+            $this->wwwStatus = $this->client()->wwwStatus($this->appName);
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [404, 403, 501], true)) {
+                $this->wwwStatus = null;
+                $this->wwwUnsupported = true;
+
+                return;
+            }
+
+            $this->handleApiError($e);
+        }
+    }
+
+    public function wwwAdd(): void
+    {
+        try {
+            $response = $this->client()->wwwAdd($this->appName);
+            $this->dispatchJob($response, 'Add www/apex alias');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function wwwForceToRoot(): void
+    {
+        try {
+            $response = $this->client()->wwwForceToRoot($this->appName);
+            $this->dispatchJob($response, 'Force www → apex');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function wwwForceFromRoot(): void
+    {
+        try {
+            $response = $this->client()->wwwForceFromRoot($this->appName);
+            $this->dispatchJob($response, 'Force apex → www');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function wwwClear(): void
+    {
+        try {
+            $response = $this->client()->wwwClear($this->appName);
+            $this->dispatchJob($response, 'Clear www redirect');
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -267,6 +344,10 @@ class AppDetail extends Component
         }
 
         $this->loadApp();
+
+        if ($this->activeTab === 'aliases') {
+            $this->loadWwwStatus();
+        }
     }
 
     public function render()

@@ -43,8 +43,13 @@
                     <dl class="space-y-3 text-sm">
                         <div class="flex justify-between"><dt class="text-surface-400">Server</dt><dd class="text-white">{{ $server?->name ?? '—' }}</dd></div>
                         <div class="flex justify-between"><dt class="text-surface-400">PHP</dt><dd class="text-white">{{ $app['php'] }}</dd></div>
+                        @if(!($app['custom'] ?? false))
+                            <div class="flex justify-between"><dt class="text-surface-400">Database</dt><dd class="text-white">{{ $this->engineLabel($app['engine'] ?? null) }}</dd></div>
+                        @endif
                         <div class="flex justify-between"><dt class="text-surface-400">Branch</dt><dd class="text-white">{{ $app['branch'] ?? '—' }}</dd></div>
                         <div class="flex justify-between"><dt class="text-surface-400">Repository</dt><dd class="text-white truncate max-w-xs">{{ $app['repository'] ?? '—' }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-surface-400">WWW redirect</dt><dd class="text-white">{{ $this->wwwRedirectLabel($app['www_redirect'] ?? null) }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-surface-400">Force HTTPS</dt><dd class="text-white">{{ ($app['force_https'] ?? false) ? 'Yes' : 'No' }}</dd></div>
                         <div class="flex justify-between"><dt class="text-surface-400">Created</dt><dd class="text-white">{{ $app['created_at'] ?? '—' }}</dd></div>
                     </dl>
                 </div>
@@ -102,8 +107,52 @@
 
                 <div class="card">
                     <h3 class="font-semibold text-white mb-4">SSL Certificate</h3>
-                    <p class="text-sm text-surface-400 mb-4">Install a Let's Encrypt certificate for this app and its aliases.</p>
-                    <button wire:click="installSsl" class="btn btn-primary">Install SSL</button>
+                    <p class="text-sm text-surface-400 mb-4">Install a Let's Encrypt certificate for this app and its aliases, or re-apply the HTTP → HTTPS redirect without new issuance.</p>
+                    <div class="flex flex-wrap gap-2">
+                        <button wire:click="installSsl" class="btn btn-primary">Install SSL</button>
+                        <button wire:click="forceSsl" class="btn btn-secondary">Force HTTPS</button>
+                    </div>
+                    @if($app['force_https'] ?? false)
+                        <p class="text-sm text-emerald-400 mt-3">Force HTTPS is active.</p>
+                    @endif
+                </div>
+
+                <div class="card md:col-span-2">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-semibold text-white">WWW / Apex Redirects</h3>
+                        <button wire:click="loadWwwStatus" class="btn btn-ghost btn-sm">Refresh</button>
+                    </div>
+
+                    @if($wwwUnsupported)
+                        <p class="text-sm text-surface-400">WWW redirects require Cipi 4.8+ and API 1.12+ with the <code class="text-surface-300">www-manage</code> token ability.</p>
+                    @elseif($wwwStatus === null)
+                        <button wire:click="loadWwwStatus" class="btn btn-secondary btn-sm">Load status</button>
+                    @else
+                        <dl class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-4">
+                            <div>
+                                <dt class="text-surface-400">Primary</dt>
+                                <dd class="text-white font-mono">{{ $wwwStatus['primary'] ?? '—' }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-surface-400">Apex</dt>
+                                <dd class="text-white font-mono">{{ $wwwStatus['apex'] ?? '—' }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-surface-400">WWW</dt>
+                                <dd class="text-white font-mono">{{ $wwwStatus['www'] ?? '—' }}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-surface-400">Redirect</dt>
+                                <dd class="text-white">{{ $this->wwwRedirectLabel($wwwStatus['redirect'] ?? null) }}</dd>
+                            </div>
+                        </dl>
+                        <div class="flex flex-wrap gap-2">
+                            <button wire:click="wwwAdd" class="btn btn-secondary btn-sm">Add counterpart alias</button>
+                            <button wire:click="wwwForceToRoot" class="btn btn-secondary btn-sm">Force www → apex</button>
+                            <button wire:click="wwwForceFromRoot" class="btn btn-secondary btn-sm">Force apex → www</button>
+                            <button wire:click="wwwClear" wire:confirm="Clear www/apex redirect?" class="btn btn-ghost btn-sm text-red-400">Clear redirect</button>
+                        </div>
+                    @endif
                 </div>
             </div>
 

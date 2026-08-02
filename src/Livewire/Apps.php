@@ -43,6 +43,11 @@ class Apps extends Component
 
     public string $docroot = '';
 
+    public string $engine = '';
+
+    /** @var array<int, array{engine: string, status?: string, port?: int|null, default?: bool}> */
+    public array $availableEngines = [];
+
     public function mount(): void
     {
         $this->ensureServerSelected();
@@ -83,10 +88,66 @@ class Apps extends Component
 
     public function openCreate(): void
     {
-        $this->reset(['user', 'domain', 'repository', 'branch', 'docroot', 'error']);
+        $this->reset(['user', 'domain', 'repository', 'branch', 'docroot', 'engine', 'error']);
         $this->php = '8.5';
         $this->custom = false;
+        $this->loadAvailableEngines();
         $this->showCreateModal = true;
+    }
+
+    public function updatedCustom(): void
+    {
+        if ($this->custom) {
+            $this->engine = '';
+        } elseif ($this->engine === '' && $this->availableEngines !== []) {
+            $this->engine = $this->defaultEngine();
+        }
+    }
+
+    protected function loadAvailableEngines(): void
+    {
+        $this->availableEngines = [];
+        $this->engine = '';
+
+        if (! $this->currentServer()) {
+            return;
+        }
+
+        try {
+            $data = $this->client()->listDatabaseEngines();
+            $engines = $data['engines'] ?? [];
+            if (! is_array($engines)) {
+                return;
+            }
+
+            $this->availableEngines = array_values(array_filter(
+                $engines,
+                fn ($item) => is_array($item)
+                    && is_string($item['engine'] ?? null)
+                    && ($item['status'] ?? 'installed') === 'installed',
+            ));
+
+            $this->engine = $this->defaultEngine();
+        } catch (CipiApiException $e) {
+            // Older API without /dbs/engines — omit engine selector.
+            if (! in_array($e->getStatusCode(), [404, 403, 501], true)) {
+                $this->handleApiError($e);
+            }
+            $this->availableEngines = [];
+        }
+    }
+
+    protected function defaultEngine(): string
+    {
+        foreach ($this->availableEngines as $item) {
+            if (! empty($item['default'])) {
+                return (string) $item['engine'];
+            }
+        }
+
+        return isset($this->availableEngines[0]['engine'])
+            ? (string) $this->availableEngines[0]['engine']
+            : '';
     }
 
     public function createApp(): void
@@ -101,6 +162,10 @@ class Apps extends Component
         if (! $this->custom) {
             $rules['repository'] = ['required', 'string'];
             $rules['branch'] = ['required', 'string', 'max:64'];
+            if ($this->availableEngines !== []) {
+                $allowed = implode(',', array_column($this->availableEngines, 'engine'));
+                $rules['engine'] = ['required', 'in:'.$allowed];
+            }
         } else {
             $rules['repository'] = ['nullable', 'string'];
             $rules['branch'] = ['nullable', 'string', 'max:64'];
@@ -123,6 +188,10 @@ class Apps extends Component
 
         if ($this->custom && $this->docroot) {
             $payload['docroot'] = $this->docroot;
+        }
+
+        if (! $this->custom && $this->engine !== '') {
+            $payload['engine'] = $this->engine;
         }
 
         try {

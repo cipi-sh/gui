@@ -42,8 +42,9 @@
                         <th>App</th>
                         <th>Domain</th>
                         <th>PHP</th>
+                        <th>DB</th>
                         <th>Branch</th>
-                        <th>Auth</th>
+                        <th>Flags</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -52,16 +53,29 @@
                         <tr>
                             <td>
                                 <a href="{{ route('cipi-gui.apps.show', $app['app']) }}" class="font-medium text-link">{{ $app['app'] }}</a>
+                                @if($app['suspended'] ?? false)
+                                    <span class="badge badge-gray ml-1">Suspended</span>
+                                @endif
                             </td>
                             <td class="text-surface-300">{{ $app['domain'] }}</td>
                             <td><span class="badge badge-neutral">{{ $app['php'] }}</span></td>
+                            <td class="text-surface-400 text-sm">{{ $this->engineLabel($app['engine'] ?? null) }}</td>
                             <td class="text-surface-400 text-sm">{{ $app['branch'] ?? '—' }}</td>
                             <td>
-                                @if($app['basic_auth'] ?? false)
-                                    <span class="badge badge-gray">Auth</span>
-                                @else
-                                    <span class="text-surface-500">—</span>
-                                @endif
+                                <div class="flex flex-wrap gap-1">
+                                    @if($app['basic_auth'] ?? false)
+                                        <span class="badge badge-gray">Auth</span>
+                                    @endif
+                                    @if($app['force_https'] ?? false)
+                                        <span class="badge badge-neutral">HTTPS</span>
+                                    @endif
+                                    @if($app['www_redirect'] ?? null)
+                                        <span class="badge badge-neutral" title="WWW redirect">{{ $this->wwwRedirectLabel($app['www_redirect']) }}</span>
+                                    @endif
+                                    @if(!($app['basic_auth'] ?? false) && !($app['force_https'] ?? false) && !($app['www_redirect'] ?? null))
+                                        <span class="text-surface-500">—</span>
+                                    @endif
+                                </div>
                             </td>
                             <td class="text-right">
                                 <div class="btn-actions">
@@ -123,6 +137,21 @@
                                 </select>
                             </div>
                         </div>
+                        @if(count($availableEngines) > 0)
+                            <div>
+                                <label>Database engine</label>
+                                <select wire:model="engine">
+                                    @foreach($availableEngines as $item)
+                                        <option value="{{ $item['engine'] }}">
+                                            {{ $this->engineLabel($item['engine']) }}
+                                            @if(!empty($item['default'])) (default) @endif
+                                            @if(!empty($item['port'])) — port {{ $item['port'] }} @endif
+                                        </option>
+                                    @endforeach
+                                </select>
+                                @error('engine') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                            </div>
+                        @endif
                     @else
                         <div>
                             <label>Repository (optional — leave empty for SFTP-only)</label>

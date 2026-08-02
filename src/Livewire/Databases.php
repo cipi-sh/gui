@@ -20,15 +20,26 @@ class Databases extends Component
     /** @var array<int, array> */
     public array $databases = [];
 
+    /** @var array<int, array{engine: string, status?: string, port?: int|null, default?: bool}> */
+    public array $availableEngines = [];
+
+    public ?string $defaultEngine = null;
+
+    public bool $enginesUnsupported = false;
+
     public bool $loading = true;
 
     public bool $showCreateModal = false;
 
     public string $dbName = '';
 
+    public string $dbEngine = '';
+
     public bool $showDeleteModal = false;
 
     public string $deleteDbName = '';
+
+    public string $deleteDbEngine = '';
 
     public ?array $lastCredentials = null;
 
@@ -49,6 +60,9 @@ class Databases extends Component
         $this->loading = true;
         $this->error = null;
         $this->databases = [];
+        $this->availableEngines = [];
+        $this->defaultEngine = null;
+        $this->enginesUnsupported = false;
 
         if (! $this->currentServer()) {
             $this->loading = false;
@@ -57,6 +71,7 @@ class Databases extends Component
         }
 
         try {
+            $this->loadAvailableEngines();
             $this->databases = $this->client()->listDatabases();
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
@@ -65,20 +80,74 @@ class Databases extends Component
         }
     }
 
+    protected function loadAvailableEngines(): void
+    {
+        try {
+            $data = $this->client()->listDatabaseEngines();
+            $engines = $data['engines'] ?? [];
+            if (! is_array($engines)) {
+                $this->enginesUnsupported = true;
+
+                return;
+            }
+
+            $this->availableEngines = array_values(array_filter(
+                $engines,
+                fn ($item) => is_array($item)
+                    && is_string($item['engine'] ?? null)
+                    && ($item['status'] ?? 'installed') === 'installed',
+            ));
+
+            $default = $data['default'] ?? null;
+            if (is_string($default) && $default !== '') {
+                $this->defaultEngine = $default;
+            } else {
+                foreach ($this->availableEngines as $item) {
+                    if (! empty($item['default'])) {
+                        $this->defaultEngine = (string) $item['engine'];
+                        break;
+                    }
+                }
+            }
+
+            if ($this->defaultEngine === null && isset($this->availableEngines[0]['engine'])) {
+                $this->defaultEngine = (string) $this->availableEngines[0]['engine'];
+            }
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [404, 403, 501], true)) {
+                $this->enginesUnsupported = true;
+                $this->availableEngines = [];
+
+                return;
+            }
+
+            throw $e;
+        }
+    }
+
     public function openCreate(): void
     {
         $this->reset(['dbName', 'error']);
+        $this->dbEngine = $this->defaultEngine ?? '';
         $this->showCreateModal = true;
     }
 
     public function createDatabase(): void
     {
-        $this->validate([
+        $rules = [
             'dbName' => ['required', 'regex:/^[a-z][a-z0-9]{2,31}$/'],
-        ]);
+        ];
+
+        if ($this->availableEngines !== []) {
+            $allowed = implode(',', array_column($this->availableEngines, 'engine'));
+            $rules['dbEngine'] = ['required', 'in:'.$allowed];
+        }
+
+        $this->validate($rules);
 
         try {
-            $response = $this->client()->createDatabase($this->dbName);
+            $engine = $this->dbEngine !== '' ? $this->dbEngine : null;
+            $response = $this->client()->createDatabase($this->dbName, $engine);
             $this->showCreateModal = false;
             $this->dispatchJob($response, 'Database creation');
         } catch (CipiApiException $e) {
@@ -86,9 +155,10 @@ class Databases extends Component
         }
     }
 
-    public function confirmDeleteDatabase(string $name): void
+    public function confirmDeleteDatabase(string $name, string $engine = ''): void
     {
         $this->deleteDbName = $name;
+        $this->deleteDbEngine = $engine;
         $this->showDeleteModal = true;
     }
 
@@ -96,6 +166,7 @@ class Databases extends Component
     {
         $this->showDeleteModal = false;
         $this->deleteDbName = '';
+        $this->deleteDbEngine = '';
     }
 
     public function deleteDatabase(): void
@@ -105,21 +176,26 @@ class Databases extends Component
         }
 
         $name = $this->deleteDbName;
+        $engine = $this->deleteDbEngine !== '' ? $this->deleteDbEngine : null;
 
         try {
-            $response = $this->client()->deleteDatabase($name);
+            $response = $this->client()->deleteDatabase($name, $engine);
             $this->showDeleteModal = false;
             $this->deleteDbName = '';
+            $this->deleteDbEngine = '';
             $this->dispatchJob($response, "Delete database {$name}");
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
     }
 
-    public function regeneratePassword(string $name): void
+    public function regeneratePassword(string $name, string $engine = ''): void
     {
         try {
-            $response = $this->client()->regenerateDbPassword($name);
+            $response = $this->client()->regenerateDbPassword(
+                $name,
+                $engine !== '' ? $engine : null,
+            );
             $this->dispatchJob($response, "Regenerate password for {$name}");
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
