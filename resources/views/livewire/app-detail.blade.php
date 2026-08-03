@@ -43,6 +43,17 @@
                     <dl class="space-y-3 text-sm">
                         <div class="flex justify-between"><dt class="text-surface-400">Server</dt><dd class="text-white">{{ $server?->name ?? '—' }}</dd></div>
                         <div class="flex justify-between"><dt class="text-surface-400">PHP</dt><dd class="text-white">{{ $app['php'] }}</dd></div>
+                        <div class="flex justify-between">
+                            <dt class="text-surface-400">Runtime</dt>
+                            <dd class="text-white">
+                                @if($app['octane'] ?? null)
+                                    <span class="badge badge-neutral">Octane</span>
+                                    <span class="text-surface-400 text-xs ml-1">{{ $app['octane'] }}{{ isset($app['octane_port']) && $app['octane_port'] ? ' :'.$app['octane_port'] : '' }}</span>
+                                @else
+                                    PHP-FPM
+                                @endif
+                            </dd>
+                        </div>
                         @if(!($app['custom'] ?? false))
                             <div class="flex justify-between"><dt class="text-surface-400">Database</dt><dd class="text-white">{{ $this->engineLabel($app['engine'] ?? null) }}</dd></div>
                         @endif

@@ -45,6 +45,8 @@ class Apps extends Component
 
     public string $engine = '';
 
+    public bool $octane = false;
+
     /** @var array<int, array{engine: string, status?: string, port?: int|null, default?: bool}> */
     public array $availableEngines = [];
 
@@ -91,6 +93,7 @@ class Apps extends Component
         $this->reset(['user', 'domain', 'repository', 'branch', 'docroot', 'engine', 'error']);
         $this->php = '8.5';
         $this->custom = false;
+        $this->octane = false;
         $this->loadAvailableEngines();
         $this->showCreateModal = true;
     }
@@ -99,6 +102,7 @@ class Apps extends Component
     {
         if ($this->custom) {
             $this->engine = '';
+            $this->octane = false;
         } elseif ($this->engine === '' && $this->availableEngines !== []) {
             $this->engine = $this->defaultEngine();
         }
@@ -157,6 +161,7 @@ class Apps extends Component
             'domain' => ['required', 'string', 'max:255'],
             'php' => ['required', 'in:'.implode(',', config('cipi-gui.php_versions'))],
             'custom' => ['boolean'],
+            'octane' => ['boolean'],
         ];
 
         if (! $this->custom) {
@@ -192,6 +197,10 @@ class Apps extends Component
 
         if (! $this->custom && $this->engine !== '') {
             $payload['engine'] = $this->engine;
+        }
+
+        if (! $this->custom && $this->octane) {
+            $payload['octane'] = true;
         }
 
         try {

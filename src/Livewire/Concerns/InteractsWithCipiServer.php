@@ -69,6 +69,16 @@ trait InteractsWithCipiServer
         $engine = $app['engine'] ?? null;
         $app['engine'] = is_string($engine) && $engine !== '' ? $engine : null;
 
+        $octane = $app['octane'] ?? null;
+        $app['octane'] = is_string($octane) && $octane !== '' ? $octane : null;
+
+        $octanePort = $app['octane_port'] ?? null;
+        if ($octanePort !== null && $octanePort !== '' && is_numeric($octanePort)) {
+            $app['octane_port'] = (int) $octanePort;
+        } else {
+            $app['octane_port'] = null;
+        }
+
         $wwwRedirect = $app['www_redirect'] ?? null;
         $app['www_redirect'] = is_string($wwwRedirect) && $wwwRedirect !== '' ? $wwwRedirect : null;
 
@@ -82,6 +92,20 @@ trait InteractsWithCipiServer
             'mariadb' => 'MariaDB',
             default => $engine ?: '—',
         };
+    }
+
+    protected function runtimeLabel(?string $octane, ?int $octanePort = null): string
+    {
+        if ($octane) {
+            $label = 'Octane ('.$octane.')';
+            if ($octanePort) {
+                $label .= ' :'.$octanePort;
+            }
+
+            return $label;
+        }
+
+        return 'PHP-FPM';
     }
 
     protected function wwwRedirectLabel(?string $mode): string

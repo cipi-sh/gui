@@ -28,6 +28,7 @@ php artisan cipi:seed-gui-user
 - **Dashboard** — Live server status (CPU, memory, disk, services, app count) via `GET /api/status`
 - **Apps** — Create, edit, deploy Laravel and custom apps; manage aliases, WWW/apex redirects, SSL (install + force HTTPS), basic auth
 - **Databases** — Multi-engine MariaDB/PostgreSQL: list, create, delete, regenerate passwords (API 1.12+ / Cipi 4.8+)
+- **Laravel Octane** — optional FrankenPHP runtime at app create (API 1.13+ / Cipi 5.0+); list/detail show FPM vs Octane
 - **Async jobs** — Interactive job overlay with spinner and terminal output while polling `GET /api/jobs/{id}`
 - **Logs** — Terminal-style log viewer with type filter, pagination, and auto-refresh
 - **Security** — Password login with optional TOTP two-factor authentication (Google Authenticator compatible)

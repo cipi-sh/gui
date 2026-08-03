@@ -42,6 +42,7 @@
                         <th>App</th>
                         <th>Domain</th>
                         <th>PHP</th>
+                        <th>Runtime</th>
                         <th>DB</th>
                         <th>Branch</th>
                         <th>Flags</th>
@@ -59,6 +60,13 @@
                             </td>
                             <td class="text-surface-300">{{ $app['domain'] }}</td>
                             <td><span class="badge badge-neutral">{{ $app['php'] }}</span></td>
+                            <td class="text-surface-400 text-sm">
+                                @if($app['octane'] ?? null)
+                                    <span class="badge badge-neutral" title="{{ $this->runtimeLabel($app['octane'], $app['octane_port'] ?? null) }}">Octane</span>
+                                @else
+                                    FPM
+                                @endif
+                            </td>
                             <td class="text-surface-400 text-sm">{{ $this->engineLabel($app['engine'] ?? null) }}</td>
                             <td class="text-surface-400 text-sm">{{ $app['branch'] ?? '—' }}</td>
                             <td>
@@ -152,6 +160,14 @@
                                 @error('engine') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
                             </div>
                         @endif
+                        <div class="flex items-start gap-2">
+                            <input type="checkbox" wire:model="octane" id="octane" class="mt-1">
+                            <div>
+                                <label for="octane" style="margin:0;font-weight:400;">Laravel Octane (FrankenPHP)</label>
+                                <p class="text-xs text-surface-500 mt-1">Uses Nginx → Octane instead of PHP-FPM. Requires <code class="text-surface-400">laravel/octane</code> in the repo and more RAM. Cipi 5.0+.</p>
+                            </div>
+                        </div>
+                        @error('octane') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
                     @else
                         <div>
                             <label>Repository (optional — leave empty for SFTP-only)</label>
