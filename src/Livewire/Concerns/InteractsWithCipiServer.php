@@ -70,7 +70,14 @@ trait InteractsWithCipiServer
         $app['engine'] = is_string($engine) && $engine !== '' ? $engine : null;
 
         $octane = $app['octane'] ?? null;
-        $app['octane'] = is_string($octane) && $octane !== '' ? $octane : null;
+        if (is_string($octane) && $octane !== '') {
+            $app['octane'] = $octane;
+        } elseif ($this->appFlagIsTrue($octane)) {
+            // Create accepts boolean true; list/show usually return "frankenphp".
+            $app['octane'] = 'frankenphp';
+        } else {
+            $app['octane'] = null;
+        }
 
         $octanePort = $app['octane_port'] ?? null;
         if ($octanePort !== null && $octanePort !== '' && is_numeric($octanePort)) {

@@ -83,7 +83,7 @@ The GUI consumes the full [Cipi API OpenAPI spec](https://vps.deploying.it/docs)
 | Area | Endpoints |
 |------|-----------|
 | Server | `GET /api/status` |
-| Apps | CRUD, basic auth, logs; create accepts `engine` (mariadb/pgsql) |
+| Apps | CRUD, basic auth, logs; create accepts `engine` (mariadb/pgsql) and `octane` (FrankenPHP, API 1.13+); list/show expose `octane` / `octane_port` |
 | Aliases | List, add, remove |
 | WWW | Status, add counterpart, force-to-root / force-from-root, clear (`www-manage`) |
 | Deploy | Deploy, rollback, unlock |
