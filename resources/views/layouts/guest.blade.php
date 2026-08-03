@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="robots" content="noindex, nofollow">
     <title>{{ $title ?? 'Sign in' }} — Cipi GUI</title>
     @include('cipi-gui::partials.favicon')
     @include('cipi-gui::partials.theme-script')

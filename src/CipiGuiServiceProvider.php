@@ -6,6 +6,7 @@ use CipiGui\Console\Commands\GuiVersion;
 use CipiGui\Console\Commands\RefreshTheme;
 use CipiGui\Console\Commands\SeedGuiUser;
 use CipiGui\Http\Middleware\EnsureTwoFactorVerified;
+use CipiGui\Http\Middleware\PreventSearchIndexing;
 use CipiGui\Services\CipiApiException;
 use CipiGui\Support\Theme;
 use Illuminate\Auth\Middleware\Authenticate;
@@ -62,6 +63,7 @@ class CipiGuiServiceProvider extends ServiceProvider
         }
 
         Route::aliasMiddleware('cipi-gui.2fa', EnsureTwoFactorVerified::class);
+        Route::aliasMiddleware('cipi-gui.noindex', PreventSearchIndexing::class);
     }
 
     private function registerRoutes(): void
@@ -70,7 +72,7 @@ class CipiGuiServiceProvider extends ServiceProvider
 
         Route::group([
             'prefix' => $prefix,
-            'middleware' => ['web'],
+            'middleware' => ['web', 'cipi-gui.noindex'],
         ], function () {
             $this->loadRoutesFrom(__DIR__.'/../routes/web.php');
         });

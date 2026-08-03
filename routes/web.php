@@ -11,6 +11,18 @@ use CipiGui\Livewire\Settings;
 use CipiGui\Livewire\Servers;
 use Illuminate\Support\Facades\Route;
 
+Route::get('/robots.txt', function () {
+    $content = implode("\n", [
+        'User-agent: *',
+        'Disallow: /',
+        '',
+    ]);
+
+    return response($content, 200, [
+        'Content-Type' => 'text/plain; charset=UTF-8',
+    ]);
+})->name('cipi-gui.robots');
+
 Route::get('/favicon.svg', [AssetsController::class, 'favicon'])->name('cipi-gui.assets.favicon');
 Route::redirect('/favicon.ico', '/favicon.svg', 301);
 
