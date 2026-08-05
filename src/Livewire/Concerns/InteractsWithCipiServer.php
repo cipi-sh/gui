@@ -36,8 +36,12 @@ trait InteractsWithCipiServer
 
     protected function handleApiError(CipiApiException $e): void
     {
-        $this->error = $e->getMessage();
-        $this->dispatch('notify', type: 'error', message: $e->getMessage());
+        $message = $e->getMessage();
+        if ($message === 'Server Error' || str_starts_with($message, 'API request failed with status 500')) {
+            $message = 'Panel API error (HTTP 500). On the managed server run: cipi self-update && cipi api update';
+        }
+        $this->error = $message;
+        $this->dispatch('notify', type: 'error', message: $message);
     }
 
     protected function appFlagIsTrue(mixed $value): bool
