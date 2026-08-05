@@ -61,11 +61,16 @@
                                         @endif
                                     </div>
                                     <div class="flex flex-wrap gap-2">
-                                        @if(($row['status'] ?? '') === 'installed')
+                                        @php
+                                            $phpStatus = $row['status'] ?? '';
+                                            $phpIsReady = in_array($phpStatus, ['installed', 'running'], true);
+                                            $phpIsDefault = !empty($row['default']) || ($phpData['default'] ?? null) === ($row['version'] ?? null);
+                                        @endphp
+                                        @if($phpIsReady)
                                             <button type="button"
                                                     wire:click="setDefaultPhp('{{ $row['version'] }}')"
                                                     class="btn btn-secondary btn-sm"
-                                                    @if(!empty($row['default']) || ($phpData['default'] ?? null) === ($row['version'] ?? null)) disabled @endif>
+                                                    @if($phpIsDefault) disabled @endif>
                                                 Set default
                                             </button>
                                         @endif
@@ -73,7 +78,7 @@
                                                 wire:click="removePhp('{{ $row['version'] }}')"
                                                 wire:confirm="Remove PHP {{ $row['version'] }}? Apps using it must be migrated first."
                                                 class="btn btn-ghost btn-sm text-red-400"
-                                                @if(!empty($row['default']) || ($phpData['default'] ?? null) === ($row['version'] ?? null) || ($row['apps'] ?? 0) > 0) disabled @endif>
+                                                @if($phpIsDefault || ($row['apps'] ?? 0) > 0) disabled @endif>
                                             Remove
                                         </button>
                                     </div>
@@ -116,7 +121,11 @@
                                     @endif
                                 </div>
                                 <div class="flex gap-2">
-                                    @if(($engine['status'] ?? '') !== 'installed')
+                                    @php
+                                        $engineStatus = $engine['status'] ?? '';
+                                        $engineIsReady = in_array($engineStatus, ['installed', 'running'], true);
+                                    @endphp
+                                    @if(!$engineIsReady)
                                         <button type="button" wire:click="installEngine('{{ $engine['engine'] }}')" class="btn btn-primary btn-sm">Install</button>
                                     @else
                                         <button type="button" wire:click="setDefaultEngine('{{ $engine['engine'] }}')" class="btn btn-secondary btn-sm"
