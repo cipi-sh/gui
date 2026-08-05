@@ -13,8 +13,6 @@ use Livewire\Component;
 #[Title('Dashboard')]
 class Dashboard extends Component
 {
-    public ?int $selectedServerId = null;
-
     /** @var array<int, array> */
     public array $serverStatuses = [];
 
@@ -22,14 +20,13 @@ class Dashboard extends Component
 
     public function mount(): void
     {
-        $this->selectedServerId = session('cipi_gui_server_id');
         $this->loadStatuses();
     }
 
-    public function selectServer(?int $id): void
+    public function selectServer(int $id): void
     {
-        $this->selectedServerId = $id;
         session(['cipi_gui_server_id' => $id]);
+        $this->redirect(route('cipi-gui.server-manage'), navigate: true);
     }
 
     public function refresh(): void

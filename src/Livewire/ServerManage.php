@@ -286,6 +286,21 @@ class ServerManage extends Component
         }
     }
 
+    public function setDefaultPhp(string $version): void
+    {
+        try {
+            $data = $this->client()->setDefaultPhp($version);
+            if (is_array($data) && (isset($data['versions']) || isset($data['default']))) {
+                $this->phpData = $data;
+            } else {
+                $this->loadPhp();
+            }
+            $this->dispatch('notify', type: 'success', message: 'Default PHP set to '.$version);
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
     public function installEngine(string $engine): void
     {
         try {

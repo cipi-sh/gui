@@ -84,7 +84,7 @@ The GUI consumes the full [Cipi API OpenAPI spec](https://vps.deploying.it/docs)
 
 | Area | Endpoints |
 |------|-----------|
-| Server | `GET /api/status`; Manage page: PHP / DB engines / SSH / services / SMTP (API 1.15–1.16 / Cipi ≥ 5.0.6–5.0.7) |
+| Server | `GET /api/status`; Manage page: PHP / DB engines / SSH / services / SMTP (API 1.15–1.16 / Cipi ≥ 5.0.6–5.0.7); `PUT /api/php/default` sets system default PHP (API 1.16+) |
 | Apps | CRUD, basic auth, logs; create accepts `engine` (mariadb/pgsql) and `octane` (FrankenPHP, API 1.13+); list/show expose `octane` / `octane_port`; edit sends only changed fields; webhook recreate + secret rotate; per-app HTTP healthcheck |
 | Env | `GET`/`PUT /api/apps/{name}/env` (`apps-env`, API 1.14+) |
 | Auth.json | `GET`/`POST`/`PUT`/`DELETE /api/apps/{name}/auth` — Composer shared credentials, not HTTP Basic Auth (`apps-auth`) |

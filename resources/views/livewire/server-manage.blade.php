@@ -56,17 +56,27 @@
                                     <div>
                                         <span class="text-white font-medium">PHP {{ $row['version'] }}</span>
                                         <span class="text-xs text-surface-500 ml-2">{{ $row['status'] ?? '' }} · {{ $row['apps'] ?? 0 }} apps</span>
-                                        @if(!empty($row['default']))
+                                        @if(!empty($row['default']) || ($phpData['default'] ?? null) === ($row['version'] ?? null))
                                             <span class="badge badge-neutral ml-2">system default</span>
                                         @endif
                                     </div>
-                                    <button type="button"
-                                            wire:click="removePhp('{{ $row['version'] }}')"
-                                            wire:confirm="Remove PHP {{ $row['version'] }}? Apps using it must be migrated first."
-                                            class="btn btn-ghost btn-sm text-red-400"
-                                            @if(!empty($row['default']) || ($row['apps'] ?? 0) > 0) disabled @endif>
-                                        Remove
-                                    </button>
+                                    <div class="flex flex-wrap gap-2">
+                                        @if(($row['status'] ?? '') === 'installed')
+                                            <button type="button"
+                                                    wire:click="setDefaultPhp('{{ $row['version'] }}')"
+                                                    class="btn btn-secondary btn-sm"
+                                                    @if(!empty($row['default']) || ($phpData['default'] ?? null) === ($row['version'] ?? null)) disabled @endif>
+                                                Set default
+                                            </button>
+                                        @endif
+                                        <button type="button"
+                                                wire:click="removePhp('{{ $row['version'] }}')"
+                                                wire:confirm="Remove PHP {{ $row['version'] }}? Apps using it must be migrated first."
+                                                class="btn btn-ghost btn-sm text-red-400"
+                                                @if(!empty($row['default']) || ($phpData['default'] ?? null) === ($row['version'] ?? null) || ($row['apps'] ?? 0) > 0) disabled @endif>
+                                            Remove
+                                        </button>
+                                    </div>
                                 </li>
                             @endforeach
                         </ul>

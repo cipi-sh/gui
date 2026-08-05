@@ -345,6 +345,11 @@ class CipiApiClient
         return $this->delete("/php/{$version}");
     }
 
+    public function setDefaultPhp(string $version): array
+    {
+        return $this->put('/php/default', ['version' => $version])['data'] ?? [];
+    }
+
     // ── DB engines manage (API 1.15+) ─────────────────────────────────
 
     public function installDbEngine(string $engine): array

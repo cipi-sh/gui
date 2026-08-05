@@ -53,6 +53,8 @@ class Apps extends Component
     /** @var list<string> */
     public array $installedPhpVersions = [];
 
+    public ?string $defaultPhpVersion = null;
+
     public function mount(): void
     {
         $this->ensureServerSelected();
@@ -98,15 +100,14 @@ class Apps extends Component
         $this->octane = false;
         $this->loadAvailableEngines();
         $this->loadInstalledPhpVersions();
-        $this->php = in_array('8.5', $this->installedPhpVersions, true)
-            ? '8.5'
-            : ($this->installedPhpVersions[0] ?? '8.5');
+        $this->php = $this->defaultPhpForNewApp();
         $this->showCreateModal = true;
     }
 
     protected function loadInstalledPhpVersions(): void
     {
         $this->installedPhpVersions = (array) config('cipi-gui.php_versions', ['8.4', '8.5']);
+        $this->defaultPhpVersion = null;
 
         if (! $this->currentServer()) {
             return;
@@ -114,6 +115,9 @@ class Apps extends Component
 
         try {
             $data = $this->client()->listPhp();
+            if (isset($data['default']) && is_string($data['default']) && $data['default'] !== '') {
+                $this->defaultPhpVersion = $data['default'];
+            }
             $versions = [];
             foreach ($data['versions'] ?? [] as $row) {
                 if (is_array($row) && ! empty($row['version'])) {
@@ -128,6 +132,16 @@ class Apps extends Component
                 // Keep config fallback; don't block create modal.
             }
         }
+    }
+
+    protected function defaultPhpForNewApp(): string
+    {
+        if ($this->defaultPhpVersion !== null
+            && in_array($this->defaultPhpVersion, $this->installedPhpVersions, true)) {
+            return $this->defaultPhpVersion;
+        }
+
+        return $this->installedPhpVersions[0] ?? '8.5';
     }
 
     public function updatedCustom(): void
