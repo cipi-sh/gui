@@ -159,7 +159,7 @@ class Apps extends Component
         $rules = [
             'user' => ['required', 'regex:/^[a-z][a-z0-9]{2,31}$/'],
             'domain' => ['required', 'string', 'max:255'],
-            'php' => ['required', 'in:'.implode(',', config('cipi-gui.php_versions'))],
+            'php' => ['required', 'regex:/^\d+\.\d+$/'],
             'custom' => ['boolean'],
             'octane' => ['boolean'],
         ];

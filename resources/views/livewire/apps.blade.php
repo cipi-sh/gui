@@ -138,11 +138,9 @@
                             </div>
                             <div>
                                 <label>PHP Version</label>
-                                <select wire:model="php">
-                                    @foreach($phpVersions as $v)
-                                        <option value="{{ $v }}">{{ $v }}</option>
-                                    @endforeach
-                                </select>
+                                <input type="text" wire:model="php" placeholder="e.g. 8.4" autocomplete="off">
+                                <p class="text-xs text-surface-500 mt-1">Use a PHP version installed on the server (e.g. {{ implode(', ', $phpVersions) }}).</p>
+                                @error('php') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
                             </div>
                         </div>
                         @if(count($availableEngines) > 0)
@@ -180,11 +178,9 @@
                             </div>
                             <div>
                                 <label>PHP Version</label>
-                                <select wire:model="php">
-                                    @foreach($phpVersions as $v)
-                                        <option value="{{ $v }}">{{ $v }}</option>
-                                    @endforeach
-                                </select>
+                                <input type="text" wire:model="php" placeholder="e.g. 8.4" autocomplete="off">
+                                <p class="text-xs text-surface-500 mt-1">Use a PHP version installed on the server (e.g. {{ implode(', ', $phpVersions) }}).</p>
+                                @error('php') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
                             </div>
                         </div>
                     @endif

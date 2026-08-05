@@ -4,12 +4,29 @@
         <div class="p-6">
             <div class="flex items-center gap-4 mb-4">
                 <div class="relative">
-                    <div class="spinner spinner-lg"></div>
+                    @if(($activeJobStatus ?? null) === 'completed')
+                        <div class="job-status-icon job-status-icon-success" aria-hidden="true">
+                            <svg fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                        </div>
+                    @elseif(($activeJobStatus ?? null) === 'failed')
+                        <div class="job-status-icon job-status-icon-error" aria-hidden="true">
+                            <svg fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </div>
+                    @else
+                        <div class="spinner spinner-lg"></div>
+                    @endif
                 </div>
                 <div>
                     <h3 class="text-lg font-semibold">{{ $jobLabel ?? 'Processing...' }}</h3>
                     <p class="text-sm text-surface-400 mt-1">
-                        Status: <span class="badge badge-neutral">{{ ucfirst($activeJobStatus ?? 'pending') }}</span>
+                        Status:
+                        <span class="badge {{ ($activeJobStatus ?? null) === 'completed' ? 'badge-green' : (($activeJobStatus ?? null) === 'failed' ? 'badge-red' : 'badge-neutral') }}">
+                            {{ ucfirst($activeJobStatus ?? 'pending') }}
+                        </span>
                     </p>
                 </div>
             </div>
@@ -49,7 +66,7 @@
                         <pre class="text-terminal-green" style="margin:0;white-space:pre-wrap;">{{ json_encode($activeJobResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
                     </div>
                 </div>
-            @else
+            @elseif($jobRunning ?? false)
                 <div class="card mt-2">
                     <div class="flex items-center gap-3">
                         <div class="spinner"></div>

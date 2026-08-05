@@ -65,6 +65,73 @@ class CipiApiClient
         return $this->get("/apps/{$name}/logs", $query)['data'] ?? [];
     }
 
+    // ── App .env (API 1.14+ / Cipi CLI ≥ 5.0.3) ───────────────────────
+
+    public function showEnv(string $name): array
+    {
+        return $this->get("/apps/{$name}/env")['data'] ?? [];
+    }
+
+    /**
+     * @param  array<string, string>  $set
+     * @param  list<string>  $unset
+     */
+    public function updateEnv(string $name, array $set = [], array $unset = []): array
+    {
+        $payload = [];
+        if ($set !== []) {
+            $payload['set'] = $set;
+        }
+        if ($unset !== []) {
+            $payload['unset'] = $unset;
+        }
+
+        return $this->put("/apps/{$name}/env", $payload)['data'] ?? [];
+    }
+
+    // ── Shared auth.json (Composer — not HTTP Basic Auth) ─────────────
+
+    public function showAuthJson(string $name): array
+    {
+        return $this->get("/apps/{$name}/auth")['data'] ?? [];
+    }
+
+    public function createAuthJson(string $name, bool $force = false): array
+    {
+        $payload = $force ? ['force' => true] : [];
+
+        return $this->post("/apps/{$name}/auth", $payload)['data'] ?? [];
+    }
+
+    public function updateAuthJson(string $name, string $rawJson): array
+    {
+        return $this->putRaw("/apps/{$name}/auth", $rawJson)['data'] ?? [];
+    }
+
+    public function deleteAuthJson(string $name): array
+    {
+        return $this->delete("/apps/{$name}/auth")['data'] ?? [];
+    }
+
+    // ── Artisan (async — Laravel apps only) ───────────────────────────
+
+    public function runArtisan(string $name, string $command): array
+    {
+        return $this->post("/apps/{$name}/artisan", ['command' => $command]);
+    }
+
+    // ── Whitelisted app run (composer/npm/…) ──────────────────────────
+
+    public function listRunCommands(): array
+    {
+        return $this->get('/run-commands')['data'] ?? [];
+    }
+
+    public function runAppCommand(string $name, string $command): array
+    {
+        return $this->post("/apps/{$name}/run", ['command' => $command]);
+    }
+
     // ── Aliases ───────────────────────────────────────────────────────
 
     public function listAliases(string $app): array
@@ -282,12 +349,20 @@ class CipiApiClient
         return $this->request('put', $path, data: $data);
     }
 
+    /**
+     * PUT with a raw JSON body (used by auth.json replace — not a wrapped payload).
+     */
+    protected function putRaw(string $path, string $rawBody): array
+    {
+        return $this->request('putRaw', $path, rawBody: $rawBody);
+    }
+
     protected function delete(string $path, array $query = []): array
     {
         return $this->request('delete', $path, query: $query);
     }
 
-    protected function request(string $method, string $path, array $data = [], array $query = []): array
+    protected function request(string $method, string $path, array $data = [], array $query = [], ?string $rawBody = null): array
     {
         $url = $this->server->api_url.$path;
 
@@ -302,6 +377,7 @@ class CipiApiClient
                 'get' => $pending->get($url, $query),
                 'post' => $pending->post($url, $data),
                 'put' => $pending->put($url, $data),
+                'putRaw' => $pending->withBody($rawBody ?? '', 'application/json')->put($url),
                 'delete' => $query === []
                     ? $pending->delete($url)
                     : $pending->withQueryParameters($query)->delete($url),

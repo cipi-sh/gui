@@ -53,6 +53,48 @@ class AppDetail extends Component
 
     public ?string $generatedPassword = null;
 
+    // .env (Laravel apps — API 1.14+)
+    /** @var array<int, array{key: string, value: string}> */
+    public array $envRows = [];
+
+    /** @var array<string, string> */
+    public array $envOriginal = [];
+
+    public bool $envLoaded = false;
+
+    public bool $envUnsupported = false;
+
+    public string $envNewKey = '';
+
+    public string $envNewValue = '';
+
+    // Shared auth.json (Composer — not HTTP Basic Auth)
+    public ?string $authJsonContent = null;
+
+    public bool $authJsonLoaded = false;
+
+    public bool $authJsonExists = false;
+
+    public bool $authJsonUnsupported = false;
+
+    public bool $authJsonForce = false;
+
+    // Artisan (Laravel apps)
+    public string $artisanCommand = '';
+
+    // Whitelisted app run (composer / npm / …)
+    public string $runCommand = '';
+
+    /** @var list<string> */
+    public array $runAllowedCommands = [];
+
+    /** @var list<string> */
+    public array $runNotes = [];
+
+    public bool $runLoaded = false;
+
+    public bool $runUnsupported = false;
+
     public bool $showDeleteModal = false;
 
     public function mount(?string $name = null): void
@@ -97,10 +139,29 @@ class AppDetail extends Component
         if ($tab === 'aliases') {
             $this->loadWwwStatus();
         }
+
+        if ($tab === 'env') {
+            $this->loadEnv();
+        }
+
+        if ($tab === 'authjson') {
+            $this->loadAuthJson();
+        }
+
+        if ($tab === 'run') {
+            $this->loadRunCommands();
+        }
     }
 
     public function saveApp(): void
     {
+        $this->validate([
+            'editPhp' => ['required', 'regex:/^\d+\.\d+$/'],
+            'editBranch' => ['nullable', 'string', 'max:64'],
+            'editRepository' => ['nullable', 'string'],
+            'editDomain' => ['nullable', 'string', 'max:255'],
+        ]);
+
         $payload = array_filter([
             'php' => $this->editPhp ?: null,
             'branch' => $this->editBranch ?: null,
@@ -304,6 +365,327 @@ class AppDetail extends Component
         }
     }
 
+    // ── .env ──────────────────────────────────────────────────────────
+
+    public function loadEnv(): void
+    {
+        $this->envUnsupported = false;
+        $this->envLoaded = false;
+
+        if ($this->app['custom'] ?? false) {
+            $this->envUnsupported = true;
+
+            return;
+        }
+
+        try {
+            $data = $this->client()->showEnv($this->appName);
+            $vars = is_array($data['vars'] ?? null) ? $data['vars'] : [];
+            $this->hydrateEnvRows($vars);
+            $this->envLoaded = true;
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)
+                || str_contains(strtolower($e->getMessage()), 'custom app')) {
+                $this->envUnsupported = true;
+
+                return;
+            }
+
+            $this->handleApiError($e);
+        }
+    }
+
+    public function addEnvRow(): void
+    {
+        $key = strtoupper(trim($this->envNewKey));
+        if ($key === '') {
+            $this->dispatch('notify', type: 'error', message: 'Env key is required.');
+
+            return;
+        }
+
+        foreach ($this->envRows as $row) {
+            if (strcasecmp($row['key'], $key) === 0) {
+                $this->dispatch('notify', type: 'error', message: "Key {$key} already exists.");
+
+                return;
+            }
+        }
+
+        $this->envRows[] = ['key' => $key, 'value' => $this->envNewValue];
+        $this->envNewKey = '';
+        $this->envNewValue = '';
+    }
+
+    public function removeEnvRow(int $index): void
+    {
+        if (! isset($this->envRows[$index])) {
+            return;
+        }
+
+        unset($this->envRows[$index]);
+        $this->envRows = array_values($this->envRows);
+    }
+
+    public function saveEnv(): void
+    {
+        $current = [];
+        foreach ($this->envRows as $row) {
+            $key = trim((string) ($row['key'] ?? ''));
+            if ($key === '') {
+                continue;
+            }
+            $current[$key] = (string) ($row['value'] ?? '');
+        }
+
+        $set = [];
+        foreach ($current as $key => $value) {
+            if (! array_key_exists($key, $this->envOriginal) || $this->envOriginal[$key] !== $value) {
+                $set[$key] = $value;
+            }
+        }
+
+        $unset = [];
+        foreach (array_keys($this->envOriginal) as $key) {
+            if (! array_key_exists($key, $current)) {
+                $unset[] = $key;
+            }
+        }
+
+        if ($set === [] && $unset === []) {
+            $this->dispatch('notify', type: 'info', message: 'No .env changes to save.');
+
+            return;
+        }
+
+        try {
+            $data = $this->client()->updateEnv($this->appName, $set, $unset);
+            $vars = is_array($data['vars'] ?? null) ? $data['vars'] : $current;
+            $this->hydrateEnvRows($vars);
+            $this->dispatch('notify', type: 'success', message: '.env updated.');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    /** @param  array<string, mixed>  $vars */
+    protected function hydrateEnvRows(array $vars): void
+    {
+        $normalized = [];
+        foreach ($vars as $key => $value) {
+            if (! is_string($key) || $key === '') {
+                continue;
+            }
+            $normalized[$key] = is_scalar($value) || $value === null ? (string) $value : json_encode($value);
+        }
+
+        ksort($normalized, SORT_STRING);
+        $this->envOriginal = $normalized;
+        $this->envRows = [];
+        foreach ($normalized as $key => $value) {
+            $this->envRows[] = ['key' => $key, 'value' => $value];
+        }
+    }
+
+    // ── Shared auth.json ──────────────────────────────────────────────
+
+    public function loadAuthJson(): void
+    {
+        $this->authJsonUnsupported = false;
+        $this->authJsonLoaded = false;
+        $this->authJsonExists = false;
+        $this->authJsonContent = null;
+
+        try {
+            $data = $this->client()->showAuthJson($this->appName);
+            $content = $data['content'] ?? [];
+            $this->authJsonContent = json_encode($content, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}';
+            $this->authJsonExists = true;
+            $this->authJsonLoaded = true;
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 501], true)) {
+                $this->authJsonUnsupported = true;
+
+                return;
+            }
+
+            // 404 (or CLI "not found") → file missing; offer create.
+            if ($e->getStatusCode() === 404
+                || str_contains(strtolower($e->getMessage()), 'not found')
+                || str_contains(strtolower($e->getMessage()), 'does not exist')
+                || str_contains(strtolower($e->getMessage()), 'no such file')) {
+                $this->authJsonExists = false;
+                $this->authJsonLoaded = true;
+                $this->authJsonContent = "{\n    \"http-basic\": {}\n}";
+
+                return;
+            }
+
+            $this->handleApiError($e);
+        }
+    }
+
+    public function createAuthJson(): void
+    {
+        $raw = trim($this->authJsonContent ?? '');
+        $hasCustomBody = $raw !== '' && $raw !== "{\n    \"http-basic\": {}\n}";
+
+        if ($hasCustomBody) {
+            json_decode($raw);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                $this->dispatch('notify', type: 'error', message: 'Invalid JSON: '.json_last_error_msg());
+
+                return;
+            }
+        }
+
+        try {
+            $data = $this->client()->createAuthJson($this->appName, $this->authJsonForce);
+            $this->authJsonExists = true;
+            $this->authJsonLoaded = true;
+            $this->authJsonForce = false;
+
+            if ($hasCustomBody) {
+                $data = $this->client()->updateAuthJson($this->appName, $raw);
+                $content = $data['content'] ?? json_decode($raw, true);
+                $this->authJsonContent = json_encode($content, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: $raw;
+                $this->dispatch('notify', type: 'success', message: 'auth.json created and saved.');
+            } else {
+                $content = $data['content'] ?? [];
+                $this->authJsonContent = json_encode($content, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}';
+                $this->dispatch('notify', type: 'success', message: 'auth.json created.');
+            }
+        } catch (CipiApiException $e) {
+            if ($e->getStatusCode() === 409) {
+                $this->dispatch('notify', type: 'error', message: 'auth.json already exists. Enable force to overwrite, or load and edit it.');
+                $this->loadAuthJson();
+
+                return;
+            }
+
+            $this->handleApiError($e);
+        }
+    }
+
+    public function saveAuthJson(): void
+    {
+        $raw = trim($this->authJsonContent ?? '');
+        if ($raw === '') {
+            $this->dispatch('notify', type: 'error', message: 'JSON body is required.');
+
+            return;
+        }
+
+        json_decode($raw);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            $this->dispatch('notify', type: 'error', message: 'Invalid JSON: '.json_last_error_msg());
+
+            return;
+        }
+
+        try {
+            $data = $this->client()->updateAuthJson($this->appName, $raw);
+            $content = $data['content'] ?? json_decode($raw, true);
+            $this->authJsonContent = json_encode($content, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: $raw;
+            $this->authJsonExists = true;
+            $this->dispatch('notify', type: 'success', message: 'auth.json saved.');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function deleteAuthJson(): void
+    {
+        try {
+            $this->client()->deleteAuthJson($this->appName);
+            $this->authJsonExists = false;
+            $this->authJsonContent = "{\n    \"http-basic\": {}\n}";
+            $this->dispatch('notify', type: 'success', message: 'auth.json deleted.');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    // ── Artisan ───────────────────────────────────────────────────────
+
+    public function runArtisanPreset(string $command): void
+    {
+        $this->artisanCommand = $command;
+        $this->runArtisan();
+    }
+
+    public function runArtisan(): void
+    {
+        $command = trim($this->artisanCommand);
+        if ($command === '') {
+            $this->dispatch('notify', type: 'error', message: 'Artisan command is required.');
+
+            return;
+        }
+
+        try {
+            $response = $this->client()->runArtisan($this->appName, $command);
+            $this->dispatchJob($response, 'Artisan: '.$command);
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    // ── Whitelisted run ───────────────────────────────────────────────
+
+    public function loadRunCommands(): void
+    {
+        $this->runUnsupported = false;
+
+        if ($this->runLoaded && $this->runAllowedCommands !== []) {
+            return;
+        }
+
+        try {
+            $data = $this->client()->listRunCommands();
+            $commands = $data['commands'] ?? [];
+            $notes = $data['notes'] ?? [];
+            $this->runAllowedCommands = is_array($commands)
+                ? array_values(array_filter($commands, fn ($c) => is_string($c) && $c !== ''))
+                : [];
+            $this->runNotes = is_array($notes)
+                ? array_values(array_filter($notes, fn ($n) => is_string($n) && $n !== ''))
+                : [];
+            $this->runLoaded = true;
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->runUnsupported = true;
+
+                return;
+            }
+
+            $this->handleApiError($e);
+        }
+    }
+
+    public function runAppPreset(string $command): void
+    {
+        $this->runCommand = $command;
+        $this->runAppCommand();
+    }
+
+    public function runAppCommand(): void
+    {
+        $command = trim($this->runCommand);
+        if ($command === '') {
+            $this->dispatch('notify', type: 'error', message: 'Command is required.');
+
+            return;
+        }
+
+        try {
+            $response = $this->client()->runAppCommand($this->appName, $command);
+            $this->dispatchJob($response, 'Run: '.$command);
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
     /** @param  array<string, mixed>  $patch */
     protected function patchApp(array $patch): void
     {
@@ -352,9 +734,46 @@ class AppDetail extends Component
 
     public function render()
     {
+        $isCustom = (bool) ($this->app['custom'] ?? false);
+
+        $tabs = [
+            'overview' => 'Overview',
+            'aliases' => 'Aliases & SSL',
+            'deploy' => 'Deploy',
+        ];
+
+        if (! $isCustom) {
+            $tabs['env'] = 'Env';
+        }
+
+        $tabs['authjson'] = 'Auth.json';
+
+        if (! $isCustom) {
+            $tabs['artisan'] = 'Artisan';
+        }
+
+        $tabs['run'] = 'Commands';
+        $tabs['basicauth'] = 'Basic Auth';
+        $tabs['logs'] = 'Logs';
+
         return view('cipi-gui::livewire.app-detail', [
             'phpVersions' => config('cipi-gui.php_versions'),
             'server' => $this->currentServer(),
+            'tabs' => $tabs,
+            'artisanPresets' => [
+                ['label' => 'cache:clear', 'command' => 'cache:clear'],
+                ['label' => 'optimize', 'command' => 'optimize'],
+                ['label' => 'optimize:clear', 'command' => 'optimize:clear'],
+                ['label' => 'migrate --force', 'command' => 'migrate --force'],
+            ],
+            'runPresets' => [
+                ['label' => 'composer install', 'command' => 'composer install --no-interaction'],
+                ['label' => 'composer install --no-dev', 'command' => 'composer install --no-dev --no-interaction'],
+                ['label' => 'composer dump-autoload', 'command' => 'composer dump-autoload --no-interaction'],
+                ['label' => 'npm install', 'command' => 'npm install'],
+                ['label' => 'npm ci', 'command' => 'npm ci'],
+                ['label' => 'npm run build', 'command' => 'npm run build'],
+            ],
         ])->title($this->appName.' — App');
     }
 }

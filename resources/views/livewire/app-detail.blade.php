@@ -24,7 +24,7 @@
 
         {{-- Tabs --}}
         <div class="flex flex-wrap gap-1 mb-6">
-            @foreach(['overview' => 'Overview', 'aliases' => 'Aliases & SSL', 'deploy' => 'Deploy', 'basicauth' => 'Basic Auth', 'logs' => 'Logs'] as $tab => $label)
+            @foreach($tabs as $tab => $label)
                 <button wire:click="setTab('{{ $tab }}')"
                         class="tab-btn {{ $activeTab === $tab ? 'active' : '' }}">
                     {{ $label }}
@@ -70,11 +70,9 @@
                     <form wire:submit="saveApp" class="space-y-3">
                         <div>
                             <label>PHP Version</label>
-                            <select wire:model="editPhp">
-                                @foreach($phpVersions as $v)
-                                    <option value="{{ $v }}">{{ $v }}</option>
-                                @endforeach
-                            </select>
+                            <input type="text" wire:model="editPhp" placeholder="e.g. 8.4" autocomplete="off">
+                            <p class="text-xs text-surface-500 mt-1">Use a PHP version installed on the server (e.g. {{ implode(', ', $phpVersions) }}).</p>
+                            @error('editPhp') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
                         </div>
                         <div>
                             <label>Branch</label>
@@ -139,24 +137,26 @@
                     @elseif($wwwStatus === null)
                         <button wire:click="loadWwwStatus" class="btn btn-secondary btn-sm">Load status</button>
                     @else
-                        <dl class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-4">
-                            <div>
-                                <dt class="text-surface-400">Primary</dt>
-                                <dd class="text-white font-mono">{{ $wwwStatus['primary'] ?? '—' }}</dd>
-                            </div>
-                            <div>
-                                <dt class="text-surface-400">Apex</dt>
-                                <dd class="text-white font-mono">{{ $wwwStatus['apex'] ?? '—' }}</dd>
-                            </div>
-                            <div>
-                                <dt class="text-surface-400">WWW</dt>
-                                <dd class="text-white font-mono">{{ $wwwStatus['www'] ?? '—' }}</dd>
-                            </div>
-                            <div>
-                                <dt class="text-surface-400">Redirect</dt>
-                                <dd class="text-white">{{ $this->wwwRedirectLabel($wwwStatus['redirect'] ?? null) }}</dd>
-                            </div>
-                        </dl>
+                        <table class="mb-4">
+                            <tbody>
+                                <tr>
+                                    <th scope="row">Primary</th>
+                                    <td class="font-mono text-white break-all">{{ $wwwStatus['primary'] ?? '—' }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Apex</th>
+                                    <td class="font-mono text-white break-all">{{ $wwwStatus['apex'] ?? '—' }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">WWW</th>
+                                    <td class="font-mono text-white break-all">{{ $wwwStatus['www'] ?? '—' }}</td>
+                                </tr>
+                                <tr>
+                                    <th scope="row">Redirect</th>
+                                    <td class="text-white">{{ $this->wwwRedirectLabel($wwwStatus['redirect'] ?? null) }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
                         <div class="flex flex-wrap gap-2">
                             <button wire:click="wwwAdd" class="btn btn-secondary btn-sm">Add counterpart alias</button>
                             <button wire:click="wwwForceToRoot" class="btn btn-secondary btn-sm">Force www → apex</button>
@@ -175,6 +175,155 @@
                     <button wire:click="rollback" wire:confirm="Rollback to previous release?" class="btn btn-secondary">Rollback</button>
                     <button wire:click="unlockDeploy" class="btn btn-secondary">Unlock Stuck Deploy</button>
                 </div>
+            </div>
+
+        @elseif($activeTab === 'env')
+            <div class="card">
+                <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                    <div>
+                        <h3 class="font-semibold text-white">Environment (.env)</h3>
+                        <p class="text-sm text-surface-400 mt-1">View and edit key/value pairs. Requires API 1.14+ and <code class="text-surface-300">apps-env</code>.</p>
+                    </div>
+                    <button wire:click="loadEnv" class="btn btn-ghost btn-sm" wire:loading.attr="disabled" wire:target="loadEnv,saveEnv">Refresh</button>
+                </div>
+
+                @if($envUnsupported)
+                    <p class="text-sm text-surface-400">.env management is unavailable (custom apps, missing ability, or API older than 1.14).</p>
+                @elseif(! $envLoaded)
+                    <button wire:click="loadEnv" class="btn btn-secondary btn-sm">Load .env</button>
+                @else
+                    <div class="space-y-2 mb-4 max-h-[28rem] overflow-y-auto pr-1">
+                        @forelse($envRows as $index => $row)
+                            <div class="grid grid-cols-1 sm:grid-cols-[minmax(10rem,14rem)_1fr_auto] gap-2 items-start" wire:key="env-row-{{ $index }}-{{ $row['key'] }}">
+                                <input type="text" wire:model="envRows.{{ $index }}.key" class="font-mono text-sm" placeholder="KEY" autocomplete="off">
+                                <input type="text" wire:model="envRows.{{ $index }}.value" class="font-mono text-sm" placeholder="value" autocomplete="off">
+                                <button type="button" wire:click="removeEnvRow({{ $index }})" class="btn btn-ghost btn-sm text-red-400">Remove</button>
+                            </div>
+                        @empty
+                            <p class="text-sm text-surface-400">No variables found.</p>
+                        @endforelse
+                    </div>
+
+                    <form wire:submit="addEnvRow" class="grid grid-cols-1 sm:grid-cols-[minmax(10rem,14rem)_1fr_auto] gap-2 mb-4">
+                        <input type="text" wire:model="envNewKey" class="font-mono text-sm" placeholder="NEW_KEY" autocomplete="off">
+                        <input type="text" wire:model="envNewValue" class="font-mono text-sm" placeholder="value" autocomplete="off">
+                        <button type="submit" class="btn btn-secondary btn-sm">Add</button>
+                    </form>
+
+                    <button wire:click="saveEnv" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="saveEnv">
+                        <span wire:loading.remove wire:target="saveEnv">Save .env</span>
+                        <span wire:loading wire:target="saveEnv">Saving…</span>
+                    </button>
+                @endif
+            </div>
+
+        @elseif($activeTab === 'authjson')
+            <div class="card max-w-3xl">
+                <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                    <div>
+                        <h3 class="font-semibold text-white">Composer auth.json</h3>
+                        <p class="text-sm text-surface-400 mt-1">Shared credentials for private Composer repos. Distinct from HTTP Basic Auth. Requires <code class="text-surface-300">apps-auth</code>.</p>
+                    </div>
+                    <button wire:click="loadAuthJson" class="btn btn-ghost btn-sm">Refresh</button>
+                </div>
+
+                @if($authJsonUnsupported)
+                    <p class="text-sm text-surface-400">auth.json management requires API 1.14+ with the <code class="text-surface-300">apps-auth</code> token ability.</p>
+                @elseif(! $authJsonLoaded)
+                    <button wire:click="loadAuthJson" class="btn btn-secondary btn-sm">Load auth.json</button>
+                @else
+                    @if(! $authJsonExists)
+                        <p class="text-sm text-surface-400 mb-3">No shared auth.json yet. Edit the draft below and create it, or create the default file.</p>
+                    @endif
+                    <div class="mb-3">
+                        <label class="text-sm text-surface-400">JSON document</label>
+                        <textarea wire:model="authJsonContent" rows="16" class="font-mono text-sm w-full mt-1" spellcheck="false"></textarea>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                        @if(! $authJsonExists)
+                            <label class="flex items-center gap-2 text-sm text-surface-300">
+                                <input type="checkbox" wire:model="authJsonForce" class="rounded border-surface-700">
+                                Force overwrite
+                            </label>
+                            <button wire:click="createAuthJson" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="createAuthJson">Create auth.json</button>
+                        @else
+                            <button wire:click="saveAuthJson" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="saveAuthJson">Save</button>
+                            <button wire:click="deleteAuthJson" wire:confirm="Delete shared auth.json for this app?" class="btn btn-danger btn-sm">Delete</button>
+                        @endif
+                    </div>
+                @endif
+            </div>
+
+        @elseif($activeTab === 'artisan')
+            <div class="card max-w-2xl">
+                <h3 class="font-semibold text-white mb-1">Artisan</h3>
+                <p class="text-sm text-surface-400 mb-4">Run Artisan on this Laravel app (async job). Requires <code class="text-surface-300">apps-artisan</code>. Interactive commands like <code class="text-surface-300">tinker</code> are blocked.</p>
+
+                <div class="flex flex-wrap gap-2 mb-4">
+                    @foreach($artisanPresets as $preset)
+                        <button type="button"
+                                wire:click="runArtisanPreset(@js($preset['command']))"
+                                wire:confirm="Run php artisan {{ $preset['command'] }}?"
+                                class="btn btn-secondary btn-sm font-mono">
+                            {{ $preset['label'] }}
+                        </button>
+                    @endforeach
+                </div>
+
+                <form wire:submit="runArtisan" class="flex flex-col sm:flex-row gap-2">
+                    <div class="flex-1 flex items-center gap-2">
+                        <span class="text-sm text-surface-500 font-mono shrink-0">artisan</span>
+                        <input type="text" wire:model="artisanCommand" class="font-mono text-sm flex-1" placeholder="migrate --force" autocomplete="off">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm" wire:confirm="Run this Artisan command?">Run</button>
+                </form>
+            </div>
+
+        @elseif($activeTab === 'run')
+            <div class="card max-w-2xl">
+                <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                    <div>
+                        <h3 class="font-semibold text-white">App commands</h3>
+                        <p class="text-sm text-surface-400 mt-1">Whitelisted non-interactive commands (composer, npm, …). Requires <code class="text-surface-300">apps-run</code> and Cipi CLI ≥ 5.0.3.</p>
+                    </div>
+                    <button wire:click="loadRunCommands" class="btn btn-ghost btn-sm">Refresh whitelist</button>
+                </div>
+
+                @if($runUnsupported)
+                    <p class="text-sm text-surface-400">App run requires API 1.14+ with the <code class="text-surface-300">apps-run</code> token ability.</p>
+                @else
+                    <div class="flex flex-wrap gap-2 mb-4">
+                        @foreach($runPresets as $preset)
+                            <button type="button"
+                                    wire:click="runAppPreset(@js($preset['command']))"
+                                    wire:confirm="Run: {{ $preset['command'] }}?"
+                                    class="btn btn-secondary btn-sm font-mono">
+                                {{ $preset['label'] }}
+                            </button>
+                        @endforeach
+                    </div>
+
+                    <form wire:submit="runAppCommand" class="flex flex-col sm:flex-row gap-2 mb-4">
+                        <input type="text" wire:model="runCommand" class="font-mono text-sm flex-1" placeholder="composer install --no-dev --no-interaction" autocomplete="off">
+                        <button type="submit" class="btn btn-primary btn-sm" wire:confirm="Run this command on the app?">Run</button>
+                    </form>
+
+                    @if($runLoaded && ! empty($runAllowedCommands))
+                        <details class="text-sm">
+                            <summary class="cursor-pointer text-surface-400 hover:text-surface-200">Allowed binaries ({{ count($runAllowedCommands) }})</summary>
+                            <p class="mt-2 font-mono text-xs text-surface-400 leading-relaxed">{{ implode(', ', $runAllowedCommands) }}</p>
+                            @if(! empty($runNotes))
+                                <ul class="mt-2 space-y-1 text-xs text-surface-500" style="list-style:disc;padding-left:1.25rem;">
+                                    @foreach($runNotes as $note)
+                                        <li>{{ $note }}</li>
+                                    @endforeach
+                                </ul>
+                            @endif
+                        </details>
+                    @elseif(! $runLoaded)
+                        <button wire:click="loadRunCommands" class="btn btn-ghost btn-sm">Load whitelist</button>
+                    @endif
+                @endif
             </div>
 
         @elseif($activeTab === 'basicauth')

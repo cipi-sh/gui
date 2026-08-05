@@ -21,10 +21,14 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | PHP versions (mirrors cipi/api config)
+    | PHP version examples (hint text in create/edit app forms)
     |--------------------------------------------------------------------------
+    |
+    | Shown as examples only. The actual available versions depend on what is
+    | installed on each Cipi server (free-text field, not a fixed allowlist).
+    |
     */
-    'php_versions' => ['8.3', '8.4', '8.5'],
+    'php_versions' => ['8.4', '8.5'],
 
     /*
     |--------------------------------------------------------------------------

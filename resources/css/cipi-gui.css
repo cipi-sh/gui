@@ -397,6 +397,16 @@
     }
     .spinner-lg { width: 2rem; height: 2rem; border-width: 2px; }
 
+    .job-status-icon {
+        display: flex; align-items: center; justify-content: center;
+        width: 2rem; height: 2rem;
+        border-radius: 50%;
+        border: 2px solid currentColor;
+    }
+    .job-status-icon svg { width: 1.125rem; height: 1.125rem; }
+    .job-status-icon-success { color: var(--success); }
+    .job-status-icon-error { color: var(--danger); }
+
     /* Terminal — always dark */
     .terminal {
         background: #0a0a0a;

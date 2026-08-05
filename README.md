@@ -27,6 +27,8 @@ php artisan cipi:seed-gui-user
 - **Multi-server** — Register N Cipi servers with API tokens; switch between them from any page
 - **Dashboard** — Live server status (CPU, memory, disk, services, app count) via `GET /api/status`
 - **Apps** — Create, edit, deploy Laravel and custom apps; manage aliases, WWW/apex redirects, SSL (install + force HTTPS), basic auth
+- **Env & auth.json** — View/edit Laravel `.env` key/values; create, edit, and delete shared Composer `auth.json` (API 1.14+ / Cipi CLI ≥ 5.0.3)
+- **Artisan & commands** — Run Artisan (presets + custom) and whitelisted app commands such as `composer` / `npm` with job overlay output
 - **Databases** — Multi-engine MariaDB/PostgreSQL: list, create, delete, regenerate passwords (API 1.12+ / Cipi 4.8+)
 - **Laravel Octane** — optional FrankenPHP runtime at app create (API 1.13+ / Cipi 5.0+); list/detail show FPM vs Octane
 - **Async jobs** — Interactive job overlay with spinner and terminal output while polling `GET /api/jobs/{id}`
@@ -53,7 +55,7 @@ Enable 2FA from **Settings** after first login. When enabled, a TOTP code is req
 2. Create an API token with the required abilities:
 
 ```bash
-cipi api token create --name=gui --abilities=apps-view,apps-create,apps-edit,apps-delete,apps-suspend,apps-basicauth,aliases-view,aliases-create,aliases-delete,www-manage,deploy-manage,ssl-manage,dbs-view,dbs-create,dbs-delete,dbs-manage,status-view
+cipi api token create --name=gui --abilities=apps-view,apps-create,apps-edit,apps-delete,apps-suspend,apps-basicauth,apps-env,apps-auth,apps-artisan,apps-run,aliases-view,aliases-create,aliases-delete,www-manage,deploy-manage,ssl-manage,dbs-view,dbs-create,dbs-delete,dbs-manage,status-view
 ```
 
 3. In the GUI, go to **Servers → Add Server** and enter:
@@ -84,6 +86,10 @@ The GUI consumes the full [Cipi API OpenAPI spec](https://vps.deploying.it/docs)
 |------|-----------|
 | Server | `GET /api/status` |
 | Apps | CRUD, basic auth, logs; create accepts `engine` (mariadb/pgsql) and `octane` (FrankenPHP, API 1.13+); list/show expose `octane` / `octane_port` |
+| Env | `GET`/`PUT /api/apps/{name}/env` (`apps-env`, API 1.14+) |
+| Auth.json | `GET`/`POST`/`PUT`/`DELETE /api/apps/{name}/auth` — Composer shared credentials, not HTTP Basic Auth (`apps-auth`) |
+| Artisan | `POST /api/apps/{name}/artisan` — async job (`apps-artisan`) |
+| App run | `GET /api/run-commands`, `POST /api/apps/{name}/run` — whitelisted composer/npm/… (`apps-run`) |
 | Aliases | List, add, remove |
 | WWW | Status, add counterpart, force-to-root / force-from-root, clear (`www-manage`) |
 | Deploy | Deploy, rollback, unlock |
