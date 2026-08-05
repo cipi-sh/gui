@@ -50,6 +50,9 @@ class Apps extends Component
     /** @var array<int, array{engine: string, status?: string, port?: int|null, default?: bool}> */
     public array $availableEngines = [];
 
+    /** @var list<string> */
+    public array $installedPhpVersions = [];
+
     public function mount(): void
     {
         $this->ensureServerSelected();
@@ -91,11 +94,40 @@ class Apps extends Component
     public function openCreate(): void
     {
         $this->reset(['user', 'domain', 'repository', 'branch', 'docroot', 'engine', 'error']);
-        $this->php = '8.5';
         $this->custom = false;
         $this->octane = false;
         $this->loadAvailableEngines();
+        $this->loadInstalledPhpVersions();
+        $this->php = in_array('8.5', $this->installedPhpVersions, true)
+            ? '8.5'
+            : ($this->installedPhpVersions[0] ?? '8.5');
         $this->showCreateModal = true;
+    }
+
+    protected function loadInstalledPhpVersions(): void
+    {
+        $this->installedPhpVersions = (array) config('cipi-gui.php_versions', ['8.4', '8.5']);
+
+        if (! $this->currentServer()) {
+            return;
+        }
+
+        try {
+            $data = $this->client()->listPhp();
+            $versions = [];
+            foreach ($data['versions'] ?? [] as $row) {
+                if (is_array($row) && ! empty($row['version'])) {
+                    $versions[] = (string) $row['version'];
+                }
+            }
+            if ($versions !== []) {
+                $this->installedPhpVersions = $versions;
+            }
+        } catch (CipiApiException $e) {
+            if (! in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                // Keep config fallback; don't block create modal.
+            }
+        }
     }
 
     public function updatedCustom(): void
@@ -266,7 +298,9 @@ class Apps extends Component
     {
         return view('cipi-gui::livewire.apps', [
             'servers' => CipiServer::where('is_active', true)->orderBy('name')->get(),
-            'phpVersions' => config('cipi-gui.php_versions'),
+            'phpVersions' => $this->installedPhpVersions !== []
+                ? $this->installedPhpVersions
+                : config('cipi-gui.php_versions'),
         ]);
     }
 }

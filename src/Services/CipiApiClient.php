@@ -40,6 +40,16 @@ class CipiApiClient
         return $this->put("/apps/{$name}", $payload);
     }
 
+    /**
+     * Recreate GitHub/GitLab webhook (API 1.15+ / Cipi CLI ≥ 5.0.6).
+     */
+    public function recreateWebhook(string $name, bool $rotateSecret = false): array
+    {
+        return $this->post("/apps/{$name}/webhook/recreate", [
+            'rotate_secret' => $rotateSecret,
+        ]);
+    }
+
     public function deleteApp(string $name): array
     {
         return $this->delete("/apps/{$name}");
@@ -313,6 +323,128 @@ class CipiApiClient
         }
 
         return $this->post("/dbs/{$name}/password", $payload);
+    }
+
+    // ── PHP (API 1.15+ / Cipi CLI ≥ 5.0.6) ────────────────────────────
+
+    /**
+     * @return array{default: ?string, installable: list<string>, versions: list<array{version: string, status: string, apps: int, default: bool}>}
+     */
+    public function listPhp(): array
+    {
+        return $this->get('/php')['data'] ?? ['default' => null, 'installable' => [], 'versions' => []];
+    }
+
+    public function installPhp(string $version): array
+    {
+        return $this->post('/php/install', ['version' => $version]);
+    }
+
+    public function removePhp(string $version): array
+    {
+        return $this->delete("/php/{$version}");
+    }
+
+    // ── DB engines manage (API 1.15+) ─────────────────────────────────
+
+    public function installDbEngine(string $engine): array
+    {
+        return $this->post('/dbs/engines/install', ['engine' => $engine]);
+    }
+
+    public function setDefaultDbEngine(string $engine): array
+    {
+        return $this->put('/dbs/engines/default', ['engine' => $engine])['data'] ?? [];
+    }
+
+    // ── SSH keys (API 1.15+) ──────────────────────────────────────────
+
+    public function listSshKeys(): array
+    {
+        return $this->get('/ssh/keys')['data'] ?? [];
+    }
+
+    public function addSshKey(string $key): array
+    {
+        return $this->post('/ssh/keys', ['key' => $key])['data'] ?? [];
+    }
+
+    public function removeSshKey(int $id): array
+    {
+        return $this->delete("/ssh/keys/{$id}")['data'] ?? [];
+    }
+
+    // ── Services (API 1.15+) ──────────────────────────────────────────
+
+    public function listServices(?string $service = null): array
+    {
+        $query = $service ? ['service' => $service] : [];
+
+        return $this->get('/services', $query)['data'] ?? [];
+    }
+
+    public function restartService(string $name): array
+    {
+        return $this->post("/services/{$name}/restart");
+    }
+
+    // ── SMTP (API 1.16+ / Cipi CLI ≥ 5.0.7) ───────────────────────────
+
+    public function getSmtp(): array
+    {
+        return $this->get('/smtp')['data'] ?? [];
+    }
+
+    public function updateSmtp(array $payload): array
+    {
+        return $this->put('/smtp', $payload)['data'] ?? [];
+    }
+
+    public function enableSmtp(): array
+    {
+        return $this->post('/smtp/enable')['data'] ?? [];
+    }
+
+    public function disableSmtp(): array
+    {
+        return $this->post('/smtp/disable')['data'] ?? [];
+    }
+
+    public function testSmtp(): array
+    {
+        return $this->post('/smtp/test')['data'] ?? [];
+    }
+
+    public function deleteSmtp(): array
+    {
+        return $this->delete('/smtp')['data'] ?? [];
+    }
+
+    // ── Healthchecks (API 1.16+) ──────────────────────────────────────
+
+    public function getAppHealth(string $name): array
+    {
+        return $this->get("/apps/{$name}/health")['data'] ?? [];
+    }
+
+    public function setAppHealth(string $name, ?string $url = null, int $expect = 200): array
+    {
+        $payload = ['expect' => $expect];
+        if ($url !== null && $url !== '') {
+            $payload['url'] = $url;
+        }
+
+        return $this->put("/apps/{$name}/health", $payload)['data'] ?? [];
+    }
+
+    public function unsetAppHealth(string $name): array
+    {
+        return $this->delete("/apps/{$name}/health")['data'] ?? [];
+    }
+
+    public function checkAppHealth(string $name): array
+    {
+        return $this->post("/apps/{$name}/health/check")['data'] ?? [];
     }
 
     // ── Jobs & Status ─────────────────────────────────────────────────

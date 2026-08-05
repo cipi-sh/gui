@@ -36,6 +36,11 @@ class AppDetail extends Component
 
     public string $editDomain = '';
 
+    /** @var list<string> Installed PHP versions from API (fallback: config hints) */
+    public array $installedPhpVersions = [];
+
+    public bool $phpListUnsupported = false;
+
     // Alias form
     public string $newAlias = '';
 
@@ -97,6 +102,20 @@ class AppDetail extends Component
 
     public bool $showDeleteModal = false;
 
+    // HTTP healthcheck (API 1.16+)
+    /** @var array{enabled?: bool, url?: ?string, expect?: ?int, state?: ?string, failcount?: int} */
+    public array $health = [];
+
+    public bool $healthUnsupported = false;
+
+    public bool $healthEnabled = false;
+
+    public string $healthUrl = '';
+
+    public string $healthExpect = '200';
+
+    public ?array $healthCheckResult = null;
+
     public function mount(?string $name = null): void
     {
         $this->appName = $name ?? (string) request()->route('name');
@@ -121,10 +140,110 @@ class AppDetail extends Component
             $this->editBranch = $this->app['branch'] ?? '';
             $this->editRepository = $this->app['repository'] ?? '';
             $this->editDomain = $this->app['domain'] ?? '';
+            $this->loadInstalledPhpVersions();
+            $this->loadHealth();
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         } finally {
             $this->loading = false;
+        }
+    }
+
+    protected function loadHealth(): void
+    {
+        $this->healthUnsupported = false;
+        $this->healthCheckResult = null;
+        $domain = (string) ($this->app['domain'] ?? '');
+
+        try {
+            $this->health = $this->client()->getAppHealth($this->appName);
+            $this->healthEnabled = (bool) ($this->health['enabled'] ?? false);
+            $this->healthUrl = (string) ($this->health['url'] ?? ($domain !== '' ? 'https://'.$domain.'/up' : ''));
+            $this->healthExpect = (string) ($this->health['expect'] ?? 200);
+        } catch (CipiApiException $e) {
+            $this->healthUnsupported = true;
+            $this->health = [];
+            $this->healthEnabled = false;
+            $this->healthUrl = $domain !== '' ? 'https://'.$domain.'/up' : '';
+            $this->healthExpect = '200';
+        }
+    }
+
+    public function saveHealth(): void
+    {
+        $this->validate([
+            'healthUrl' => ['nullable', 'string', 'max:512', 'regex:/^https?:\/\/.+/i'],
+            'healthExpect' => ['required', 'integer', 'min:100', 'max:599'],
+        ]);
+
+        try {
+            $url = trim($this->healthUrl);
+            $this->health = $this->client()->setAppHealth(
+                $this->appName,
+                $url !== '' ? $url : null,
+                (int) $this->healthExpect,
+            );
+            $this->healthEnabled = true;
+            $this->healthCheckResult = null;
+            $this->dispatch('notify', type: 'success', message: 'Healthcheck enabled');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function disableHealth(): void
+    {
+        try {
+            $this->health = $this->client()->unsetAppHealth($this->appName);
+            $this->healthEnabled = false;
+            $this->healthCheckResult = null;
+            $this->dispatch('notify', type: 'success', message: 'Healthcheck disabled');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function runHealthCheck(): void
+    {
+        try {
+            $this->healthCheckResult = $this->client()->checkAppHealth($this->appName);
+            $ok = (bool) ($this->healthCheckResult['ok'] ?? false);
+            $this->dispatch(
+                'notify',
+                type: $ok ? 'success' : 'error',
+                message: $ok
+                    ? 'Healthcheck OK ('.$this->healthCheckResult['got'].')'
+                    : 'Healthcheck failed (got '.$this->healthCheckResult['got'].', expected '.$this->healthCheckResult['expect'].')',
+            );
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    protected function loadInstalledPhpVersions(): void
+    {
+        $this->phpListUnsupported = false;
+        $this->installedPhpVersions = [];
+
+        try {
+            $data = $this->client()->listPhp();
+            $versions = [];
+            foreach ($data['versions'] ?? [] as $row) {
+                if (is_array($row) && ! empty($row['version'])) {
+                    $versions[] = (string) $row['version'];
+                }
+            }
+            $this->installedPhpVersions = $versions !== []
+                ? $versions
+                : (array) config('cipi-gui.php_versions', ['8.4', '8.5']);
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->phpListUnsupported = true;
+                $this->installedPhpVersions = (array) config('cipi-gui.php_versions', ['8.4', '8.5']);
+
+                return;
+            }
+            $this->installedPhpVersions = (array) config('cipi-gui.php_versions', ['8.4', '8.5']);
         }
     }
 
@@ -162,14 +281,32 @@ class AppDetail extends Component
             'editDomain' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $payload = array_filter([
-            'php' => $this->editPhp ?: null,
-            'branch' => $this->editBranch ?: null,
-            'repository' => $this->editRepository ?: null,
-            'domain' => $this->editDomain !== ($this->app['domain'] ?? '') ? $this->editDomain : null,
-        ]);
+        if ($this->installedPhpVersions !== [] && ! in_array($this->editPhp, $this->installedPhpVersions, true)) {
+            $this->addError('editPhp', 'PHP '.$this->editPhp.' is not installed on this server. Install it from Server → Manage, or pick: '.implode(', ', $this->installedPhpVersions).'.');
 
-        if (empty($payload)) {
+            return;
+        }
+
+        $currentPhp = (string) ($this->app['php'] ?? '');
+        $currentBranch = (string) ($this->app['branch'] ?? '');
+        $currentRepo = (string) ($this->app['repository'] ?? '');
+        $currentDomain = (string) ($this->app['domain'] ?? '');
+
+        $payload = [];
+        if ($this->editPhp !== '' && $this->editPhp !== $currentPhp) {
+            $payload['php'] = $this->editPhp;
+        }
+        if ($this->editBranch !== $currentBranch) {
+            $payload['branch'] = $this->editBranch;
+        }
+        if ($this->editRepository !== $currentRepo) {
+            $payload['repository'] = $this->editRepository;
+        }
+        if ($this->editDomain !== '' && $this->editDomain !== $currentDomain) {
+            $payload['domain'] = $this->editDomain;
+        }
+
+        if ($payload === []) {
             $this->dispatch('notify', type: 'info', message: 'No changes to save.');
 
             return;
@@ -178,6 +315,16 @@ class AppDetail extends Component
         try {
             $response = $this->client()->editApp($this->appName, $payload);
             $this->dispatchJob($response, 'App update');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function recreateWebhook(bool $rotateSecret = false): void
+    {
+        try {
+            $response = $this->client()->recreateWebhook($this->appName, $rotateSecret);
+            $this->dispatchJob($response, $rotateSecret ? 'Webhook recreate + rotate secret' : 'Webhook recreate');
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -756,7 +903,9 @@ class AppDetail extends Component
         $tabs['logs'] = 'Logs';
 
         return view('cipi-gui::livewire.app-detail', [
-            'phpVersions' => config('cipi-gui.php_versions'),
+            'phpVersions' => $this->installedPhpVersions !== []
+                ? $this->installedPhpVersions
+                : config('cipi-gui.php_versions'),
             'server' => $this->currentServer(),
             'tabs' => $tabs,
             'artisanPresets' => [

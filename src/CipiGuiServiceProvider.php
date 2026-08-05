@@ -43,6 +43,7 @@ class CipiGuiServiceProvider extends ServiceProvider
 
         Livewire::component('cipi-gui.dashboard', \CipiGui\Livewire\Dashboard::class);
         Livewire::component('cipi-gui.servers', \CipiGui\Livewire\Servers::class);
+        Livewire::component('cipi-gui.server-manage', \CipiGui\Livewire\ServerManage::class);
         Livewire::component('cipi-gui.apps', \CipiGui\Livewire\Apps::class);
         Livewire::component('cipi-gui.app-detail', \CipiGui\Livewire\AppDetail::class);
         Livewire::component('cipi-gui.databases', \CipiGui\Livewire\Databases::class);

@@ -55,7 +55,7 @@ Enable 2FA from **Settings** after first login. When enabled, a TOTP code is req
 2. Create an API token with the required abilities:
 
 ```bash
-cipi api token create --name=gui --abilities=apps-view,apps-create,apps-edit,apps-delete,apps-suspend,apps-basicauth,apps-env,apps-auth,apps-artisan,apps-run,aliases-view,aliases-create,aliases-delete,www-manage,deploy-manage,ssl-manage,dbs-view,dbs-create,dbs-delete,dbs-manage,status-view
+cipi api token create --name=gui --abilities=apps-view,apps-create,apps-edit,apps-delete,apps-suspend,apps-basicauth,apps-env,apps-auth,apps-artisan,apps-run,aliases-view,aliases-create,aliases-delete,www-manage,deploy-manage,ssl-manage,dbs-view,dbs-create,dbs-delete,dbs-manage,php-view,php-manage,ssh-view,ssh-manage,services-view,services-manage,smtp-view,smtp-manage,health-view,health-manage,status-view
 ```
 
 3. In the GUI, go to **Servers → Add Server** and enter:
@@ -84,8 +84,8 @@ The GUI consumes the full [Cipi API OpenAPI spec](https://vps.deploying.it/docs)
 
 | Area | Endpoints |
 |------|-----------|
-| Server | `GET /api/status` |
-| Apps | CRUD, basic auth, logs; create accepts `engine` (mariadb/pgsql) and `octane` (FrankenPHP, API 1.13+); list/show expose `octane` / `octane_port` |
+| Server | `GET /api/status`; Manage page: PHP / DB engines / SSH / services / SMTP (API 1.15–1.16 / Cipi ≥ 5.0.6–5.0.7) |
+| Apps | CRUD, basic auth, logs; create accepts `engine` (mariadb/pgsql) and `octane` (FrankenPHP, API 1.13+); list/show expose `octane` / `octane_port`; edit sends only changed fields; webhook recreate + secret rotate; per-app HTTP healthcheck |
 | Env | `GET`/`PUT /api/apps/{name}/env` (`apps-env`, API 1.14+) |
 | Auth.json | `GET`/`POST`/`PUT`/`DELETE /api/apps/{name}/auth` — Composer shared credentials, not HTTP Basic Auth (`apps-auth`) |
 | Artisan | `POST /api/apps/{name}/artisan` — async job (`apps-artisan`) |

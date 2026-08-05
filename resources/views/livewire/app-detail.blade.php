@@ -70,8 +70,26 @@
                     <form wire:submit="saveApp" class="space-y-3">
                         <div>
                             <label>PHP Version</label>
-                            <input type="text" wire:model="editPhp" placeholder="e.g. 8.4" autocomplete="off">
-                            <p class="text-xs text-surface-500 mt-1">Use a PHP version installed on the server (e.g. {{ implode(', ', $phpVersions) }}).</p>
+                            @if(count($phpVersions) > 0)
+                                <select wire:model="editPhp">
+                                    @foreach($phpVersions as $ver)
+                                        <option value="{{ $ver }}">{{ $ver }}</option>
+                                    @endforeach
+                                    @if($editPhp !== '' && !in_array($editPhp, $phpVersions, true))
+                                        <option value="{{ $editPhp }}">{{ $editPhp }} (current — not installed?)</option>
+                                    @endif
+                                </select>
+                            @else
+                                <input type="text" wire:model="editPhp" placeholder="e.g. 8.4" autocomplete="off">
+                            @endif
+                            <p class="text-xs text-surface-500 mt-1">
+                                @if($phpListUnsupported)
+                                    PHP list API unavailable — using local hints. Install versions from Server → Manage.
+                                @else
+                                    Only versions installed on this server are listed.
+                                    <a href="{{ route('cipi-gui.server-manage') }}" class="text-link">Manage PHP</a>
+                                @endif
+                            </p>
                             @error('editPhp') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
                         </div>
                         <div>
@@ -81,6 +99,7 @@
                         <div>
                             <label>Repository</label>
                             <input type="text" wire:model="editRepository">
+                            <p class="text-xs text-surface-500 mt-1">Changing the repository recreates the deploy key and webhook. Unchanged values are not sent.</p>
                         </div>
                         <div>
                             <label>Primary Domain</label>
@@ -88,6 +107,60 @@
                         </div>
                         <button type="submit" class="btn btn-primary btn-sm">Save Changes</button>
                     </form>
+
+                    @if(!($app['custom'] ?? false) && !empty($app['repository']))
+                        <div class="mt-6 pt-4 border-t border-surface-800">
+                            <h4 class="font-medium text-white mb-2">Deploy webhook</h4>
+                            <p class="text-xs text-surface-500 mb-3">Recreate the GitHub/GitLab webhook, or rotate <code class="text-surface-300">CIPI_WEBHOOK_TOKEN</code> in <code class="text-surface-300">shared/.env</code>.</p>
+                            <div class="flex flex-wrap gap-2">
+                                <button type="button" wire:click="recreateWebhook(false)" wire:confirm="Recreate the provider webhook for this app?" class="btn btn-secondary btn-sm">Recreate webhook</button>
+                                <button type="button" wire:click="recreateWebhook(true)" wire:confirm="Rotate CIPI_WEBHOOK_TOKEN and recreate the webhook? The old secret will stop working." class="btn btn-ghost btn-sm">Recreate + rotate secret</button>
+                            </div>
+                        </div>
+                    @endif
+                </div>
+
+                <div class="card md:col-span-2">
+                    <h3 class="font-semibold text-white mb-2">HTTP healthcheck</h3>
+                    @if($healthUnsupported)
+                        <p class="text-sm text-surface-400">Healthcheck API unavailable (API 1.16+ / Cipi ≥ 5.0.7, abilities <code class="text-surface-300">health-view</code> / <code class="text-surface-300">health-manage</code>).</p>
+                    @else
+                        <p class="text-xs text-surface-500 mb-4">
+                            Probed every 5 minutes. After 3 consecutive failures Cipi emails trigger
+                            <code class="text-surface-300">health_fail</code> (requires SMTP on
+                            <a href="{{ route('cipi-gui.server-manage') }}" class="text-link">Manage → Email</a>).
+                            @if($healthEnabled)
+                                Current:
+                                <span class="text-surface-300">{{ $health['state'] ?? 'pending' }}</span>
+                                · fails {{ $health['failcount'] ?? 0 }}
+                            @endif
+                        </p>
+                        <form wire:submit="saveHealth" class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                            <div class="md:col-span-2">
+                                <label>URL</label>
+                                <input type="text" wire:model="healthUrl" placeholder="https://{{ $app['domain'] }}/up">
+                                @error('healthUrl') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                            </div>
+                            <div>
+                                <label>Expect HTTP</label>
+                                <input type="number" wire:model="healthExpect" min="100" max="599">
+                                @error('healthExpect') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                            </div>
+                            <div class="md:col-span-3 flex flex-wrap gap-2">
+                                <button type="submit" class="btn btn-primary btn-sm">{{ $healthEnabled ? 'Update healthcheck' : 'Enable healthcheck' }}</button>
+                                @if($healthEnabled)
+                                    <button type="button" wire:click="runHealthCheck" class="btn btn-secondary btn-sm">Check now</button>
+                                    <button type="button" wire:click="disableHealth" wire:confirm="Disable healthcheck for this app?" class="btn btn-ghost btn-sm text-red-400">Disable</button>
+                                @endif
+                            </div>
+                        </form>
+                        @if($healthCheckResult)
+                            <p class="text-sm mt-3 {{ ($healthCheckResult['ok'] ?? false) ? 'text-green-400' : 'text-red-400' }}">
+                                Last check: got {{ $healthCheckResult['got'] ?? '?' }}, expected {{ $healthCheckResult['expect'] ?? '?' }}
+                                ← {{ $healthCheckResult['url'] ?? '' }}
+                            </p>
+                        @endif
+                    @endif
                 </div>
             </div>
 

@@ -7,6 +7,7 @@ use CipiGui\Livewire\AppDetail;
 use CipiGui\Livewire\Apps;
 use CipiGui\Livewire\Dashboard;
 use CipiGui\Livewire\Databases;
+use CipiGui\Livewire\ServerManage;
 use CipiGui\Livewire\Settings;
 use CipiGui\Livewire\Servers;
 use Illuminate\Support\Facades\Route;
@@ -43,6 +44,7 @@ Route::middleware(['auth'])->group(function () {
 Route::middleware(['auth', 'cipi-gui.2fa'])->group(function () {
     Route::get('/', Dashboard::class)->name('cipi-gui.dashboard');
     Route::get('/servers', Servers::class)->name('cipi-gui.servers');
+    Route::get('/server', ServerManage::class)->name('cipi-gui.server-manage');
     Route::get('/apps', Apps::class)->name('cipi-gui.apps');
     Route::get('/apps/{name}', AppDetail::class)->name('cipi-gui.apps.show');
     Route::get('/databases', Databases::class)->name('cipi-gui.databases');

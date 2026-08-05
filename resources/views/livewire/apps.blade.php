@@ -138,8 +138,12 @@
                             </div>
                             <div>
                                 <label>PHP Version</label>
-                                <input type="text" wire:model="php" placeholder="e.g. 8.4" autocomplete="off">
-                                <p class="text-xs text-surface-500 mt-1">Use a PHP version installed on the server (e.g. {{ implode(', ', $phpVersions) }}).</p>
+                                <select wire:model="php">
+                                    @foreach($phpVersions as $ver)
+                                        <option value="{{ $ver }}">{{ $ver }}</option>
+                                    @endforeach
+                                </select>
+                                <p class="text-xs text-surface-500 mt-1">Installed on this server. <a href="{{ route('cipi-gui.server-manage') }}" class="text-link">Manage PHP</a></p>
                                 @error('php') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
                             </div>
                         </div>
@@ -178,8 +182,12 @@
                             </div>
                             <div>
                                 <label>PHP Version</label>
-                                <input type="text" wire:model="php" placeholder="e.g. 8.4" autocomplete="off">
-                                <p class="text-xs text-surface-500 mt-1">Use a PHP version installed on the server (e.g. {{ implode(', ', $phpVersions) }}).</p>
+                                <select wire:model="php">
+                                    @foreach($phpVersions as $ver)
+                                        <option value="{{ $ver }}">{{ $ver }}</option>
+                                    @endforeach
+                                </select>
+                                <p class="text-xs text-surface-500 mt-1">Installed on this server. <a href="{{ route('cipi-gui.server-manage') }}" class="text-link">Manage PHP</a></p>
                                 @error('php') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
                             </div>
                         </div>
