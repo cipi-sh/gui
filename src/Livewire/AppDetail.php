@@ -381,7 +381,7 @@ class AppDetail extends Component
         try {
             $data = $this->client()->showEnv($this->appName);
             $vars = is_array($data['vars'] ?? null) ? $data['vars'] : [];
-            $this->hydrateEnvRows($vars);
+            $this->syncEnvRowsFromVars($vars);
             $this->envLoaded = true;
         } catch (CipiApiException $e) {
             if (in_array($e->getStatusCode(), [403, 404, 501], true)
@@ -461,7 +461,7 @@ class AppDetail extends Component
         try {
             $data = $this->client()->updateEnv($this->appName, $set, $unset);
             $vars = is_array($data['vars'] ?? null) ? $data['vars'] : $current;
-            $this->hydrateEnvRows($vars);
+            $this->syncEnvRowsFromVars($vars);
             $this->dispatch('notify', type: 'success', message: '.env updated.');
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
@@ -469,7 +469,7 @@ class AppDetail extends Component
     }
 
     /** @param  array<string, mixed>  $vars */
-    protected function hydrateEnvRows(array $vars): void
+    protected function syncEnvRowsFromVars(array $vars): void
     {
         $normalized = [];
         foreach ($vars as $key => $value) {
