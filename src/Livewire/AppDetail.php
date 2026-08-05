@@ -611,7 +611,6 @@ class AppDetail extends Component
     public function runArtisanPreset(string $command): void
     {
         $this->artisanCommand = $command;
-        $this->runArtisan();
     }
 
     public function runArtisan(): void

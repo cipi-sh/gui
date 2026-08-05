@@ -55,17 +55,10 @@
             @if($activeJobOutput)
                 @include('cipi-gui::partials.terminal', ['lines' => explode("\n", $activeJobOutput), 'title' => 'CLI Output'])
             @elseif($activeJobResult)
-                <div class="terminal mt-4">
-                    <div class="terminal-header">
-                        <div class="terminal-dot" style="background:#ff5f57;"></div>
-                        <div class="terminal-dot" style="background:#febc2e;"></div>
-                        <div class="terminal-dot" style="background:#28c840;"></div>
-                        <span class="text-xs text-surface-400 ml-2">result.json</span>
-                    </div>
-                    <div class="terminal-body">
-                        <pre class="text-terminal-green" style="margin:0;white-space:pre-wrap;">{{ json_encode($activeJobResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
-                    </div>
-                </div>
+                @include('cipi-gui::partials.terminal', [
+                    'lines' => explode("\n", json_encode($activeJobResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)),
+                    'title' => 'result.json',
+                ])
             @elseif($jobRunning ?? false)
                 <div class="card mt-2">
                     <div class="flex items-center gap-3">

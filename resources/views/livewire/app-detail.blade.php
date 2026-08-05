@@ -263,7 +263,6 @@
                     @foreach($artisanPresets as $preset)
                         <button type="button"
                                 wire:click="runArtisanPreset(@js($preset['command']))"
-                                wire:confirm="Run php artisan {{ $preset['command'] }}?"
                                 class="btn btn-secondary btn-sm font-mono">
                             {{ $preset['label'] }}
                         </button>

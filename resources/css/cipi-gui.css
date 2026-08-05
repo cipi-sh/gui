@@ -422,6 +422,17 @@
         background: #111;
         border-bottom: 1px solid #262626;
     }
+    .terminal-header-actions {
+        display: flex; align-items: center; gap: 0.5rem;
+        margin-left: auto;
+    }
+    .terminal-copy-btn {
+        appearance: none; border: 1px solid #333; background: transparent;
+        color: #a3a3a3; font-size: 0.6875rem; font-weight: 500;
+        padding: 0.125rem 0.5rem; border-radius: var(--radius);
+        cursor: pointer; letter-spacing: 0.02em;
+    }
+    .terminal-copy-btn:hover { color: #e5e5e5; border-color: #525252; background: #1a1a1a; }
     .terminal-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; opacity: 0.6; }
     .terminal-body { padding: 0.875rem; max-height: 28rem; overflow-y: auto; color: #a3a3a3; }
     .terminal-line { padding: 0.0625rem 0; }
