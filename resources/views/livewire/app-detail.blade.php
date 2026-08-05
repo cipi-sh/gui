@@ -155,7 +155,7 @@
                             </div>
                         </form>
                         @if($healthCheckResult)
-                            <p class="text-sm mt-3 {{ ($healthCheckResult['ok'] ?? false) ? 'text-green-400' : 'text-red-400' }}">
+                            <p class="text-sm mt-3 {{ ($healthCheckResult['ok'] ?? false) ? 'text-emerald-400' : 'text-red-400' }}">
                                 Last check: got {{ $healthCheckResult['got'] ?? '?' }}, expected {{ $healthCheckResult['expect'] ?? '?' }}
                                 ← {{ $healthCheckResult['url'] ?? '' }}
                             </p>

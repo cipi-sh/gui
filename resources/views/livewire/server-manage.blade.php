@@ -18,11 +18,11 @@
             <a href="{{ route('cipi-gui.servers') }}" class="text-link ml-1">Servers</a>
         </div>
     @elseif($unsupported)
-        <div class="card border-amber-800 bg-amber-900/20 text-amber-200 text-sm">
+        <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
             This server’s API is older than 1.15 / Cipi CLI &lt; 5.0.6, or the token is missing management abilities
-            (<code class="text-amber-100">php-*</code>, <code class="text-amber-100">ssh-*</code>,
-            <code class="text-amber-100">services-*</code>, <code class="text-amber-100">smtp-*</code>).
-            Run <code class="text-amber-100">cipi self-update</code> on the host and create a token with the updated abilities.
+            (<code>php-*</code>, <code>ssh-*</code>,
+            <code>services-*</code>, <code>smtp-*</code>).
+            Run <code>cipi self-update</code> on the host and create a token with the updated abilities.
         </div>
     @elseif($loading)
         <div class="flex items-center justify-center py-24 gap-3">
@@ -206,9 +206,9 @@
 
         @elseif($activeTab === 'smtp')
             @if($smtpUnsupported)
-                <div class="card border-amber-800 bg-amber-900/20 text-amber-200 text-sm">
+                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
                     SMTP API unavailable (needs API 1.16+ / Cipi ≥ 5.0.7 and token abilities
-                    <code class="text-amber-100">smtp-view</code>, <code class="text-amber-100">smtp-manage</code>).
+                    <code>smtp-view</code>, <code>smtp-manage</code>).
                 </div>
             @else
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -219,7 +219,7 @@
                             @if(!empty($smtp['configured']))
                                 Status:
                                 @if(!empty($smtp['enabled']))
-                                    <span class="text-green-400">enabled</span>
+                                    <span class="text-emerald-400">enabled</span>
                                 @else
                                     <span class="text-amber-400">disabled</span>
                                 @endif
