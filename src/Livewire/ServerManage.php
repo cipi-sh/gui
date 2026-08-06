@@ -281,16 +281,6 @@ class ServerManage extends Component
         }
     }
 
-    public function removePhp(string $version): void
-    {
-        try {
-            $response = $this->client()->removePhp($version);
-            $this->dispatchJob($response, 'Remove PHP '.$version);
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
     public function installEngine(string $engine): void
     {
         try {

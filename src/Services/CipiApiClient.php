@@ -330,11 +330,6 @@ class CipiApiClient
         return $this->post('/php/install', ['version' => $version]);
     }
 
-    public function removePhp(string $version): array
-    {
-        return $this->delete("/php/{$version}");
-    }
-
     // ── DB engines manage (API 1.15+) ─────────────────────────────────
 
     public function installDbEngine(string $engine): array

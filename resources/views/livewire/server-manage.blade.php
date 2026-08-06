@@ -52,26 +52,12 @@
                     @else
                         <ul class="space-y-3">
                             @foreach($phpData['versions'] as $row)
-                                <li class="flex items-center justify-between gap-3 py-2 border-b border-surface-800">
-                                    <div>
-                                        <span class="text-white font-medium">PHP {{ $row['version'] }}</span>
-                                        <span class="text-xs text-surface-500 ml-2">{{ $row['status'] ?? '' }} · {{ $row['apps'] ?? 0 }} apps</span>
-                                        @if(!empty($row['default']) || ($phpData['default'] ?? null) === ($row['version'] ?? null))
-                                            <span class="badge badge-neutral ml-2">system default</span>
-                                        @endif
-                                    </div>
-                                    <div class="flex flex-wrap gap-2">
-                                        @php
-                                            $phpIsDefault = !empty($row['default']) || ($phpData['default'] ?? null) === ($row['version'] ?? null);
-                                        @endphp
-                                        <button type="button"
-                                                wire:click="removePhp('{{ $row['version'] }}')"
-                                                wire:confirm="Remove PHP {{ $row['version'] }}? Apps using it must be migrated first."
-                                                class="btn btn-ghost btn-sm text-red-400"
-                                                @if($phpIsDefault || ($row['apps'] ?? 0) > 0) disabled @endif>
-                                            Remove
-                                        </button>
-                                    </div>
+                                <li class="py-2 border-b border-surface-800">
+                                    <span class="text-white font-medium">PHP {{ $row['version'] }}</span>
+                                    <span class="text-xs text-surface-500 ml-2">{{ $row['status'] ?? '' }} · {{ $row['apps'] ?? 0 }} apps</span>
+                                    @if(!empty($row['default']) || ($phpData['default'] ?? null) === ($row['version'] ?? null))
+                                        <span class="badge badge-neutral ml-2">system default</span>
+                                    @endif
                                 </li>
                             @endforeach
                         </ul>
