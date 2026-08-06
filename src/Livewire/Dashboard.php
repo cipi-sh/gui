@@ -26,7 +26,7 @@ class Dashboard extends Component
     public function selectServer(int $id): void
     {
         session(['cipi_gui_server_id' => $id]);
-        $this->redirect(route('cipi-gui.server-manage'), navigate: true);
+        $this->redirect(route('cipi-gui.server-manage', ['serverId' => $id]), navigate: true);
     }
 
     public function refresh(): void

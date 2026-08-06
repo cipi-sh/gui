@@ -54,7 +54,10 @@
                                 </td>
                                 <td class="text-sm text-surface-400">{{ $server->last_connected_at?->diffForHumans() ?? 'Never' }}</td>
                                 <td>
-                                    <div class="flex gap-1 justify-end">
+                                    <div class="btn-actions">
+                                        @if($server->is_active)
+                                            <a href="{{ route('cipi-gui.server-manage', ['serverId' => $server->id]) }}" wire:navigate class="btn btn-ghost btn-sm">Manage</a>
+                                        @endif
                                         <button wire:click="testConnection({{ $server->id }})" class="btn btn-ghost btn-sm" @if($testing) disabled @endif>Test</button>
                                         <button wire:click="deleteServer({{ $server->id }})" wire:confirm="Remove this server?" class="btn btn-ghost btn-sm text-red-400">Remove</button>
                                     </div>

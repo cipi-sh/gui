@@ -61,8 +61,13 @@ class ServerManage extends Component
 
     public bool $smtpSendTest = true;
 
-    public function mount(): void
+    public function mount(?int $serverId = null): void
     {
+        if ($serverId !== null) {
+            $this->serverId = $serverId;
+            session(['cipi_gui_server_id' => $serverId]);
+        }
+
         $this->ensureServerSelected();
         $this->loadAll();
     }

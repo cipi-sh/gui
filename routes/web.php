@@ -44,7 +44,8 @@ Route::middleware(['auth'])->group(function () {
 Route::middleware(['auth', 'cipi-gui.2fa'])->group(function () {
     Route::get('/', Dashboard::class)->name('cipi-gui.dashboard');
     Route::get('/servers', Servers::class)->name('cipi-gui.servers');
-    Route::get('/server', ServerManage::class)->name('cipi-gui.server-manage');
+    Route::get('/server/{serverId?}', ServerManage::class)->name('cipi-gui.server-manage')
+        ->whereNumber('serverId');
     Route::get('/apps', Apps::class)->name('cipi-gui.apps');
     Route::get('/apps/{name}', AppDetail::class)->name('cipi-gui.apps.show');
     Route::get('/databases', Databases::class)->name('cipi-gui.databases');
