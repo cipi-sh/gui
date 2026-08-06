@@ -285,16 +285,6 @@ class CipiApiClient
         return $this->post('/dbs', $payload);
     }
 
-    public function deleteDatabase(string $name, ?string $engine = null): array
-    {
-        $query = [];
-        if ($engine !== null && $engine !== '') {
-            $query['engine'] = $engine;
-        }
-
-        return $this->delete("/dbs/{$name}", $query);
-    }
-
     public function backupDatabase(string $name, ?string $engine = null): array
     {
         $payload = [];
@@ -345,21 +335,11 @@ class CipiApiClient
         return $this->delete("/php/{$version}");
     }
 
-    public function setDefaultPhp(string $version): array
-    {
-        return $this->put('/php/default', ['version' => $version])['data'] ?? [];
-    }
-
     // ── DB engines manage (API 1.15+) ─────────────────────────────────
 
     public function installDbEngine(string $engine): array
     {
         return $this->post('/dbs/engines/install', ['engine' => $engine]);
-    }
-
-    public function setDefaultDbEngine(string $engine): array
-    {
-        return $this->put('/dbs/engines/default', ['engine' => $engine])['data'] ?? [];
     }
 
     // ── SSH keys (API 1.15+) ──────────────────────────────────────────

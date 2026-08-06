@@ -81,10 +81,6 @@
                                         wire:confirm="Regenerate password for {{ $db['name'] }}?"
                                         class="btn btn-ghost btn-sm"
                                     >New Password</button>
-                                    <button
-                                        wire:click="confirmDeleteDatabase('{{ $db['name'] }}', '{{ $db['engine'] ?? '' }}')"
-                                        class="btn btn-ghost btn-sm text-red-400"
-                                    >Delete</button>
                                 </div>
                             </td>
                         </tr>
@@ -126,30 +122,6 @@
                         <button type="submit" class="btn btn-primary">Create</button>
                     </div>
                 </form>
-            </div>
-        </div>
-    @endif
-
-    @if($showDeleteModal)
-        <div class="modal-overlay" wire:click.self="cancelDeleteDatabase">
-            <div class="modal-content">
-                <div class="p-6 border-b border-surface-800">
-                    <h3 class="text-lg font-semibold text-white">Delete database</h3>
-                </div>
-                <div class="p-6 space-y-4">
-                    <p class="text-sm text-surface-300">
-                        Permanently delete <span class="font-mono text-white">{{ $deleteDbName }}</span>
-                        @if($deleteDbEngine !== '')
-                            (<span class="text-surface-400">{{ $this->engineLabel($deleteDbEngine) }}</span>)
-                        @endif
-                        ?
-                        This removes the database and its user from the server. This action cannot be undone.
-                    </p>
-                    <div class="flex justify-end gap-2">
-                        <button type="button" wire:click="cancelDeleteDatabase" class="btn btn-secondary">Cancel</button>
-                        <button type="button" wire:click="deleteDatabase" class="btn btn-danger">Delete database</button>
-                    </div>
-                </div>
             </div>
         </div>
     @endif

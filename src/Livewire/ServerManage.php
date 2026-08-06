@@ -286,41 +286,11 @@ class ServerManage extends Component
         }
     }
 
-    public function setDefaultPhp(string $version): void
-    {
-        try {
-            $data = $this->client()->setDefaultPhp($version);
-            if (is_array($data) && (isset($data['versions']) || isset($data['default']))) {
-                $this->phpData = $data;
-            } else {
-                $this->loadPhp();
-            }
-            $this->dispatch('notify', type: 'success', message: 'Default PHP set to '.$version);
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
     public function installEngine(string $engine): void
     {
         try {
             $response = $this->client()->installDbEngine($engine);
             $this->dispatchJob($response, 'Install '.$engine);
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    public function setDefaultEngine(string $engine): void
-    {
-        try {
-            $data = $this->client()->setDefaultDbEngine($engine);
-            if (is_array($data) && (isset($data['engines']) || isset($data['default']))) {
-                $this->enginesData = $data;
-            } else {
-                $this->loadEngines();
-            }
-            $this->dispatch('notify', type: 'success', message: 'Default database engine set to '.$engine);
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }

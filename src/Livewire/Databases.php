@@ -35,12 +35,6 @@ class Databases extends Component
 
     public string $dbEngine = '';
 
-    public bool $showDeleteModal = false;
-
-    public string $deleteDbName = '';
-
-    public string $deleteDbEngine = '';
-
     public ?array $lastCredentials = null;
 
     public function mount(): void
@@ -150,40 +144,6 @@ class Databases extends Component
             $response = $this->client()->createDatabase($this->dbName, $engine);
             $this->showCreateModal = false;
             $this->dispatchJob($response, 'Database creation');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    public function confirmDeleteDatabase(string $name, string $engine = ''): void
-    {
-        $this->deleteDbName = $name;
-        $this->deleteDbEngine = $engine;
-        $this->showDeleteModal = true;
-    }
-
-    public function cancelDeleteDatabase(): void
-    {
-        $this->showDeleteModal = false;
-        $this->deleteDbName = '';
-        $this->deleteDbEngine = '';
-    }
-
-    public function deleteDatabase(): void
-    {
-        if ($this->deleteDbName === '') {
-            return;
-        }
-
-        $name = $this->deleteDbName;
-        $engine = $this->deleteDbEngine !== '' ? $this->deleteDbEngine : null;
-
-        try {
-            $response = $this->client()->deleteDatabase($name, $engine);
-            $this->showDeleteModal = false;
-            $this->deleteDbName = '';
-            $this->deleteDbEngine = '';
-            $this->dispatchJob($response, "Delete database {$name}");
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }

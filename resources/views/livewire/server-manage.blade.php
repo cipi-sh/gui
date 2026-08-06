@@ -62,18 +62,8 @@
                                     </div>
                                     <div class="flex flex-wrap gap-2">
                                         @php
-                                            $phpStatus = $row['status'] ?? '';
-                                            $phpIsReady = in_array($phpStatus, ['installed', 'running'], true);
                                             $phpIsDefault = !empty($row['default']) || ($phpData['default'] ?? null) === ($row['version'] ?? null);
                                         @endphp
-                                        @if($phpIsReady)
-                                            <button type="button"
-                                                    wire:click="setDefaultPhp('{{ $row['version'] }}')"
-                                                    class="btn btn-secondary btn-sm"
-                                                    @if($phpIsDefault) disabled @endif>
-                                                Set default
-                                            </button>
-                                        @endif
                                         <button type="button"
                                                 wire:click="removePhp('{{ $row['version'] }}')"
                                                 wire:confirm="Remove PHP {{ $row['version'] }}? Apps using it must be migrated first."
@@ -127,11 +117,6 @@
                                     @endphp
                                     @if(!$engineIsReady)
                                         <button type="button" wire:click="installEngine('{{ $engine['engine'] }}')" class="btn btn-primary btn-sm">Install</button>
-                                    @else
-                                        <button type="button" wire:click="setDefaultEngine('{{ $engine['engine'] }}')" class="btn btn-secondary btn-sm"
-                                            @if(($enginesData['default'] ?? null) === ($engine['engine'] ?? null)) disabled @endif>
-                                            Set default
-                                        </button>
                                     @endif
                                 </div>
                             </li>
