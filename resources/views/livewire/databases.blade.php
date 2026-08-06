@@ -2,7 +2,7 @@
     <div class="flex items-center justify-between mb-6">
         <div>
             <h2 class="text-2xl font-semibold text-white">Databases</h2>
-            <p class="text-sm text-surface-400 mt-1">MariaDB and PostgreSQL databases on the selected server</p>
+            <p class="text-sm text-surface-400 mt-1">Databases on the selected server (engines installed there)</p>
         </div>
         @if($servers->isNotEmpty())
             <button wire:click="openCreate" class="btn btn-primary">

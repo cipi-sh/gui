@@ -97,24 +97,29 @@
         @elseif($activeTab === 'engines')
             <div class="card">
                 <h3 class="font-semibold text-white mb-4">Database engines</h3>
+                <p class="text-sm text-surface-400 mb-4">All supported engines. Only <span class="text-surface-300">installed</span> ones appear under Databases and in create forms.</p>
                 @if(empty($enginesData['engines']))
                     <p class="text-sm text-surface-400">Could not load engines.</p>
                 @else
                     <ul class="space-y-3 mb-6">
                         @foreach($enginesData['engines'] as $engine)
+                            @php
+                                $engineStatus = $engine['status'] ?? '';
+                                $engineIsReady = in_array($engineStatus, ['installed', 'running'], true);
+                            @endphp
                             <li class="flex flex-wrap items-center justify-between gap-3 py-2 border-b border-surface-800">
                                 <div>
                                     <span class="text-white font-medium">{{ $engine['engine'] }}</span>
-                                    <span class="text-xs text-surface-500 ml-2">{{ $engine['status'] ?? '—' }}</span>
+                                    @if($engineIsReady)
+                                        <span class="badge badge-green ml-2">installed</span>
+                                    @else
+                                        <span class="badge badge-neutral ml-2">not installed</span>
+                                    @endif
                                     @if(!empty($engine['default']) || ($enginesData['default'] ?? null) === ($engine['engine'] ?? null))
                                         <span class="badge badge-neutral ml-2">default</span>
                                     @endif
                                 </div>
                                 <div class="flex gap-2">
-                                    @php
-                                        $engineStatus = $engine['status'] ?? '';
-                                        $engineIsReady = in_array($engineStatus, ['installed', 'running'], true);
-                                    @endphp
                                     @if(!$engineIsReady)
                                         <button type="button" wire:click="installEngine('{{ $engine['engine'] }}')" class="btn btn-primary btn-sm">Install</button>
                                     @endif

@@ -174,7 +174,7 @@ class Apps extends Component
                 $engines,
                 fn ($item) => is_array($item)
                     && is_string($item['engine'] ?? null)
-                    && ($item['status'] ?? 'installed') === 'installed',
+                    && in_array($item['status'] ?? '', ['installed', 'running'], true),
             ));
 
             $this->engine = $this->defaultEngine();
