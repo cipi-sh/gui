@@ -13,9 +13,20 @@
             <div class="flex items-center justify-between mt-2">
                 <div>
                     <h2 class="text-2xl font-semibold text-white">{{ $app['app'] }}</h2>
-                    <p class="text-sm text-surface-400">{{ $app['domain'] }}</p>
+                    <p class="text-sm text-surface-400">
+                        {{ $app['domain'] }}
+                        · {{ $this->appKindLabel($app) }}
+                        @if($app['suspended'] ?? false)
+                            <span class="badge badge-gray ml-1">Suspended</span>
+                        @endif
+                    </p>
                 </div>
                 <div class="flex flex-wrap gap-2">
+                    @if($app['suspended'] ?? false)
+                        <button wire:click="unsuspendApp" class="btn btn-primary btn-sm">Unsuspend</button>
+                    @else
+                        <button wire:click="suspendApp" wire:confirm="Take this app offline with an HTTP 503 maintenance page?" class="btn btn-secondary btn-sm">Suspend</button>
+                    @endif
                     <button wire:click="deploy" class="btn btn-primary btn-sm">Deploy</button>
                     <button wire:click="confirmDeleteApp" class="btn btn-danger btn-sm">Delete</button>
                 </div>
@@ -42,25 +53,33 @@
                     <h3 class="font-semibold text-white mb-4">App Details</h3>
                     <dl class="space-y-3 text-sm">
                         <div class="flex justify-between"><dt class="text-surface-400">Server</dt><dd class="text-white">{{ $server?->name ?? '—' }}</dd></div>
-                        <div class="flex justify-between"><dt class="text-surface-400">PHP</dt><dd class="text-white">{{ $app['php'] }}</dd></div>
-                        <div class="flex justify-between">
-                            <dt class="text-surface-400">Runtime</dt>
-                            <dd class="text-white">
-                                @if($app['octane'] ?? null)
-                                    <span class="badge badge-neutral">Octane</span>
-                                    <span class="text-surface-400 text-xs ml-1">{{ $app['octane'] }}{{ isset($app['octane_port']) && $app['octane_port'] ? ' :'.$app['octane_port'] : '' }}</span>
-                                @else
-                                    PHP-FPM
-                                @endif
-                            </dd>
-                        </div>
-                        @if(!($app['custom'] ?? false))
+                        <div class="flex justify-between"><dt class="text-surface-400">Type</dt><dd class="text-white">{{ $this->appKindLabel($app) }}</dd></div>
+                        @if($this->isNodeApp($app))
+                            <div class="flex justify-between"><dt class="text-surface-400">Node</dt><dd class="text-white">{{ $app['node_version'] ?: 'server default' }}</dd></div>
+                        @else
+                            <div class="flex justify-between"><dt class="text-surface-400">PHP</dt><dd class="text-white">{{ $app['php'] }}</dd></div>
+                            <div class="flex justify-between">
+                                <dt class="text-surface-400">Runtime</dt>
+                                <dd class="text-white">
+                                    @if($app['octane'] ?? null)
+                                        <span class="badge badge-neutral">Octane</span>
+                                        <span class="text-surface-400 text-xs ml-1">{{ $app['octane'] }}{{ isset($app['octane_port']) && $app['octane_port'] ? ' :'.$app['octane_port'] : '' }}</span>
+                                    @else
+                                        PHP-FPM
+                                    @endif
+                                </dd>
+                            </div>
+                        @endif
+                        @if($this->isLaravelApp($app))
                             <div class="flex justify-between"><dt class="text-surface-400">Database</dt><dd class="text-white">{{ $this->engineLabel($app['engine'] ?? null) }}</dd></div>
                         @endif
                         <div class="flex justify-between"><dt class="text-surface-400">Branch</dt><dd class="text-white">{{ $app['branch'] ?? '—' }}</dd></div>
                         <div class="flex justify-between"><dt class="text-surface-400">Repository</dt><dd class="text-white truncate max-w-xs">{{ $app['repository'] ?? '—' }}</dd></div>
                         <div class="flex justify-between"><dt class="text-surface-400">WWW redirect</dt><dd class="text-white">{{ $this->wwwRedirectLabel($app['www_redirect'] ?? null) }}</dd></div>
                         <div class="flex justify-between"><dt class="text-surface-400">Force HTTPS</dt><dd class="text-white">{{ ($app['force_https'] ?? false) ? 'Yes' : 'No' }}</dd></div>
+                        @if(!empty($app['redirect']['to']))
+                            <div class="flex justify-between"><dt class="text-surface-400">App redirect</dt><dd class="text-white truncate max-w-xs">{{ ($app['redirect']['enabled'] ?? false) ? 'On' : 'Off' }} → {{ $app['redirect']['to'] }}</dd></div>
+                        @endif
                         <div class="flex justify-between"><dt class="text-surface-400">Created</dt><dd class="text-white">{{ $app['created_at'] ?? '—' }}</dd></div>
                     </dl>
                 </div>
@@ -68,30 +87,93 @@
                 <div class="card">
                     <h3 class="font-semibold text-white mb-4">Edit App</h3>
                     <form wire:submit="saveApp" class="space-y-3">
-                        <div>
-                            <label>PHP Version</label>
-                            @if(count($phpVersions) > 0)
-                                <select wire:model="editPhp">
-                                    @foreach($phpVersions as $ver)
-                                        <option value="{{ $ver }}">{{ $ver }}</option>
-                                    @endforeach
-                                    @if($editPhp !== '' && !in_array($editPhp, $phpVersions, true))
-                                        <option value="{{ $editPhp }}">{{ $editPhp }} (current — not installed?)</option>
-                                    @endif
+                        @if($this->isNodeApp($app))
+                            <div>
+                                <label>Node mode</label>
+                                <select wire:model="editNodeMode">
+                                    <option value="spa">SPA</option>
+                                    <option value="static">Static</option>
+                                    <option value="ssr">SSR</option>
                                 </select>
-                            @else
-                                <input type="text" wire:model="editPhp" placeholder="e.g. 8.4" autocomplete="off">
-                            @endif
-                            <p class="text-xs text-surface-500 mt-1">
-                                @if($phpListUnsupported)
-                                    PHP list API unavailable — using local hints. Install versions from Server → Manage.
+                            </div>
+                            <div>
+                                <label>Node version</label>
+                                @if(count($nodeRuntimes) > 0)
+                                    <select wire:model="editNodeVersion">
+                                        <option value="">Server default</option>
+                                        @foreach($nodeRuntimes as $runtime)
+                                            <option value="{{ $runtime['major'] }}">
+                                                {{ $runtime['major'] }}
+                                                @if(!empty($runtime['version'])) ({{ $runtime['version'] }}) @endif
+                                                @if(!empty($runtime['default'])) — default @endif
+                                            </option>
+                                        @endforeach
+                                    </select>
                                 @else
-                                    Only versions installed on this server are listed.
-                                    <a href="{{ route('cipi-gui.server-manage') }}" class="text-link">Manage PHP</a>
+                                    <input type="text" wire:model="editNodeVersion" placeholder="22" autocomplete="off">
                                 @endif
-                            </p>
-                            @error('editPhp') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
-                        </div>
+                            </div>
+                            <div>
+                                <label>Build command</label>
+                                <input type="text" wire:model="editBuild" class="font-mono text-sm" placeholder="npm run build">
+                            </div>
+                            @if($editNodeMode === 'ssr')
+                                <div>
+                                    <label>Start command</label>
+                                    <input type="text" wire:model="editStart" class="font-mono text-sm" placeholder="npm run start">
+                                </div>
+                                <div>
+                                    <label>Health path</label>
+                                    <input type="text" wire:model="editHealthPath" class="font-mono text-sm" placeholder="/">
+                                </div>
+                            @else
+                                <div>
+                                    <label>Output directory</label>
+                                    <input type="text" wire:model="editOutput" class="font-mono text-sm" placeholder="dist">
+                                </div>
+                            @endif
+                        @else
+                            <div>
+                                <label>PHP Version</label>
+                                @if(count($phpVersions) > 0)
+                                    <select wire:model="editPhp">
+                                        @foreach($phpVersions as $ver)
+                                            <option value="{{ $ver }}">{{ $ver }}</option>
+                                        @endforeach
+                                        @if($editPhp !== '' && !in_array($editPhp, $phpVersions, true))
+                                            <option value="{{ $editPhp }}">{{ $editPhp }} (current — not installed?)</option>
+                                        @endif
+                                    </select>
+                                @else
+                                    <input type="text" wire:model="editPhp" placeholder="e.g. 8.4" autocomplete="off">
+                                @endif
+                                <p class="text-xs text-surface-500 mt-1">
+                                    @if($phpListUnsupported)
+                                        PHP list API unavailable — using local hints. Install versions from Server → Manage.
+                                    @else
+                                        Only versions installed on this server are listed.
+                                        <a href="{{ route('cipi-gui.server-manage') }}" class="text-link">Manage PHP</a>
+                                    @endif
+                                </p>
+                                @error('editPhp') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                            </div>
+                            @if($this->isLaravelApp($app))
+                                <div>
+                                    <label>Pin Node version (optional)</label>
+                                    @if(count($nodeRuntimes) > 0)
+                                        <select wire:model="editNodeVersion">
+                                            <option value="">Server default</option>
+                                            @foreach($nodeRuntimes as $runtime)
+                                                <option value="{{ $runtime['major'] }}">{{ $runtime['major'] }}@if(!empty($runtime['default'])) — default @endif</option>
+                                            @endforeach
+                                        </select>
+                                    @else
+                                        <input type="text" wire:model="editNodeVersion" placeholder="22" autocomplete="off">
+                                    @endif
+                                    <p class="text-xs text-surface-500 mt-1">Pins frontend builds to a Node major. Empty = follow server default.</p>
+                                </div>
+                            @endif
+                        @endif
                         <div>
                             <label>Branch</label>
                             <input type="text" wire:model="editBranch">
@@ -103,7 +185,7 @@
                         </div>
                         <div>
                             <label>Primary Domain</label>
-                            <input type="text" wire:model="editDomain">
+                            <input type="text" wire:model="editDomain" placeholder="app.example.com or *.example.com">
                         </div>
                         <button type="submit" class="btn btn-primary btn-sm">Save Changes</button>
                     </form>
@@ -118,7 +200,48 @@
                             </div>
                         </div>
                     @endif
+
+                    <div class="mt-6 pt-4 border-t border-surface-800">
+                        <h4 class="font-medium text-white mb-2">Maintenance</h4>
+                        <p class="text-xs text-surface-500 mb-3">Restore the Cipi permission model, or blue/green restart an SSR Node process.</p>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" wire:click="fixPermissions" wire:confirm="Restore the app home permission model?" class="btn btn-secondary btn-sm">Fix permissions</button>
+                            @if($this->isNodeApp($app) && ($app['node_mode'] ?? '') === 'ssr')
+                                <button type="button" wire:click="restartNode" wire:confirm="Blue/green restart this Node SSR app?" class="btn btn-secondary btn-sm">Restart Node</button>
+                            @endif
+                        </div>
+                    </div>
                 </div>
+
+                @if($this->isLaravelApp($app))
+                    <div class="card md:col-span-2">
+                        <h3 class="font-semibold text-white mb-2">Search (Meilisearch / Scout)</h3>
+                        @if($searchUnsupported)
+                            <p class="text-sm text-surface-400">Search API unavailable (API 1.31+ / Cipi ≥ 5.2.2, abilities <code class="text-surface-300">search-view</code> / <code class="text-surface-300">search-manage</code>). Engine install stays on the host CLI.</p>
+                        @elseif($searchStatus === null)
+                            <button wire:click="loadSearchStatus" class="btn btn-secondary btn-sm">Load search status</button>
+                        @else
+                            <p class="text-sm text-surface-400 mb-3">
+                                Meilisearch:
+                                @if(!empty($searchStatus['installed']))
+                                    <span class="text-emerald-400">installed</span>
+                                    @if(!empty($searchStatus['running'])) · running @endif
+                                    @if(!empty($searchStatus['version'])) · {{ $searchStatus['version'] }} @endif
+                                    @if(!empty($searchStatus['health'])) · {{ $searchStatus['health'] }} @endif
+                                @else
+                                    <span class="text-amber-400">not installed</span> on this server
+                                    (<code class="text-surface-300">cipi search install</code> on the host)
+                                @endif
+                            </p>
+                            @if($this->searchEnabledForApp())
+                                <p class="text-sm text-emerald-400 mb-3">This app is search-enabled.</p>
+                                <button type="button" wire:click="disableSearch" wire:confirm="Disable Meilisearch/Scout for this app?" class="btn btn-ghost btn-sm text-red-400">Disable search</button>
+                            @else
+                                <button type="button" wire:click="enableSearch" @if(empty($searchStatus['installed']) || empty($searchStatus['running'])) disabled @endif class="btn btn-primary btn-sm">Enable search</button>
+                            @endif
+                        @endif
+                    </div>
+                @endif
 
                 <div class="card md:col-span-2">
                     <h3 class="font-semibold text-white mb-2">HTTP healthcheck</h3>
@@ -240,13 +363,257 @@
                 </div>
             </div>
 
+        @elseif($activeTab === 'routing')
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                @if($routingUnsupported)
+                    <div class="card md:col-span-2 text-sm text-surface-400">
+                        Redirects and proxies require API 1.31+ / Cipi ≥ 5.3.1 (sudoers ≥ 5.4.1) and token abilities
+                        <code class="text-surface-300">redirects-view</code>, <code class="text-surface-300">redirects-manage</code>,
+                        <code class="text-surface-300">proxies-view</code>, <code class="text-surface-300">proxies-manage</code>.
+                    </div>
+                @elseif(! $routingLoaded)
+                    <div class="card md:col-span-2">
+                        <button wire:click="loadRouting" class="btn btn-secondary btn-sm">Load routing</button>
+                    </div>
+                @else
+                    <div class="card">
+                        <h3 class="font-semibold text-white mb-2">Whole-app redirect</h3>
+                        <p class="text-xs text-surface-500 mb-4">Every hostname of this app redirects in one hop. App-served targets are refused as loops.</p>
+                        @if($appRedirect)
+                            <p class="text-sm mb-3">
+                                Status:
+                                @if(!empty($appRedirect['enabled']))
+                                    <span class="text-emerald-400">enabled</span>
+                                @else
+                                    <span class="text-amber-400">saved, disabled</span>
+                                @endif
+                                · {{ $appRedirect['code'] ?? 301 }}
+                                · keep path {{ !empty($appRedirect['keep_path']) ? 'yes' : 'no' }}
+                            </p>
+                        @endif
+                        <form wire:submit="saveAppRedirect" class="space-y-3">
+                            <div>
+                                <label>Target URL</label>
+                                <input type="text" wire:model="redirectTo" placeholder="https://new.example.com">
+                                @error('redirectTo') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label>Code</label>
+                                    <select wire:model="redirectCode">
+                                        <option value="301">301</option>
+                                        <option value="302">302</option>
+                                        <option value="307">307</option>
+                                        <option value="308">308</option>
+                                    </select>
+                                </div>
+                                <div class="flex items-end pb-2">
+                                    <label class="flex items-center gap-2 text-sm text-surface-300">
+                                        <input type="checkbox" wire:model="redirectKeepPath"> Keep path
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <button type="submit" class="btn btn-primary btn-sm">Save redirect</button>
+                                @if($appRedirect)
+                                    <button type="button" wire:click="toggleAppRedirect" class="btn btn-secondary btn-sm">{{ !empty($appRedirect['enabled']) ? 'Disable' : 'Enable' }}</button>
+                                    <button type="button" wire:click="removeAppRedirect" wire:confirm="Remove the whole-app redirect?" class="btn btn-ghost btn-sm text-red-400">Unset</button>
+                                @endif
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="card">
+                        <h3 class="font-semibold text-white mb-2">Path redirects</h3>
+                        <p class="text-xs text-surface-500 mb-4">A <code class="text-surface-300">from</code> ending in <code class="text-surface-300">/</code> is a prefix match.</p>
+                        @if(empty($pathRedirects))
+                            <p class="text-sm text-surface-400 mb-3">No path redirects.</p>
+                        @else
+                            <ul class="space-y-2 mb-4">
+                                @foreach($pathRedirects as $rule)
+                                    <li class="flex items-start justify-between gap-3 py-2 border-b border-surface-800 text-sm">
+                                        <div class="min-w-0">
+                                            <span class="font-mono text-white break-all">{{ $rule['from'] ?? '' }}</span>
+                                            <span class="text-surface-500"> → </span>
+                                            <span class="font-mono text-surface-300 break-all">{{ $rule['to'] ?? '' }}</span>
+                                            <span class="text-xs text-surface-500 ml-1">{{ $rule['code'] ?? 301 }}{{ !empty($rule['keep_path']) ? ' · keep path' : '' }}</span>
+                                        </div>
+                                        <button type="button" wire:click="removePathRedirect(@js($rule['from'] ?? ''))" wire:confirm="Remove this path redirect?" class="btn btn-ghost btn-sm text-red-400">Remove</button>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
+                        <form wire:submit="addPathRedirect" class="space-y-3">
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label>From</label>
+                                    <input type="text" wire:model="pathRedirectFrom" placeholder="/blog/" class="font-mono text-sm">
+                                    @error('pathRedirectFrom') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label>To</label>
+                                    <input type="text" wire:model="pathRedirectTo" placeholder="https://blog.example.com/" class="font-mono text-sm">
+                                    @error('pathRedirectTo') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label>Code</label>
+                                    <select wire:model="pathRedirectCode">
+                                        <option value="301">301</option>
+                                        <option value="302">302</option>
+                                        <option value="307">307</option>
+                                        <option value="308">308</option>
+                                    </select>
+                                </div>
+                                <div class="flex items-end pb-2">
+                                    <label class="flex items-center gap-2 text-sm text-surface-300">
+                                        <input type="checkbox" wire:model="pathRedirectKeepPath"> Keep path
+                                    </label>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-sm">Add path redirect</button>
+                        </form>
+                    </div>
+
+                    <div class="card md:col-span-2">
+                        <h3 class="font-semibold text-white mb-2">Prefix reverse proxies</h3>
+                        <p class="text-xs text-surface-500 mb-4">Loopback guard is always enforced (no force). Upstreams on ports Cipi already uses are refused.</p>
+                        @if(empty($proxies))
+                            <p class="text-sm text-surface-400 mb-3">No proxies.</p>
+                        @else
+                            <ul class="space-y-2 mb-4">
+                                @foreach($proxies as $proxy)
+                                    <li class="flex items-start justify-between gap-3 py-2 border-b border-surface-800 text-sm">
+                                        <div class="min-w-0">
+                                            <span class="font-mono text-white">{{ $proxy['prefix'] ?? '' }}</span>
+                                            <span class="text-surface-500"> → </span>
+                                            <span class="font-mono text-surface-300 break-all">{{ $proxy['upstream'] ?? '' }}</span>
+                                            <span class="text-xs text-surface-500 ml-1">
+                                                timeout {{ $proxy['timeout'] ?? 60 }}s
+                                                @if(!empty($proxy['strip_prefix'])) · strip prefix @endif
+                                                @if(!empty($proxy['preserve_host'])) · preserve host @endif
+                                                @if(!array_key_exists('buffering', $proxy) || $proxy['buffering']) · buffering @endif
+                                            </span>
+                                        </div>
+                                        <button type="button" wire:click="removeProxy(@js($proxy['prefix'] ?? ''))" wire:confirm="Remove this proxy?" class="btn btn-ghost btn-sm text-red-400">Remove</button>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
+                        <form wire:submit="addProxy" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label>Prefix</label>
+                                <input type="text" wire:model="proxyPrefix" placeholder="/api/" class="font-mono text-sm">
+                                @error('proxyPrefix') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                            </div>
+                            <div>
+                                <label>Upstream</label>
+                                <input type="text" wire:model="proxyUpstream" placeholder="http://127.0.0.1:3000" class="font-mono text-sm">
+                                @error('proxyUpstream') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                            </div>
+                            <div>
+                                <label>Timeout (seconds)</label>
+                                <input type="number" wire:model="proxyTimeout" min="1" max="3600">
+                            </div>
+                            <div class="flex flex-wrap items-end gap-4 pb-2">
+                                <label class="flex items-center gap-2 text-sm text-surface-300"><input type="checkbox" wire:model="proxyStripPrefix"> Strip prefix</label>
+                                <label class="flex items-center gap-2 text-sm text-surface-300"><input type="checkbox" wire:model="proxyPreserveHost"> Preserve host</label>
+                                <label class="flex items-center gap-2 text-sm text-surface-300"><input type="checkbox" wire:model="proxyBuffering"> Buffering</label>
+                            </div>
+                            <div class="md:col-span-2">
+                                <button type="submit" class="btn btn-primary btn-sm">Add proxy</button>
+                            </div>
+                        </form>
+                    </div>
+                @endif
+            </div>
+
         @elseif($activeTab === 'deploy')
-            <div class="card max-w-lg">
-                <h3 class="font-semibold text-white mb-4">Deploy Actions</h3>
-                <div class="flex flex-wrap gap-2">
-                    <button wire:click="deploy" class="btn btn-primary">Deploy Now</button>
-                    <button wire:click="rollback" wire:confirm="Rollback to previous release?" class="btn btn-secondary">Rollback</button>
-                    <button wire:click="unlockDeploy" class="btn btn-secondary">Unlock Stuck Deploy</button>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="card">
+                    <h3 class="font-semibold text-white mb-4">Deploy Actions</h3>
+                    <div class="flex flex-wrap gap-2">
+                        <button wire:click="deploy" class="btn btn-primary">Deploy Now</button>
+                        <button wire:click="rollback" wire:confirm="Rollback to previous release?" class="btn btn-secondary">Rollback</button>
+                        <button wire:click="unlockDeploy" class="btn btn-secondary">Unlock Stuck Deploy</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                        <h3 class="font-semibold text-white">Deploy audit</h3>
+                        <div class="flex gap-2 items-center">
+                            <input type="number" wire:model="auditDays" min="1" max="3650" class="w-20" title="Days">
+                            <button type="button" wire:click="loadDeployAudit" class="btn btn-ghost btn-sm">{{ $auditLoaded ? 'Refresh' : 'Load' }}</button>
+                        </div>
+                    </div>
+                    @if($auditUnsupported)
+                        <p class="text-sm text-surface-400">Deploy audit requires API 1.31+ / Cipi ≥ 5.4.0 and <code class="text-surface-300">deploy-manage</code>.</p>
+                    @elseif(! $auditLoaded)
+                        <p class="text-sm text-surface-400">Load the hash-chained ledger for this app.</p>
+                    @elseif(empty($auditRecords))
+                        <p class="text-sm text-surface-400">No ledger records yet (empty until the first deploy after Cipi 5.4.0).</p>
+                    @else
+                        <div class="max-h-80 overflow-y-auto">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>When</th>
+                                        <th>Event</th>
+                                        <th>Release</th>
+                                        <th>Origin</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach($auditRecords as $record)
+                                        <tr>
+                                            <td class="text-xs text-surface-400 whitespace-nowrap">{{ $record['ts'] ?? '—' }}</td>
+                                            <td class="text-white text-sm">{{ $record['event'] ?? '—' }}</td>
+                                            <td class="font-mono text-xs text-surface-300">{{ $record['release'] ?? '—' }}@if(!empty($record['commit'])) <span class="text-surface-500">{{ substr((string) $record['commit'], 0, 8) }}</span> @endif</td>
+                                            <td class="text-xs text-surface-400">{{ $record['origin'] ?? '—' }}@if(!empty($record['operator'])) · {{ $record['operator'] }} @endif</td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+                </div>
+
+                <div class="card lg:col-span-2">
+                    <h3 class="font-semibold text-white mb-2">Deploy config</h3>
+                    <p class="text-xs text-surface-500 mb-4">Structured Deployer options. Saving regenerates <code class="text-surface-300">deploy.php</code> from the template (not a raw PHP upload).</p>
+                    @if($deployConfigUnsupported)
+                        <p class="text-sm text-surface-400">Deploy config is unavailable (custom apps, missing <code class="text-surface-300">apps-deploy-config</code>, or API older than 1.14).</p>
+                    @elseif(! $deployConfigLoaded)
+                        <button type="button" wire:click="loadDeployConfig" class="btn btn-secondary btn-sm">Load deploy config</button>
+                    @else
+                        <form wire:submit="saveDeployConfig" class="space-y-4">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                <div>
+                                    <label>Keep releases</label>
+                                    <input type="number" wire:model="dcKeepReleases" min="1" max="20">
+                                </div>
+                                <div>
+                                    <label>Node build</label>
+                                    <input type="text" wire:model="dcNodeBuild" placeholder="npm ci && npm run build" class="font-mono text-sm">
+                                </div>
+                            </div>
+                            <div class="flex flex-wrap gap-4 text-sm text-surface-300">
+                                <label class="flex items-center gap-2"><input type="checkbox" wire:model="dcMigrate"> migrate</label>
+                                <label class="flex items-center gap-2"><input type="checkbox" wire:model="dcOptimize"> optimize</label>
+                                <label class="flex items-center gap-2"><input type="checkbox" wire:model="dcStorageLink"> storage:link</label>
+                                <label class="flex items-center gap-2"><input type="checkbox" wire:model="dcQueueRestart"> queue:restart</label>
+                                <label class="flex items-center gap-2"><input type="checkbox" wire:model="dcHorizonTerminate"> horizon:terminate</label>
+                                <label class="flex items-center gap-2"><input type="checkbox" wire:model="dcPredeploySnapshot"> predeploy snapshot</label>
+                            </div>
+                            <div>
+                                <label>Extra artisan (one per line)</label>
+                                <textarea wire:model="dcExtraArtisan" rows="3" class="font-mono text-sm" placeholder="config:cache"></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-sm">Save deploy config</button>
+                        </form>
+                    @endif
                 </div>
             </div>
 

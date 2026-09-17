@@ -36,6 +36,24 @@ class AppDetail extends Component
 
     public string $editDomain = '';
 
+    // Node edit fields (Node apps; node version pin also for Laravel apps — API 1.31+)
+    public string $editNodeVersion = '';
+
+    public string $editBuild = '';
+
+    public string $editStart = '';
+
+    public string $editOutput = '';
+
+    public string $editHealthPath = '';
+
+    public string $editNodeMode = '';
+
+    /** @var list<array{major: string, version: ?string, default: bool, apps?: list<string>}> */
+    public array $nodeRuntimes = [];
+
+    public bool $nodeUnsupported = false;
+
     /** @var list<string> Installed PHP versions from API (fallback: config hints) */
     public array $installedPhpVersions = [];
 
@@ -116,6 +134,83 @@ class AppDetail extends Component
 
     public ?array $healthCheckResult = null;
 
+    // Routing: whole-app redirect, path redirects, proxies (API 1.31+ / Cipi ≥ 5.3.1)
+    public ?array $appRedirect = null;
+
+    /** @var list<array{from: string, to: string, code: int, keep_path: bool}> */
+    public array $pathRedirects = [];
+
+    /** @var list<array{prefix: string, upstream: string, strip_prefix: bool, preserve_host: bool, timeout: int, buffering: bool}> */
+    public array $proxies = [];
+
+    public bool $routingLoaded = false;
+
+    public bool $routingUnsupported = false;
+
+    public string $redirectTo = '';
+
+    public string $redirectCode = '301';
+
+    public bool $redirectKeepPath = true;
+
+    public string $pathRedirectFrom = '';
+
+    public string $pathRedirectTo = '';
+
+    public string $pathRedirectCode = '301';
+
+    public bool $pathRedirectKeepPath = true;
+
+    public string $proxyPrefix = '';
+
+    public string $proxyUpstream = '';
+
+    public bool $proxyStripPrefix = false;
+
+    public bool $proxyPreserveHost = false;
+
+    public string $proxyTimeout = '60';
+
+    public bool $proxyBuffering = true;
+
+    // Deploy config (structured deploy.php options — API 1.31+)
+    public bool $deployConfigLoaded = false;
+
+    public bool $deployConfigUnsupported = false;
+
+    public string $dcKeepReleases = '5';
+
+    public bool $dcMigrate = true;
+
+    public bool $dcOptimize = true;
+
+    public bool $dcStorageLink = true;
+
+    public bool $dcQueueRestart = true;
+
+    public bool $dcHorizonTerminate = false;
+
+    public bool $dcPredeploySnapshot = false;
+
+    public string $dcNodeBuild = '';
+
+    public string $dcExtraArtisan = '';
+
+    // Deploy audit ledger (API 1.31+ / Cipi ≥ 5.4.0)
+    /** @var list<array<string, mixed>> */
+    public array $auditRecords = [];
+
+    public bool $auditLoaded = false;
+
+    public bool $auditUnsupported = false;
+
+    public string $auditDays = '90';
+
+    // Meilisearch / Laravel Scout (API 1.31+ / Cipi ≥ 5.2.2)
+    public ?array $searchStatus = null;
+
+    public bool $searchUnsupported = false;
+
     public function mount(?string $name = null): void
     {
         $this->appName = $name ?? (string) request()->route('name');
@@ -140,8 +235,19 @@ class AppDetail extends Component
             $this->editBranch = $this->app['branch'] ?? '';
             $this->editRepository = $this->app['repository'] ?? '';
             $this->editDomain = $this->app['domain'] ?? '';
+            $this->editNodeMode = (string) ($this->app['node_mode'] ?? '');
+            $this->editNodeVersion = (string) ($this->app['node_version'] ?? '');
+            $this->editBuild = (string) ($this->app['build'] ?? '');
+            $this->editStart = (string) ($this->app['start'] ?? '');
+            $this->editOutput = (string) ($this->app['output'] ?? '');
+            $this->editHealthPath = (string) ($this->app['health_path'] ?? '');
             $this->loadInstalledPhpVersions();
+            $this->loadNodeRuntimes();
+            $this->loadNodeStatus();
             $this->loadHealth();
+            if ($this->isLaravelApp($this->app)) {
+                $this->loadSearchStatus();
+            }
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         } finally {
@@ -270,18 +376,94 @@ class AppDetail extends Component
         if ($tab === 'run') {
             $this->loadRunCommands();
         }
+
+        if ($tab === 'routing') {
+            $this->loadRouting();
+        }
+
+        if ($tab === 'deploy') {
+            $this->loadDeployConfig();
+        }
+    }
+
+    protected function loadNodeRuntimes(): void
+    {
+        $this->nodeUnsupported = false;
+        $this->nodeRuntimes = [];
+
+        try {
+            $this->nodeRuntimes = array_values(array_filter(
+                $this->client()->listNodeRuntimes(),
+                fn ($item) => is_array($item) && ! empty($item['major']),
+            ));
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->nodeUnsupported = true;
+
+                return;
+            }
+            $this->handleApiError($e);
+        }
+    }
+
+    protected function loadNodeStatus(): void
+    {
+        if (! $this->isNodeApp($this->app ?? []) && ($this->app['node_version'] ?? null) === null) {
+            return;
+        }
+
+        try {
+            $status = $this->client()->nodeStatus($this->appName);
+            if (($status['version'] ?? null) !== null && $status['version'] !== '') {
+                $this->editNodeVersion = (string) $status['version'];
+            }
+            if (! empty($status['mode'])) {
+                $this->editNodeMode = (string) $status['mode'];
+            }
+            foreach (['build', 'start', 'output', 'health_path'] as $key) {
+                if (! empty($status[$key])) {
+                    $prop = match ($key) {
+                        'health_path' => 'editHealthPath',
+                        'build' => 'editBuild',
+                        'start' => 'editStart',
+                        'output' => 'editOutput',
+                    };
+                    $this->{$prop} = (string) $status[$key];
+                }
+            }
+        } catch (CipiApiException $e) {
+            if (! in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->handleApiError($e);
+            }
+        }
     }
 
     public function saveApp(): void
     {
-        $this->validate([
-            'editPhp' => ['required', 'regex:/^\d+\.\d+$/'],
+        $isNode = $this->isNodeApp($this->app ?? []);
+
+        $rules = [
             'editBranch' => ['nullable', 'string', 'max:64'],
             'editRepository' => ['nullable', 'string'],
             'editDomain' => ['nullable', 'string', 'max:255'],
-        ]);
+            'editNodeVersion' => ['nullable', 'string', 'max:8'],
+        ];
 
-        if ($this->installedPhpVersions !== [] && ! in_array($this->editPhp, $this->installedPhpVersions, true)) {
+        if ($isNode) {
+            $rules['editNodeMode'] = ['required', 'in:spa,static,ssr'];
+            $rules['editBuild'] = ['nullable', 'string', 'max:256'];
+            $rules['editStart'] = ['nullable', 'string', 'max:256'];
+            $rules['editOutput'] = ['nullable', 'string', 'max:128'];
+            $rules['editHealthPath'] = ['nullable', 'string', 'max:128'];
+        } else {
+            $rules['editPhp'] = ['required', 'regex:/^\d+\.\d+$/'];
+        }
+
+        $this->validate($rules);
+
+        if (! $isNode
+            && $this->installedPhpVersions !== []
+            && ! in_array($this->editPhp, $this->installedPhpVersions, true)) {
             $this->addError('editPhp', 'PHP '.$this->editPhp.' is not installed on this server. Install it from Server → Manage, or pick: '.implode(', ', $this->installedPhpVersions).'.');
 
             return;
@@ -293,7 +475,7 @@ class AppDetail extends Component
         $currentDomain = (string) ($this->app['domain'] ?? '');
 
         $payload = [];
-        if ($this->editPhp !== '' && $this->editPhp !== $currentPhp) {
+        if (! $isNode && $this->editPhp !== '' && $this->editPhp !== $currentPhp) {
             $payload['php'] = $this->editPhp;
         }
         if ($this->editBranch !== $currentBranch) {
@@ -306,6 +488,37 @@ class AppDetail extends Component
             $payload['domain'] = $this->editDomain;
         }
 
+        // Node fields (API 1.31+): node_version also pins a Laravel app to a major.
+        $currentNodeVersion = (string) ($this->app['node_version'] ?? '');
+        $nodeVersion = trim($this->editNodeVersion);
+        if ($nodeVersion !== $currentNodeVersion) {
+            if ($nodeVersion === '' || $nodeVersion === 'default') {
+                if ($currentNodeVersion !== '') {
+                    $payload['node_version'] = 'default';
+                }
+            } else {
+                $payload['node_version'] = $nodeVersion;
+            }
+        }
+
+        if ($isNode) {
+            $mode = trim($this->editNodeMode);
+            if ($mode !== '' && $mode !== (string) ($this->app['node_mode'] ?? '')) {
+                $payload['node'] = $mode;
+            }
+
+            foreach ([
+                'build' => trim($this->editBuild),
+                'start' => trim($this->editStart),
+                'output' => trim($this->editOutput),
+                'health_path' => trim($this->editHealthPath),
+            ] as $key => $value) {
+                if ($value !== '' && $value !== (string) ($this->app[$key] ?? '')) {
+                    $payload[$key] = $value;
+                }
+            }
+        }
+
         if ($payload === []) {
             $this->dispatch('notify', type: 'info', message: 'No changes to save.');
 
@@ -315,6 +528,46 @@ class AppDetail extends Component
         try {
             $response = $this->client()->editApp($this->appName, $payload);
             $this->dispatchJob($response, 'App update');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function suspendApp(): void
+    {
+        try {
+            $response = $this->client()->suspendApp($this->appName);
+            $this->dispatchJob($response, 'Suspend app');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function unsuspendApp(): void
+    {
+        try {
+            $response = $this->client()->unsuspendApp($this->appName);
+            $this->dispatchJob($response, 'Unsuspend app');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function fixPermissions(): void
+    {
+        try {
+            $response = $this->client()->fixPermissions($this->appName);
+            $this->dispatchJob($response, 'Fix permissions');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function restartNode(): void
+    {
+        try {
+            $response = $this->client()->nodeRestart($this->appName);
+            $this->dispatchJob($response, 'Node restart');
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -438,6 +691,317 @@ class AppDetail extends Component
         }
     }
 
+    // ── Routing: app/path redirects + proxies (API 1.31+ / Cipi ≥ 5.3.1) ──
+
+    public function loadRouting(): void
+    {
+        $this->routingUnsupported = false;
+
+        try {
+            $this->syncRedirects($this->client()->listRedirects($this->appName));
+            $this->syncProxies($this->client()->listProxies($this->appName));
+            $this->routingLoaded = true;
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->routingUnsupported = true;
+
+                return;
+            }
+
+            $this->handleApiError($e);
+        }
+    }
+
+    /** @param  array<string, mixed>  $data */
+    protected function syncRedirects(array $data): void
+    {
+        $this->appRedirect = is_array($data['redirect'] ?? null) ? $data['redirect'] : null;
+        $this->pathRedirects = is_array($data['redirects'] ?? null) ? array_values($data['redirects']) : [];
+
+        if ($this->appRedirect !== null) {
+            $this->redirectTo = (string) ($this->appRedirect['to'] ?? '');
+            $this->redirectCode = (string) ($this->appRedirect['code'] ?? 301);
+            $this->redirectKeepPath = (bool) ($this->appRedirect['keep_path'] ?? true);
+        }
+    }
+
+    /** @param  array<string, mixed>  $data */
+    protected function syncProxies(array $data): void
+    {
+        $this->proxies = is_array($data['proxies'] ?? null) ? array_values($data['proxies']) : [];
+    }
+
+    public function saveAppRedirect(): void
+    {
+        $this->validate([
+            'redirectTo' => ['required', 'string', 'max:2048'],
+            'redirectCode' => ['required', 'in:301,302,307,308'],
+        ]);
+
+        try {
+            $data = $this->client()->setAppRedirect(
+                $this->appName,
+                trim($this->redirectTo),
+                (int) $this->redirectCode,
+                $this->redirectKeepPath,
+            );
+            $this->syncRedirects($data);
+            $this->dispatch('notify', type: 'success', message: 'App redirect saved.');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function toggleAppRedirect(): void
+    {
+        $enabled = (bool) ($this->appRedirect['enabled'] ?? false);
+
+        try {
+            $data = $enabled
+                ? $this->client()->disableAppRedirect($this->appName)
+                : $this->client()->enableAppRedirect($this->appName);
+            $this->syncRedirects($data);
+            $this->dispatch('notify', type: 'success', message: $enabled ? 'App redirect disabled.' : 'App redirect enabled.');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function removeAppRedirect(): void
+    {
+        try {
+            $data = $this->client()->unsetAppRedirect($this->appName);
+            $this->syncRedirects($data);
+            $this->redirectTo = '';
+            $this->redirectCode = '301';
+            $this->redirectKeepPath = true;
+            $this->dispatch('notify', type: 'success', message: 'App redirect removed.');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function addPathRedirect(): void
+    {
+        $this->validate([
+            'pathRedirectFrom' => ['required', 'string', 'max:512', 'regex:/^\//'],
+            'pathRedirectTo' => ['required', 'string', 'max:2048'],
+            'pathRedirectCode' => ['required', 'in:301,302,307,308'],
+        ]);
+
+        try {
+            $data = $this->client()->addPathRedirect(
+                $this->appName,
+                trim($this->pathRedirectFrom),
+                trim($this->pathRedirectTo),
+                (int) $this->pathRedirectCode,
+                $this->pathRedirectKeepPath,
+            );
+            $this->syncRedirects($data);
+            $this->pathRedirectFrom = '';
+            $this->pathRedirectTo = '';
+            $this->pathRedirectCode = '301';
+            $this->pathRedirectKeepPath = true;
+            $this->dispatch('notify', type: 'success', message: 'Path redirect saved.');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function removePathRedirect(string $from): void
+    {
+        try {
+            $data = $this->client()->removePathRedirect($this->appName, $from);
+            $this->syncRedirects($data);
+            $this->dispatch('notify', type: 'success', message: 'Path redirect removed.');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function addProxy(): void
+    {
+        $this->validate([
+            'proxyPrefix' => ['required', 'string', 'max:512', 'regex:/^\//'],
+            'proxyUpstream' => ['required', 'string', 'max:2048'],
+            'proxyTimeout' => ['required', 'integer', 'min:1', 'max:3600'],
+        ]);
+
+        try {
+            $data = $this->client()->addProxy($this->appName, [
+                'prefix' => trim($this->proxyPrefix),
+                'upstream' => trim($this->proxyUpstream),
+                'strip_prefix' => $this->proxyStripPrefix,
+                'preserve_host' => $this->proxyPreserveHost,
+                'timeout' => (int) $this->proxyTimeout,
+                'buffering' => $this->proxyBuffering,
+            ]);
+            $this->syncProxies($data);
+            $this->proxyPrefix = '';
+            $this->proxyUpstream = '';
+            $this->proxyStripPrefix = false;
+            $this->proxyPreserveHost = false;
+            $this->proxyTimeout = '60';
+            $this->proxyBuffering = true;
+            $this->dispatch('notify', type: 'success', message: 'Proxy saved.');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function removeProxy(string $prefix): void
+    {
+        try {
+            $data = $this->client()->removeProxy($this->appName, $prefix);
+            $this->syncProxies($data);
+            $this->dispatch('notify', type: 'success', message: 'Proxy removed.');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    // ── Deploy config (structured deploy.php options — API 1.31+) ─────
+
+    public function loadDeployConfig(): void
+    {
+        $this->deployConfigUnsupported = false;
+
+        if (($this->app['custom'] ?? false) || $this->isNodeApp($this->app ?? [])) {
+            $this->deployConfigUnsupported = true;
+
+            return;
+        }
+
+        try {
+            $this->syncDeployConfig($this->client()->showDeployConfig($this->appName));
+            $this->deployConfigLoaded = true;
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 422, 501], true)) {
+                $this->deployConfigUnsupported = true;
+
+                return;
+            }
+
+            $this->handleApiError($e);
+        }
+    }
+
+    /** @param  array<string, mixed>  $data */
+    protected function syncDeployConfig(array $data): void
+    {
+        $this->dcKeepReleases = (string) ($data['keep_releases'] ?? 5);
+        $this->dcMigrate = (bool) ($data['migrate'] ?? true);
+        $this->dcOptimize = (bool) ($data['optimize'] ?? true);
+        $this->dcStorageLink = (bool) ($data['storage_link'] ?? true);
+        $this->dcQueueRestart = (bool) ($data['queue_restart'] ?? true);
+        $this->dcHorizonTerminate = (bool) ($data['horizon_terminate'] ?? false);
+        $this->dcPredeploySnapshot = (bool) ($data['predeploy_snapshot'] ?? false);
+        $this->dcNodeBuild = (string) ($data['node_build'] ?? '');
+        $extra = is_array($data['extra_artisan'] ?? null) ? $data['extra_artisan'] : [];
+        $this->dcExtraArtisan = implode("\n", array_map('strval', $extra));
+    }
+
+    public function saveDeployConfig(): void
+    {
+        $this->validate([
+            'dcKeepReleases' => ['required', 'integer', 'min:1', 'max:20'],
+            'dcNodeBuild' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $extraArtisan = array_values(array_filter(array_map('trim', explode("\n", $this->dcExtraArtisan))));
+
+        try {
+            $data = $this->client()->updateDeployConfig($this->appName, [
+                'keep_releases' => (int) $this->dcKeepReleases,
+                'migrate' => $this->dcMigrate,
+                'optimize' => $this->dcOptimize,
+                'storage_link' => $this->dcStorageLink,
+                'queue_restart' => $this->dcQueueRestart,
+                'horizon_terminate' => $this->dcHorizonTerminate,
+                'predeploy_snapshot' => $this->dcPredeploySnapshot,
+                'node_build' => $this->dcNodeBuild,
+                'extra_artisan' => $extraArtisan,
+            ]);
+            $this->syncDeployConfig($data);
+            $this->dispatch('notify', type: 'success', message: 'Deploy config saved (deploy.php regenerated).');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    // ── Deploy audit ledger (API 1.31+ / Cipi ≥ 5.4.0) ────────────────
+
+    public function loadDeployAudit(): void
+    {
+        $this->auditUnsupported = false;
+
+        $days = max(1, min(3650, (int) $this->auditDays ?: 90));
+        $this->auditDays = (string) $days;
+
+        try {
+            $data = $this->client()->deployAudit($this->appName, $days);
+            $records = is_array($data['records'] ?? null) ? $data['records'] : [];
+            $this->auditRecords = array_reverse(array_values($records)); // newest first
+            $this->auditLoaded = true;
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->auditUnsupported = true;
+
+                return;
+            }
+
+            $this->handleApiError($e);
+        }
+    }
+
+    // ── Meilisearch / Laravel Scout (API 1.31+ / Cipi ≥ 5.2.2) ────────
+
+    public function loadSearchStatus(): void
+    {
+        $this->searchUnsupported = false;
+
+        try {
+            $this->searchStatus = $this->client()->searchStatus();
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->searchUnsupported = true;
+
+                return;
+            }
+
+            $this->handleApiError($e);
+        }
+    }
+
+    public function enableSearch(): void
+    {
+        try {
+            $this->client()->enableSearch($this->appName);
+            $this->dispatch('notify', type: 'success', message: 'Search (Meilisearch/Scout) enabled.');
+            $this->loadSearchStatus();
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function disableSearch(): void
+    {
+        try {
+            $this->client()->disableSearch($this->appName);
+            $this->dispatch('notify', type: 'success', message: 'Search disabled (previous SCOUT_DRIVER restored).');
+            $this->loadSearchStatus();
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function searchEnabledForApp(): bool
+    {
+        $apps = $this->searchStatus['apps'] ?? [];
+
+        return is_array($apps) && array_key_exists($this->appName, $apps);
+    }
+
     public function addAlias(): void
     {
         $this->validate(['newAlias' => ['required', 'string', 'max:255']]);
@@ -519,7 +1083,7 @@ class AppDetail extends Component
         $this->envUnsupported = false;
         $this->envLoaded = false;
 
-        if ($this->app['custom'] ?? false) {
+        if (($this->app['custom'] ?? false) || $this->isNodeApp($this->app ?? [])) {
             $this->envUnsupported = true;
 
             return;
@@ -876,25 +1440,34 @@ class AppDetail extends Component
         if ($this->activeTab === 'aliases') {
             $this->loadWwwStatus();
         }
+
+        if ($this->activeTab === 'routing') {
+            $this->loadRouting();
+        }
+
+        if ($this->activeTab === 'deploy') {
+            $this->loadDeployConfig();
+        }
     }
 
     public function render()
     {
-        $isCustom = (bool) ($this->app['custom'] ?? false);
+        $isLaravel = $this->isLaravelApp($this->app ?? []);
 
         $tabs = [
             'overview' => 'Overview',
             'aliases' => 'Aliases & SSL',
+            'routing' => 'Routing',
             'deploy' => 'Deploy',
         ];
 
-        if (! $isCustom) {
+        if ($isLaravel) {
             $tabs['env'] = 'Env';
         }
 
         $tabs['authjson'] = 'Auth.json';
 
-        if (! $isCustom) {
+        if ($isLaravel) {
             $tabs['artisan'] = 'Artisan';
         }
 

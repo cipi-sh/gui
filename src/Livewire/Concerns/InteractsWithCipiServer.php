@@ -93,7 +93,55 @@ trait InteractsWithCipiServer
         $wwwRedirect = $app['www_redirect'] ?? null;
         $app['www_redirect'] = is_string($wwwRedirect) && $wwwRedirect !== '' ? $wwwRedirect : null;
 
+        // Node apps (API 1.31+ / Cipi ≥ 5.4.0)
+        $app['node'] = $this->appFlagIsTrue($app['node'] ?? false);
+        $nodeMode = $app['node_mode'] ?? null;
+        $app['node_mode'] = is_string($nodeMode) && $nodeMode !== '' ? $nodeMode : null;
+        $nodeVersion = $app['node_version'] ?? null;
+        $app['node_version'] = is_string($nodeVersion) && $nodeVersion !== '' ? $nodeVersion : null;
+
+        // Whole-app redirect + routing rules (API 1.31+ / Cipi ≥ 5.3.1)
+        $app['redirect'] = is_array($app['redirect'] ?? null) ? $app['redirect'] : null;
+        $app['redirects'] = is_array($app['redirects'] ?? null) ? array_values($app['redirects']) : [];
+        $app['proxies'] = is_array($app['proxies'] ?? null) ? array_values($app['proxies']) : [];
+
         return $app;
+    }
+
+    protected function nodeModeLabel(?string $mode): string
+    {
+        return match ($mode) {
+            'spa' => 'SPA',
+            'static' => 'Static',
+            'ssr' => 'SSR',
+            default => $mode ?: '—',
+        };
+    }
+
+    /** @param  array<string, mixed>  $app */
+    protected function isNodeApp(array $app): bool
+    {
+        return $this->appFlagIsTrue($app['node'] ?? false);
+    }
+
+    /** @param  array<string, mixed>  $app */
+    protected function isLaravelApp(array $app): bool
+    {
+        return ! $this->appFlagIsTrue($app['custom'] ?? false) && ! $this->isNodeApp($app);
+    }
+
+    /** @param  array<string, mixed>  $app */
+    protected function appKindLabel(array $app): string
+    {
+        if ($this->isNodeApp($app)) {
+            return 'Node '.$this->nodeModeLabel($app['node_mode'] ?? null);
+        }
+
+        if ($this->appFlagIsTrue($app['custom'] ?? false)) {
+            return 'Custom';
+        }
+
+        return 'Laravel';
     }
 
     protected function engineLabel(?string $engine): string

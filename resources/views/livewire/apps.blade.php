@@ -2,7 +2,7 @@
     <div class="flex items-center justify-between mb-6">
         <div>
             <h2 class="text-2xl font-semibold text-white">Apps</h2>
-            <p class="text-sm text-surface-400 mt-1">Manage Laravel and custom applications</p>
+            <p class="text-sm text-surface-400 mt-1">Manage Laravel, Node, and custom applications</p>
         </div>
         @if($servers->isNotEmpty())
             <button wire:click="openCreate" class="btn btn-primary">
@@ -41,7 +41,7 @@
                     <tr>
                         <th>App</th>
                         <th>Domain</th>
-                        <th>PHP</th>
+                        <th>Kind</th>
                         <th>Runtime</th>
                         <th>DB</th>
                         <th>Branch</th>
@@ -59,15 +59,22 @@
                                 @endif
                             </td>
                             <td class="text-surface-300">{{ $app['domain'] }}</td>
-                            <td><span class="badge badge-neutral">{{ $app['php'] }}</span></td>
+                            <td>
+                                <span class="badge badge-neutral">{{ $this->appKindLabel($app) }}</span>
+                            </td>
                             <td class="text-surface-400 text-sm">
-                                @if($app['octane'] ?? null)
+                                @if($this->isNodeApp($app))
+                                    Node {{ $app['node_version'] ?? '' }}
+                                @elseif($app['octane'] ?? null)
                                     <span class="badge badge-neutral" title="{{ $this->runtimeLabel($app['octane'], $app['octane_port'] ?? null) }}">Octane</span>
+                                    @if(!empty($app['php']))
+                                        <span class="text-surface-500 text-xs ml-1">PHP {{ $app['php'] }}</span>
+                                    @endif
                                 @else
-                                    FPM
+                                    PHP {{ $app['php'] ?? '—' }}
                                 @endif
                             </td>
-                            <td class="text-surface-400 text-sm">{{ $this->engineLabel($app['engine'] ?? null) }}</td>
+                            <td class="text-surface-400 text-sm">{{ $this->isLaravelApp($app) ? $this->engineLabel($app['engine'] ?? null) : '—' }}</td>
                             <td class="text-surface-400 text-sm">{{ $app['branch'] ?? '—' }}</td>
                             <td>
                                 <div class="flex flex-wrap gap-1">
@@ -80,7 +87,10 @@
                                     @if($app['www_redirect'] ?? null)
                                         <span class="badge badge-neutral" title="WWW redirect">{{ $this->wwwRedirectLabel($app['www_redirect']) }}</span>
                                     @endif
-                                    @if(!($app['basic_auth'] ?? false) && !($app['force_https'] ?? false) && !($app['www_redirect'] ?? null))
+                                    @if(!empty($app['redirect']['enabled']))
+                                        <span class="badge badge-gray">Redirect</span>
+                                    @endif
+                                    @if(!($app['basic_auth'] ?? false) && !($app['force_https'] ?? false) && !($app['www_redirect'] ?? null) && empty($app['redirect']['enabled']))
                                         <span class="text-surface-500">—</span>
                                     @endif
                                 </div>
@@ -115,17 +125,21 @@
                         </div>
                         <div>
                             <label>Domain</label>
-                            <input type="text" wire:model="domain" placeholder="myapp.example.com">
+                            <input type="text" wire:model="domain" placeholder="myapp.example.com or *.example.com">
                             @error('domain') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
                         </div>
                     </div>
 
-                    <div class="flex items-center gap-2">
-                        <input type="checkbox" wire:model.live="custom" id="custom">
-                        <label for="custom" style="margin:0;font-weight:400;">Custom app (non-Laravel)</label>
+                    <div>
+                        <label>App type</label>
+                        <select wire:model.live="appKind">
+                            <option value="laravel">Laravel</option>
+                            <option value="node">Node (SPA / static / SSR)</option>
+                            <option value="custom">Custom (non-Laravel PHP)</option>
+                        </select>
                     </div>
 
-                    @if(!$custom)
+                    @if($appKind === 'laravel')
                         <div>
                             <label>Repository (Git SSH URL)</label>
                             <input type="text" wire:model="repository" placeholder="git@github.com:user/repo.git">
@@ -170,6 +184,80 @@
                             </div>
                         </div>
                         @error('octane') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                    @elseif($appKind === 'node')
+                        @if($nodeUnsupported)
+                            <p class="text-sm text-amber-400">Node apps require API 1.31+ / Cipi ≥ 5.4.0 with <code class="text-surface-300">node-view</code>. You can still submit; the server will reject if unsupported.</p>
+                        @endif
+                        <div>
+                            <label>Repository (Git SSH URL)</label>
+                            <input type="text" wire:model="repository" placeholder="git@github.com:user/repo.git">
+                            @error('repository') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label>Branch</label>
+                                <input type="text" wire:model="branch">
+                            </div>
+                            <div>
+                                <label>Mode</label>
+                                <select wire:model.live="nodeMode">
+                                    <option value="spa">SPA</option>
+                                    <option value="static">Static</option>
+                                    <option value="ssr">SSR</option>
+                                </select>
+                                @error('nodeMode') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label>Framework preset (optional)</label>
+                                <select wire:model="nodeFramework">
+                                    <option value="">None — set commands below</option>
+                                    <option value="next">Next.js</option>
+                                    <option value="nuxt">Nuxt</option>
+                                    <option value="sveltekit">SvelteKit</option>
+                                    <option value="astro">Astro</option>
+                                    <option value="remix">Remix</option>
+                                    <option value="vite">Vite</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label>Node version</label>
+                                @if(count($nodeRuntimes) > 0)
+                                    <select wire:model="nodeVersion">
+                                        <option value="">Server default</option>
+                                        @foreach($nodeRuntimes as $runtime)
+                                            <option value="{{ $runtime['major'] }}">
+                                                {{ $runtime['major'] }}
+                                                @if(!empty($runtime['version'])) ({{ $runtime['version'] }}) @endif
+                                                @if(!empty($runtime['default'])) — default @endif
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                @else
+                                    <input type="text" wire:model="nodeVersion" placeholder="22" autocomplete="off">
+                                @endif
+                            </div>
+                        </div>
+                        <div>
+                            <label>Build command</label>
+                            <input type="text" wire:model="nodeBuild" placeholder="npm run build" class="font-mono text-sm">
+                        </div>
+                        @if($nodeMode === 'ssr')
+                            <div>
+                                <label>Start command</label>
+                                <input type="text" wire:model="nodeStart" placeholder="npm run start" class="font-mono text-sm">
+                            </div>
+                            <div>
+                                <label>Health path</label>
+                                <input type="text" wire:model="nodeHealthPath" placeholder="/" class="font-mono text-sm">
+                            </div>
+                        @else
+                            <div>
+                                <label>Output directory</label>
+                                <input type="text" wire:model="nodeOutput" placeholder="dist" class="font-mono text-sm">
+                            </div>
+                        @endif
                     @else
                         <div>
                             <label>Repository (optional — leave empty for SFTP-only)</label>

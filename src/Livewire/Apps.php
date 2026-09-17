@@ -41,11 +41,33 @@ class Apps extends Component
 
     public bool $custom = false;
 
+    /** laravel | custom | node */
+    public string $appKind = 'laravel';
+
     public string $docroot = '';
 
     public string $engine = '';
 
     public bool $octane = false;
+
+    public string $nodeMode = 'spa';
+
+    public string $nodeFramework = '';
+
+    public string $nodeVersion = '';
+
+    public string $nodeBuild = '';
+
+    public string $nodeStart = '';
+
+    public string $nodeOutput = '';
+
+    public string $nodeHealthPath = '';
+
+    /** @var list<array{major: string, version: ?string, default: bool, apps?: list<string>}> */
+    public array $nodeRuntimes = [];
+
+    public bool $nodeUnsupported = false;
 
     /** @var array<int, array{engine: string, status?: string, port?: int|null, default?: bool}> */
     public array $availableEngines = [];
@@ -95,13 +117,36 @@ class Apps extends Component
 
     public function openCreate(): void
     {
-        $this->reset(['user', 'domain', 'repository', 'branch', 'docroot', 'engine', 'error']);
+        $this->reset([
+            'user', 'domain', 'repository', 'branch', 'docroot', 'engine', 'error',
+            'nodeMode', 'nodeFramework', 'nodeVersion', 'nodeBuild', 'nodeStart',
+            'nodeOutput', 'nodeHealthPath',
+        ]);
+        $this->appKind = 'laravel';
         $this->custom = false;
         $this->octane = false;
+        $this->nodeMode = 'spa';
         $this->loadAvailableEngines();
         $this->loadInstalledPhpVersions();
+        $this->loadNodeRuntimes();
         $this->php = $this->defaultPhpForNewApp();
         $this->showCreateModal = true;
+    }
+
+    public function updatedAppKind(): void
+    {
+        $this->custom = $this->appKind === 'custom';
+
+        if ($this->appKind !== 'laravel') {
+            $this->engine = '';
+            $this->octane = false;
+        } elseif ($this->engine === '' && $this->availableEngines !== []) {
+            $this->engine = $this->defaultEngine();
+        }
+
+        if ($this->appKind === 'node' && $this->nodeRuntimes === [] && ! $this->nodeUnsupported) {
+            $this->loadNodeRuntimes();
+        }
     }
 
     protected function loadInstalledPhpVersions(): void
@@ -146,11 +191,39 @@ class Apps extends Component
 
     public function updatedCustom(): void
     {
-        if ($this->custom) {
-            $this->engine = '';
-            $this->octane = false;
-        } elseif ($this->engine === '' && $this->availableEngines !== []) {
-            $this->engine = $this->defaultEngine();
+        $this->appKind = $this->custom ? 'custom' : 'laravel';
+        $this->updatedAppKind();
+    }
+
+    protected function loadNodeRuntimes(): void
+    {
+        $this->nodeRuntimes = [];
+        $this->nodeUnsupported = false;
+        $this->nodeVersion = '';
+
+        if (! $this->currentServer()) {
+            return;
+        }
+
+        try {
+            $this->nodeRuntimes = array_values(array_filter(
+                $this->client()->listNodeRuntimes(),
+                fn ($item) => is_array($item) && ! empty($item['major']),
+            ));
+
+            foreach ($this->nodeRuntimes as $runtime) {
+                if (! empty($runtime['default'])) {
+                    $this->nodeVersion = (string) $runtime['major'];
+                    break;
+                }
+            }
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->nodeUnsupported = true;
+
+                return;
+            }
+            $this->handleApiError($e);
         }
     }
 
@@ -202,51 +275,96 @@ class Apps extends Component
 
     public function createApp(): void
     {
+        $isNode = $this->appKind === 'node';
+        $isCustom = $this->appKind === 'custom';
+
         $rules = [
             'user' => ['required', 'regex:/^[a-z][a-z0-9]{2,31}$/'],
             'domain' => ['required', 'string', 'max:255'],
-            'php' => ['required', 'regex:/^\d+\.\d+$/'],
             'custom' => ['boolean'],
             'octane' => ['boolean'],
         ];
 
-        if (! $this->custom) {
+        if ($isNode) {
             $rules['repository'] = ['required', 'string'];
             $rules['branch'] = ['required', 'string', 'max:64'];
-            if ($this->availableEngines !== []) {
-                $allowed = implode(',', array_column($this->availableEngines, 'engine'));
-                $rules['engine'] = ['required', 'in:'.$allowed];
-            }
+            $rules['nodeMode'] = ['required', 'in:spa,static,ssr'];
+            $rules['nodeFramework'] = ['nullable', 'in:next,nuxt,sveltekit,astro,remix,vite'];
+            $rules['nodeVersion'] = ['nullable', 'string', 'max:8'];
+            $rules['nodeBuild'] = ['nullable', 'string', 'max:256'];
+            $rules['nodeStart'] = ['nullable', 'string', 'max:256'];
+            $rules['nodeOutput'] = ['nullable', 'string', 'max:128'];
+            $rules['nodeHealthPath'] = ['nullable', 'string', 'max:128'];
         } else {
-            $rules['repository'] = ['nullable', 'string'];
-            $rules['branch'] = ['nullable', 'string', 'max:64'];
-            $rules['docroot'] = ['nullable', 'string', 'max:64'];
+            $rules['php'] = ['required', 'regex:/^\d+\.\d+$/'];
+
+            if (! $isCustom) {
+                $rules['repository'] = ['required', 'string'];
+                $rules['branch'] = ['required', 'string', 'max:64'];
+                if ($this->availableEngines !== []) {
+                    $allowed = implode(',', array_column($this->availableEngines, 'engine'));
+                    $rules['engine'] = ['required', 'in:'.$allowed];
+                }
+            } else {
+                $rules['repository'] = ['nullable', 'string'];
+                $rules['branch'] = ['nullable', 'string', 'max:64'];
+                $rules['docroot'] = ['nullable', 'string', 'max:64'];
+            }
         }
 
         $this->validate($rules);
 
-        $payload = [
-            'user' => $this->user,
-            'domain' => $this->domain,
-            'php' => $this->php,
-            'custom' => $this->custom,
-        ];
+        if ($isNode) {
+            $payload = [
+                'user' => $this->user,
+                'domain' => $this->domain,
+                'node' => $this->nodeMode,
+                'repository' => $this->repository,
+                'branch' => $this->branch ?: 'main',
+            ];
 
-        if ($this->repository) {
-            $payload['repository'] = $this->repository;
-            $payload['branch'] = $this->branch ?: 'main';
-        }
+            if ($this->nodeFramework !== '') {
+                $payload['framework'] = $this->nodeFramework;
+            }
+            if (trim($this->nodeVersion) !== '') {
+                $payload['node_version'] = trim($this->nodeVersion);
+            }
+            if (trim($this->nodeBuild) !== '') {
+                $payload['build'] = trim($this->nodeBuild);
+            }
+            if (trim($this->nodeStart) !== '') {
+                $payload['start'] = trim($this->nodeStart);
+            }
+            if (trim($this->nodeOutput) !== '') {
+                $payload['output'] = trim($this->nodeOutput);
+            }
+            if (trim($this->nodeHealthPath) !== '') {
+                $payload['health_path'] = trim($this->nodeHealthPath);
+            }
+        } else {
+            $payload = [
+                'user' => $this->user,
+                'domain' => $this->domain,
+                'php' => $this->php,
+                'custom' => $isCustom,
+            ];
 
-        if ($this->custom && $this->docroot) {
-            $payload['docroot'] = $this->docroot;
-        }
+            if ($this->repository) {
+                $payload['repository'] = $this->repository;
+                $payload['branch'] = $this->branch ?: 'main';
+            }
 
-        if (! $this->custom && $this->engine !== '') {
-            $payload['engine'] = $this->engine;
-        }
+            if ($isCustom && $this->docroot) {
+                $payload['docroot'] = $this->docroot;
+            }
 
-        if (! $this->custom && $this->octane) {
-            $payload['octane'] = true;
+            if (! $isCustom && $this->engine !== '') {
+                $payload['engine'] = $this->engine;
+            }
+
+            if (! $isCustom && $this->octane) {
+                $payload['octane'] = true;
+            }
         }
 
         try {

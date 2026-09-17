@@ -61,6 +61,38 @@ class ServerManage extends Component
 
     public bool $smtpSendTest = true;
 
+    /** @var list<array{major: string, version: ?string, default: bool, apps?: list<string>}> */
+    public array $nodeRuntimes = [];
+
+    public bool $nodeUnsupported = false;
+
+    /** @var list<array{id: string, packages?: list<string>, description?: string, installed?: bool, partial?: bool}> */
+    public array $packages = [];
+
+    public bool $packagesUnsupported = false;
+
+    /** @var array{reminder_minutes?: int, checks?: list<array>} */
+    public array $monitor = [];
+
+    public bool $monitorUnsupported = false;
+
+    /** @var array<string, mixed> */
+    public array $zt = [];
+
+    public bool $ztUnsupported = false;
+
+    /** @var array{allow_all?: bool, entries?: list<string>, file?: string, client_ip?: string} */
+    public array $ipWhitelist = [];
+
+    public bool $ipWhitelistUnsupported = false;
+
+    public string $ipWhitelistEntry = '';
+
+    /** @var array<string, mixed> */
+    public array $search = [];
+
+    public bool $searchUnsupported = false;
+
     public function mount(?int $serverId = null): void
     {
         if ($serverId !== null) {
@@ -81,6 +113,12 @@ class ServerManage extends Component
     public function setTab(string $tab): void
     {
         $this->activeTab = $tab;
+
+        try {
+            $this->loadOptionalTab($tab);
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
     }
 
     public function loadAll(): void
@@ -101,6 +139,7 @@ class ServerManage extends Component
             $this->loadSsh();
             $this->loadServices();
             $this->loadSmtp();
+            $this->loadOptionalTab($this->activeTab);
         } catch (CipiApiException $e) {
             if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
                 $this->unsupported = true;
@@ -109,6 +148,151 @@ class ServerManage extends Component
             }
         } finally {
             $this->loading = false;
+        }
+    }
+
+    protected function loadOptionalTab(string $tab): void
+    {
+        match ($tab) {
+            'node' => $this->loadNodeRuntimes(),
+            'packages' => $this->loadPackages(),
+            'monitor' => $this->loadMonitor(),
+            'zt' => $this->loadZt(),
+            'ip' => $this->loadIpWhitelist(),
+            'search' => $this->loadSearch(),
+            default => null,
+        };
+    }
+
+    protected function loadNodeRuntimes(): void
+    {
+        $this->nodeUnsupported = false;
+        try {
+            $this->nodeRuntimes = array_values(array_filter(
+                $this->client()->listNodeRuntimes(),
+                fn ($item) => is_array($item) && ! empty($item['major']),
+            ));
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->nodeUnsupported = true;
+                $this->nodeRuntimes = [];
+
+                return;
+            }
+            throw $e;
+        }
+    }
+
+    protected function loadPackages(): void
+    {
+        $this->packagesUnsupported = false;
+        try {
+            $this->packages = $this->client()->listPackages();
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->packagesUnsupported = true;
+                $this->packages = [];
+
+                return;
+            }
+            throw $e;
+        }
+    }
+
+    protected function loadMonitor(): void
+    {
+        $this->monitorUnsupported = false;
+        try {
+            $this->monitor = $this->client()->monitorStatus();
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->monitorUnsupported = true;
+                $this->monitor = [];
+
+                return;
+            }
+            throw $e;
+        }
+    }
+
+    protected function loadZt(): void
+    {
+        $this->ztUnsupported = false;
+        try {
+            $this->zt = $this->client()->ztStatus();
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->ztUnsupported = true;
+                $this->zt = [];
+
+                return;
+            }
+            throw $e;
+        }
+    }
+
+    protected function loadIpWhitelist(): void
+    {
+        $this->ipWhitelistUnsupported = false;
+        try {
+            $this->ipWhitelist = $this->client()->getIpWhitelist();
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->ipWhitelistUnsupported = true;
+                $this->ipWhitelist = [];
+
+                return;
+            }
+            throw $e;
+        }
+    }
+
+    protected function loadSearch(): void
+    {
+        $this->searchUnsupported = false;
+        try {
+            $this->search = $this->client()->searchStatus();
+        } catch (CipiApiException $e) {
+            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+                $this->searchUnsupported = true;
+                $this->search = [];
+
+                return;
+            }
+            throw $e;
+        }
+    }
+
+    public function addIpWhitelistEntry(): void
+    {
+        $this->validate(['ipWhitelistEntry' => ['required', 'string', 'max:64']]);
+
+        try {
+            $this->ipWhitelist = $this->client()->addIpWhitelistEntry(trim($this->ipWhitelistEntry));
+            $this->ipWhitelistEntry = '';
+            $this->dispatch('notify', type: 'success', message: 'IP added to API whitelist');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function removeIpWhitelistEntry(string $ip): void
+    {
+        try {
+            $this->ipWhitelist = $this->client()->removeIpWhitelistEntry($ip);
+            $this->dispatch('notify', type: 'success', message: 'IP removed from API whitelist');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function allowAllIpWhitelist(): void
+    {
+        try {
+            $this->ipWhitelist = $this->client()->allowAllIpWhitelist();
+            $this->dispatch('notify', type: 'success', message: 'API whitelist set to allow all');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
         }
     }
 
@@ -338,9 +522,15 @@ class ServerManage extends Component
             'tabs' => [
                 'php' => 'PHP',
                 'engines' => 'Database engines',
+                'node' => 'Node',
                 'ssh' => 'SSH keys',
                 'services' => 'Services',
                 'smtp' => 'Email (SMTP)',
+                'search' => 'Search',
+                'packages' => 'Packages',
+                'monitor' => 'Monitor',
+                'zt' => 'Zero Trust',
+                'ip' => 'IP whitelist',
             ],
         ]);
     }

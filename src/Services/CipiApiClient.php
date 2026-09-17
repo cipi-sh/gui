@@ -55,6 +55,30 @@ class CipiApiClient
         return $this->delete("/apps/{$name}");
     }
 
+    /**
+     * Take an app offline with an HTTP 503 maintenance page (async job).
+     */
+    public function suspendApp(string $name): array
+    {
+        return $this->post("/apps/{$name}/suspend");
+    }
+
+    /**
+     * Bring a suspended app back online (async job).
+     */
+    public function unsuspendApp(string $name): array
+    {
+        return $this->post("/apps/{$name}/unsuspend");
+    }
+
+    /**
+     * Restore the app home permission model (async job — API 1.31+ / Cipi ≥ 5.2.1).
+     */
+    public function fixPermissions(string $name): array
+    {
+        return $this->post("/apps/{$name}/fix-permissions");
+    }
+
     public function basicAuthStatus(string $name): array
     {
         return $this->get("/apps/{$name}/basicauth")['data'] ?? [];
@@ -174,6 +198,200 @@ class CipiApiClient
     public function deployUnlock(string $app): array
     {
         return $this->post("/apps/{$app}/deploy/unlock");
+    }
+
+    /**
+     * Hash-chained deploy ledger records, oldest first (API 1.31+ / Cipi ≥ 5.4.0).
+     */
+    public function deployAudit(string $app, int $days = 90): array
+    {
+        return $this->get("/apps/{$app}/deploy/audit", ['days' => $days])['data'] ?? [];
+    }
+
+    // ── Deploy config (structured deploy.php options — API 1.31+ / Cipi ≥ 5.0.3) ──
+
+    public function showDeployConfig(string $app): array
+    {
+        return $this->get("/apps/{$app}/deploy-config")['data'] ?? [];
+    }
+
+    public function updateDeployConfig(string $app, array $payload): array
+    {
+        return $this->put("/apps/{$app}/deploy-config", $payload)['data'] ?? [];
+    }
+
+    // ── App / path redirects (API 1.31+ / Cipi ≥ 5.3.1, sudoers ≥ 5.4.1) ──
+
+    public function listRedirects(string $app): array
+    {
+        return $this->get("/apps/{$app}/redirects")['data'] ?? [];
+    }
+
+    /**
+     * Set (or replace) the whole-app redirect: every hostname → target URL.
+     */
+    public function setAppRedirect(string $app, string $to, int $code = 301, bool $keepPath = true): array
+    {
+        return $this->put("/apps/{$app}/redirect", [
+            'to' => $to,
+            'code' => $code,
+            'keep_path' => $keepPath,
+        ])['data'] ?? [];
+    }
+
+    public function enableAppRedirect(string $app): array
+    {
+        return $this->post("/apps/{$app}/redirect/enable")['data'] ?? [];
+    }
+
+    public function disableAppRedirect(string $app): array
+    {
+        return $this->post("/apps/{$app}/redirect/disable")['data'] ?? [];
+    }
+
+    public function unsetAppRedirect(string $app): array
+    {
+        return $this->delete("/apps/{$app}/redirect")['data'] ?? [];
+    }
+
+    /**
+     * Add (or update) a path redirect. A `from` ending in `/` is a prefix match.
+     */
+    public function addPathRedirect(string $app, string $from, string $to, int $code = 301, bool $keepPath = true): array
+    {
+        return $this->post("/apps/{$app}/redirects", [
+            'from' => $from,
+            'to' => $to,
+            'code' => $code,
+            'keep_path' => $keepPath,
+        ])['data'] ?? [];
+    }
+
+    public function removePathRedirect(string $app, string $from): array
+    {
+        return $this->request('delete', "/apps/{$app}/redirects", data: ['from' => $from])['data'] ?? [];
+    }
+
+    // ── Prefix reverse proxies (API 1.31+ / Cipi ≥ 5.3.1, sudoers ≥ 5.4.1) ──
+
+    public function listProxies(string $app): array
+    {
+        return $this->get("/apps/{$app}/proxies")['data'] ?? [];
+    }
+
+    public function addProxy(string $app, array $payload): array
+    {
+        return $this->post("/apps/{$app}/proxies", $payload)['data'] ?? [];
+    }
+
+    public function removeProxy(string $app, string $prefix): array
+    {
+        return $this->request('delete', "/apps/{$app}/proxies", data: ['prefix' => $prefix])['data'] ?? [];
+    }
+
+    // ── Node apps + runtimes (API 1.31+ / Cipi ≥ 5.4.0) ───────────────
+
+    /**
+     * @return list<array{major: string, version: ?string, default: bool, apps: list<string>}>
+     */
+    public function listNodeRuntimes(): array
+    {
+        $data = $this->get('/node')['data'] ?? [];
+
+        if (isset($data['runtimes']) && is_array($data['runtimes'])) {
+            $data = $data['runtimes'];
+        }
+
+        return is_array($data) ? array_values($data) : [];
+    }
+
+    public function nodeStatus(string $app): array
+    {
+        return $this->get("/apps/{$app}/node")['data'] ?? [];
+    }
+
+    /**
+     * Blue/green restart of an SSR Node app (async job).
+     */
+    public function nodeRestart(string $app): array
+    {
+        return $this->post("/apps/{$app}/node/restart");
+    }
+
+    // ── Meilisearch / Laravel Scout (API 1.31+ / Cipi ≥ 5.2.2) ────────
+
+    public function searchStatus(): array
+    {
+        return $this->get('/search')['data'] ?? [];
+    }
+
+    public function enableSearch(string $app): array
+    {
+        return $this->post("/apps/{$app}/search/enable")['data'] ?? [];
+    }
+
+    public function disableSearch(string $app): array
+    {
+        return $this->post("/apps/{$app}/search/disable")['data'] ?? [];
+    }
+
+    // ── Host insights (read-only — API 1.31+) ─────────────────────────
+
+    /**
+     * @return list<array{id: string, packages: list<string>, description?: string, installed: bool, partial?: bool}>
+     */
+    public function listPackages(): array
+    {
+        $data = $this->get('/packages')['data'] ?? [];
+
+        if (isset($data['packages']) && is_array($data['packages'])) {
+            $data = $data['packages'];
+        }
+
+        return is_array($data) ? array_values($data) : [];
+    }
+
+    public function monitorStatus(): array
+    {
+        return $this->get('/monitor')['data'] ?? [];
+    }
+
+    public function ztStatus(): array
+    {
+        return $this->get('/zt')['data'] ?? [];
+    }
+
+    // ── API client IP whitelist (API 1.31+ / Cipi ≥ 5.0.8) ────────────
+
+    public function getIpWhitelist(): array
+    {
+        return $this->get('/ip-whitelist')['data'] ?? [];
+    }
+
+    /**
+     * @param  list<string>  $entries
+     */
+    public function setIpWhitelist(array $entries, bool $ensureClientIp = true): array
+    {
+        return $this->put('/ip-whitelist', [
+            'entries' => $entries,
+            'ensure_client_ip' => $ensureClientIp,
+        ])['data'] ?? [];
+    }
+
+    public function addIpWhitelistEntry(string $ip): array
+    {
+        return $this->post('/ip-whitelist', ['ip' => $ip])['data'] ?? [];
+    }
+
+    public function removeIpWhitelistEntry(string $ip): array
+    {
+        return $this->request('delete', '/ip-whitelist', data: ['ip' => $ip])['data'] ?? [];
+    }
+
+    public function allowAllIpWhitelist(): array
+    {
+        return $this->post('/ip-whitelist/allow-all')['data'] ?? [];
     }
 
     // ── WWW redirects (Cipi 4.8+ / API 1.12+) ─────────────────────────
@@ -402,6 +620,14 @@ class CipiApiClient
 
     // ── Healthchecks (API 1.16+) ──────────────────────────────────────
 
+    /**
+     * Server-wide HTTP healthchecks (API 1.16+).
+     */
+    public function listHealth(): array
+    {
+        return $this->get('/health')['data'] ?? [];
+    }
+
     public function getAppHealth(string $name): array
     {
         return $this->get("/apps/{$name}/health")['data'] ?? [];
@@ -490,9 +716,11 @@ class CipiApiClient
                 'post' => $pending->post($url, $data),
                 'put' => $pending->put($url, $data),
                 'putRaw' => $pending->withBody($rawBody ?? '', 'application/json')->put($url),
-                'delete' => $query === []
-                    ? $pending->delete($url)
-                    : $pending->withQueryParameters($query)->delete($url),
+                'delete' => match (true) {
+                    $data !== [] => $pending->delete($url, $data),
+                    $query !== [] => $pending->withQueryParameters($query)->delete($url),
+                    default => $pending->delete($url),
+                },
                 default => throw new CipiApiException("Unsupported HTTP method: {$method}"),
             };
         } catch (ConnectionException $e) {

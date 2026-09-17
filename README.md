@@ -26,11 +26,14 @@ php artisan cipi:seed-gui-user
 
 - **Multi-server** — Register N Cipi servers with API tokens; switch between them from any page
 - **Dashboard** — Live server status (CPU, memory, disk, services, app count) via `GET /api/status`
-- **Apps** — Create, edit, deploy Laravel and custom apps; manage aliases, WWW/apex redirects, SSL (install + force HTTPS), basic auth
+- **Apps** — Create, edit, deploy Laravel, Node (SPA/static/SSR), and custom apps; manage aliases, WWW/apex redirects, path redirects, prefix proxies, SSL (install + force HTTPS), basic auth, suspend/unsuspend, fix-permissions
 - **Env & auth.json** — View/edit Laravel `.env` key/values; create, edit, and delete shared Composer `auth.json` (API 1.14+ / Cipi CLI ≥ 5.0.3)
 - **Artisan & commands** — Run Artisan (presets + custom) and whitelisted app commands such as `composer` / `npm` with job overlay output
-- **Databases** — Multi-engine MariaDB/PostgreSQL: list, create, delete, regenerate passwords (API 1.12+ / Cipi 4.8+)
+- **Deploy** — Deploy / rollback / unlock; structured `deploy.php` options; hash-chained deploy audit ledger (API 1.31+ / Cipi ≥ 5.4.0)
+- **Search** — Meilisearch / Laravel Scout status and per-app enable/disable (API 1.31+ / Cipi ≥ 5.2.2)
+- **Databases** — Multi-engine MariaDB/PostgreSQL: list, create, regenerate passwords (API 1.12+ / Cipi 4.8+)
 - **Laravel Octane** — optional FrankenPHP runtime at app create (API 1.13+ / Cipi 5.0+); list/detail show FPM vs Octane
+- **Server insights** — PHP/Node runtimes, optional packages, system monitor, Cloudflare Zero Trust (read-only), API IP whitelist
 - **Async jobs** — Interactive job overlay with spinner and terminal output while polling `GET /api/jobs/{id}`
 - **Logs** — Terminal-style log viewer with type filter, pagination, and auto-refresh
 - **Security** — Password login with optional TOTP two-factor authentication (Google Authenticator compatible)
@@ -55,7 +58,7 @@ Enable 2FA from **Settings** after first login. When enabled, a TOTP code is req
 2. Create an API token with the required abilities:
 
 ```bash
-cipi api token create --name=gui --abilities=apps-view,apps-create,apps-edit,apps-delete,apps-suspend,apps-basicauth,apps-env,apps-auth,apps-artisan,apps-run,aliases-view,aliases-create,aliases-delete,www-manage,deploy-manage,ssl-manage,dbs-view,dbs-create,dbs-delete,dbs-manage,php-view,php-manage,ssh-view,ssh-manage,services-view,services-manage,smtp-view,smtp-manage,health-view,health-manage,status-view
+cipi api token create --name=gui --abilities=apps-view,apps-create,apps-edit,apps-delete,apps-suspend,apps-basicauth,apps-env,apps-auth,apps-artisan,apps-run,apps-deploy-config,aliases-view,aliases-create,aliases-delete,www-manage,redirects-view,redirects-manage,proxies-view,proxies-manage,node-view,node-manage,search-view,search-manage,deploy-manage,ssl-manage,dbs-view,dbs-create,dbs-manage,php-view,php-manage,ssh-view,ssh-manage,services-view,services-manage,smtp-view,smtp-manage,health-view,health-manage,packages-view,monitor-view,zt-view,ip-whitelist-view,ip-whitelist-manage,status-view
 ```
 
 3. In the GUI, go to **Servers → Add Server** and enter:
@@ -84,17 +87,20 @@ The GUI consumes the full [Cipi API OpenAPI spec](https://vps.deploying.it/docs)
 
 | Area | Endpoints |
 |------|-----------|
-| Server | `GET /api/status`; Manage page: PHP / DB engines / SSH / services / SMTP (API 1.15+ / Cipi ≥ 5.0.6) |
-| Apps | CRUD, basic auth, logs; create accepts `engine` (mariadb/pgsql) and `octane` (FrankenPHP, API 1.13+); list/show expose `octane` / `octane_port`; edit sends only changed fields; webhook recreate + secret rotate; per-app HTTP healthcheck |
+| Server | `GET /api/status`; Manage page: PHP / DB engines / Node runtimes / SSH / services / SMTP / search / packages / monitor / Zero Trust / IP whitelist (API 1.15–1.31, Cipi ≥ 5.0.6; Node/redirects need ≥ 5.4.1) |
+| Apps | CRUD, suspend/unsuspend, fix-permissions, basic auth, logs; create accepts `engine`, `octane`, and Node (`node`, `framework`, `node_version`, `build`, `start`, `output`, `health_path`); list/show expose `node` / `node_mode` / `node_version` / `redirect` / `redirects` / `proxies`; wildcard primary domains (`*.example.com`); webhook recreate + secret rotate; per-app HTTP healthcheck |
 | Env | `GET`/`PUT /api/apps/{name}/env` (`apps-env`, API 1.14+) |
 | Auth.json | `GET`/`POST`/`PUT`/`DELETE /api/apps/{name}/auth` — Composer shared credentials, not HTTP Basic Auth (`apps-auth`) |
 | Artisan | `POST /api/apps/{name}/artisan` — async job (`apps-artisan`) |
 | App run | `GET /api/run-commands`, `POST /api/apps/{name}/run` — whitelisted composer/npm/… (`apps-run`) |
 | Aliases | List, add, remove |
 | WWW | Status, add counterpart, force-to-root / force-from-root, clear (`www-manage`) |
-| Deploy | Deploy, rollback, unlock |
+| Routing | Whole-app + path redirects (`/redirect*`); prefix reverse proxies (`/proxies`) — API 1.31+ / Cipi ≥ 5.3.1 |
+| Node | `GET /api/node`, `GET /api/apps/{name}/node`, `POST /api/apps/{name}/node/restart` (SSR blue/green) |
+| Search | `GET /api/search`; `POST /api/apps/{name}/search/enable` and `.../disable` |
+| Deploy | Deploy, rollback, unlock; `GET`/`PUT /api/apps/{name}/deploy-config`; `GET /api/apps/{name}/deploy/audit` |
 | SSL | Install Let's Encrypt, force HTTPS redirect |
-| Databases | Engines + list (sync); create/backup/restore/password with optional `engine` (async) |
+| Databases | Engines + list (sync); create/backup/restore/password with optional `engine` (async). Database deletion is host-CLI only (API 1.19+) |
 | Jobs | Poll status and CLI output |
 
 ## Architecture

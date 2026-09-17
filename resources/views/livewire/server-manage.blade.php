@@ -3,7 +3,7 @@
         <div>
             <h2 class="text-2xl font-semibold text-white">Server</h2>
             <p class="text-sm text-surface-400 mt-1">
-                Manage PHP, database engines, SSH keys and services
+                Manage PHP, Node, packages, monitor, Zero Trust, and API access
                 @if($server)
                     on <span class="text-surface-200">{{ $server->name }}</span>
                 @endif
@@ -22,6 +22,7 @@
             This server’s API is older than 1.15 / Cipi CLI &lt; 5.0.6, or the token is missing management abilities
             (<code>php-*</code>, <code>ssh-*</code>,
             <code>services-*</code>, <code>smtp-*</code>).
+            Newer tabs (Node, packages, monitor, Zero Trust, IP whitelist) need API 1.31+ / Cipi ≥ 5.4.1.
             Run <code>cipi self-update</code> on the host and create a token with the updated abilities.
         </div>
     @elseif($loading)
@@ -278,6 +279,236 @@
                             Per-event filters stay on the server via <code class="text-surface-300">cipi notifications</code>.
                             Healthcheck failures use trigger <code class="text-surface-300">health_fail</code>.
                         </p>
+                    </div>
+                </div>
+            @endif
+
+        @elseif($activeTab === 'node')
+            @if($nodeUnsupported)
+                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
+                    Node runtimes require API 1.31+ / Cipi ≥ 5.4.0 (sudoers ≥ 5.4.1) and <code>node-view</code>.
+                    Installing runtimes and changing the default stay on the host CLI (<code>cipi node</code>).
+                </div>
+            @else
+                <div class="card">
+                    <h3 class="font-semibold text-white mb-4">Installed Node runtimes</h3>
+                    @if(empty($nodeRuntimes))
+                        <p class="text-sm text-surface-400">No Node runtimes returned.</p>
+                    @else
+                        <ul class="space-y-3">
+                            @foreach($nodeRuntimes as $runtime)
+                                <li class="py-2 border-b border-surface-800">
+                                    <span class="text-white font-medium">Node {{ $runtime['major'] }}</span>
+                                    @if(!empty($runtime['version']))
+                                        <span class="text-xs text-surface-500 ml-2">{{ $runtime['version'] }}</span>
+                                    @endif
+                                    @if(!empty($runtime['default']))
+                                        <span class="badge badge-neutral ml-2">server default</span>
+                                    @endif
+                                    @if(!empty($runtime['apps']))
+                                        <p class="text-xs text-surface-500 mt-1">Apps: {{ implode(', ', $runtime['apps']) }}</p>
+                                    @endif
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                    <p class="text-xs text-surface-500 mt-4">Read-only. Install or switch the default with <code class="text-surface-300">cipi node</code> on the host.</p>
+                </div>
+            @endif
+
+        @elseif($activeTab === 'search')
+            @if($searchUnsupported)
+                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
+                    Search status requires API 1.31+ / Cipi ≥ 5.2.2 and <code>search-view</code>.
+                    Installing Meilisearch stays on the host CLI.
+                </div>
+            @else
+                <div class="card">
+                    <h3 class="font-semibold text-white mb-2">Meilisearch</h3>
+                    <p class="text-sm text-surface-400 mb-4">
+                        @if(!empty($search['installed']))
+                            <span class="text-emerald-400">installed</span>
+                            @if(!empty($search['running'])) · running @else · not running @endif
+                            @if(!empty($search['version'])) · {{ $search['version'] }} @endif
+                            @if(!empty($search['health'])) · {{ $search['health'] }} @endif
+                            @if(!empty($search['data_size'])) · {{ $search['data_size'] }} @endif
+                            @if(!empty($search['host']))
+                                · {{ $search['host'] }}:{{ $search['port'] ?? '' }}
+                            @endif
+                        @else
+                            Not installed. Run <code class="text-surface-300">cipi search install</code> on the host, then enable per Laravel app.
+                        @endif
+                    </p>
+                    @php $searchApps = is_array($search['apps'] ?? null) ? $search['apps'] : []; @endphp
+                    @if($searchApps === [])
+                        <p class="text-sm text-surface-400">No apps have search enabled.</p>
+                    @else
+                        <ul class="space-y-2">
+                            @foreach($searchApps as $name => $meta)
+                                <li class="py-2 border-b border-surface-800 text-sm">
+                                    <a href="{{ route('cipi-gui.apps.show', $name) }}" class="text-link font-medium">{{ $name }}</a>
+                                    @if(is_array($meta) && !empty($meta['prefix']))
+                                        <span class="text-xs text-surface-500 ml-2">index {{ $meta['prefix'] }}*</span>
+                                    @endif
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+            @endif
+
+        @elseif($activeTab === 'packages')
+            @if($packagesUnsupported)
+                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
+                    Package catalog requires API 1.31+ / Cipi ≥ 5.2.2 and <code>packages-view</code>. Install/remove stay on the host CLI.
+                </div>
+            @else
+                <div class="card">
+                    <h3 class="font-semibold text-white mb-4">Optional host packages</h3>
+                    @if(empty($packages))
+                        <p class="text-sm text-surface-400">No packages returned.</p>
+                    @else
+                        <ul class="space-y-3">
+                            @foreach($packages as $pkg)
+                                <li class="py-2 border-b border-surface-800">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-white font-medium">{{ $pkg['id'] ?? '—' }}</span>
+                                        @if(!empty($pkg['installed']))
+                                            <span class="badge badge-green">installed</span>
+                                        @elseif(!empty($pkg['partial']))
+                                            <span class="badge badge-neutral">partial</span>
+                                        @else
+                                            <span class="badge badge-gray">not installed</span>
+                                        @endif
+                                    </div>
+                                    @if(!empty($pkg['description']))
+                                        <p class="text-sm text-surface-400 mt-1">{{ $pkg['description'] }}</p>
+                                    @endif
+                                    @if(!empty($pkg['packages']))
+                                        <p class="text-xs text-surface-500 mt-1 font-mono">{{ implode(', ', $pkg['packages']) }}</p>
+                                    @endif
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+            @endif
+
+        @elseif($activeTab === 'monitor')
+            @if($monitorUnsupported)
+                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
+                    Monitor requires API 1.31+ / Cipi ≥ 5.3.0 and <code>monitor-view</code>. Thresholds stay on the host CLI.
+                </div>
+            @else
+                <div class="card">
+                    <h3 class="font-semibold text-white mb-2">System monitor</h3>
+                    <p class="text-xs text-surface-500 mb-4">
+                        Cron every 5 minutes, edge-triggered alerts.
+                        @if(isset($monitor['reminder_minutes']))
+                            Reminder every {{ $monitor['reminder_minutes'] }} minutes.
+                        @endif
+                    </p>
+                    @php $checks = is_array($monitor['checks'] ?? null) ? $monitor['checks'] : []; @endphp
+                    @if($checks === [])
+                        <p class="text-sm text-surface-400">No checks returned.</p>
+                    @else
+                        <ul class="space-y-3">
+                            @foreach($checks as $check)
+                                <li class="py-2 border-b border-surface-800">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-white font-medium">{{ $check['check'] ?? '—' }}</span>
+                                        @php $state = $check['state'] ?? null; @endphp
+                                        @if($state === 'ok')
+                                            <span class="badge badge-green">ok</span>
+                                        @elseif($state)
+                                            <span class="badge badge-red">{{ $state }}</span>
+                                        @else
+                                            <span class="badge badge-gray">pending</span>
+                                        @endif
+                                    </div>
+                                    @if(!empty($check['last_alert']))
+                                        <p class="text-xs text-surface-500 mt-1">Last alert {{ date('Y-m-d H:i', (int) $check['last_alert']) }}</p>
+                                    @endif
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+            @endif
+
+        @elseif($activeTab === 'zt')
+            @if($ztUnsupported)
+                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
+                    Zero Trust status requires API 1.31+ / Cipi ≥ 5.3.0 and <code>zt-view</code>. Mutations stay on the host CLI.
+                </div>
+            @else
+                <div class="card">
+                    <h3 class="font-semibold text-white mb-4">Cloudflare Zero Trust</h3>
+                    <dl class="space-y-3 text-sm">
+                        <div class="flex justify-between"><dt class="text-surface-400">Enabled</dt><dd class="text-white">{{ !empty($zt['enabled']) ? 'Yes' : 'No' }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-surface-400">cloudflared</dt><dd class="text-white">{{ $zt['cloudflared'] ?? '—' }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-surface-400">Tunnel</dt><dd class="text-white">{{ $zt['tunnel'] ?? '—' }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-surface-400">Real IP</dt><dd class="text-white">{{ $zt['real_ip'] ?? '—' }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-surface-400">Lock HTTP</dt><dd class="text-white">{{ $zt['lock_http'] ?? '—' }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-surface-400">Lock SSH</dt><dd class="text-white">{{ $zt['lock_ssh'] ?? '—' }}</dd></div>
+                        <div class="flex justify-between"><dt class="text-surface-400">SSH hostname</dt><dd class="text-white">{{ $zt['ssh_hostname'] ?? '—' }}</dd></div>
+                    </dl>
+                    @if(!empty($zt['raw']))
+                        <pre class="mt-4 p-3 rounded-lg bg-black/30 text-xs text-surface-400 overflow-x-auto whitespace-pre-wrap">{{ $zt['raw'] }}</pre>
+                    @endif
+                </div>
+            @endif
+
+        @elseif($activeTab === 'ip')
+            @if($ipWhitelistUnsupported)
+                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
+                    IP whitelist requires API 1.15+ / Cipi ≥ 5.0.8 and abilities <code>ip-whitelist-view</code> / <code>ip-whitelist-manage</code>.
+                </div>
+            @else
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="card">
+                        <h3 class="font-semibold text-white mb-2">API client IP whitelist</h3>
+                        <p class="text-xs text-surface-500 mb-4">
+                            Restricts <code class="text-surface-300">/api</code> and <code class="text-surface-300">/mcp</code>.
+                            @if(!empty($ipWhitelist['allow_all']))
+                                Currently <span class="text-emerald-400">allow all</span> (<code>*</code>).
+                            @else
+                                Restricted to the listed IPs/CIDRs.
+                            @endif
+                            @if(!empty($ipWhitelist['client_ip']))
+                                This GUI is calling as <code class="text-surface-300">{{ $ipWhitelist['client_ip'] }}</code>.
+                            @endif
+                        </p>
+                        @php $entries = is_array($ipWhitelist['entries'] ?? null) ? $ipWhitelist['entries'] : []; @endphp
+                        @if($entries === [])
+                            <p class="text-sm text-surface-400">No entries.</p>
+                        @else
+                            <ul class="space-y-2">
+                                @foreach($entries as $entry)
+                                    <li class="flex items-center justify-between gap-3 py-2 border-b border-surface-800">
+                                        <span class="font-mono text-sm text-white">{{ $entry }}</span>
+                                        @if($entry !== '*')
+                                            <button type="button" wire:click="removeIpWhitelistEntry(@js($entry))" wire:confirm="Remove {{ $entry }} from the API whitelist?" class="btn btn-ghost btn-sm text-red-400">Remove</button>
+                                        @endif
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
+                    </div>
+                    <div class="card">
+                        <h3 class="font-semibold text-white mb-2">Add IP or CIDR</h3>
+                        <p class="text-xs text-amber-400 mb-3">Restricting without this GUI host’s IP will lock the panel out of the API.</p>
+                        <form wire:submit="addIpWhitelistEntry" class="space-y-3">
+                            <div>
+                                <label>IP / CIDR</label>
+                                <input type="text" wire:model="ipWhitelistEntry" placeholder="203.0.113.10 or 10.0.0.0/8" class="font-mono text-sm">
+                                @error('ipWhitelistEntry') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-sm">Add</button>
+                        </form>
+                        @if(empty($ipWhitelist['allow_all']))
+                            <button type="button" wire:click="allowAllIpWhitelist" wire:confirm="Allow all client IPs to call the API?" class="btn btn-ghost btn-sm mt-4">Allow all</button>
+                        @endif
                     </div>
                 </div>
             @endif
