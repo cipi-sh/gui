@@ -11,6 +11,7 @@ use CipiGui\Services\CipiApiException;
 use CipiGui\Support\Theme;
 use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
@@ -40,6 +41,7 @@ class CipiGuiServiceProvider extends ServiceProvider
         $this->registerRoutes();
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
         $this->loadViewsFrom(__DIR__.'/../resources/views', 'cipi-gui');
+        Blade::anonymousComponentPath(__DIR__.'/../resources/views/components', 'cipi');
 
         Livewire::component('cipi-gui.dashboard', \CipiGui\Livewire\Dashboard::class);
         Livewire::component('cipi-gui.servers', \CipiGui\Livewire\Servers::class);
@@ -47,7 +49,6 @@ class CipiGuiServiceProvider extends ServiceProvider
         Livewire::component('cipi-gui.apps', \CipiGui\Livewire\Apps::class);
         Livewire::component('cipi-gui.app-detail', \CipiGui\Livewire\AppDetail::class);
         Livewire::component('cipi-gui.databases', \CipiGui\Livewire\Databases::class);
-        Livewire::component('cipi-gui.job-monitor', \CipiGui\Livewire\JobMonitor::class);
         Livewire::component('cipi-gui.log-viewer', \CipiGui\Livewire\LogViewer::class);
         Livewire::component('cipi-gui.settings', \CipiGui\Livewire\Settings::class);
 

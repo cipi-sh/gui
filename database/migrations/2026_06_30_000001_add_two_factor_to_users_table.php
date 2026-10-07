@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (! Schema::hasTable('users')) {
+            return;
+        }
+
         Schema::table('users', function (Blueprint $table) {
             if (! Schema::hasColumn('users', 'two_factor_secret')) {
                 $table->text('two_factor_secret')->nullable()->after('password');
@@ -23,6 +27,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (! Schema::hasTable('users')) {
+            return;
+        }
+
         Schema::table('users', function (Blueprint $table) {
             $columns = ['two_factor_secret', 'two_factor_enabled', 'two_factor_confirmed_at'];
             foreach ($columns as $column) {

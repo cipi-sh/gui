@@ -17,6 +17,10 @@ class CipiServer extends Model
         'last_error',
     ];
 
+    protected $hidden = [
+        'token',
+    ];
+
     protected function casts(): array
     {
         return [
@@ -53,16 +57,52 @@ class CipiServer extends Model
         return $this->base_url.'/api';
     }
 
+    /** Hostname (plus non-default port) for compact display. */
+    public function getHostAttribute(): string
+    {
+        $parts = parse_url($this->base_url);
+        $host = $parts['host'] ?? $this->base_url;
+
+        if (isset($parts['port'])) {
+            $host .= ':'.$parts['port'];
+        }
+
+        if (isset($parts['path']) && $parts['path'] !== '' && $parts['path'] !== '/') {
+            $host .= $parts['path'];
+        }
+
+        return $host;
+    }
+
+    /** Last 4 characters of the token, for "which token is this?" hints. */
+    public function getTokenHintAttribute(): ?string
+    {
+        $token = $this->token;
+
+        return $token ? '…'.substr($token, -4) : null;
+    }
+
     public function markConnected(): void
     {
-        $this->update([
+        // Avoid a write on every API call: refresh at most once a minute.
+        if ($this->last_error === null
+            && $this->last_connected_at !== null
+            && $this->last_connected_at->gt(now()->subMinute())) {
+            return;
+        }
+
+        $this->forceFill([
             'last_connected_at' => now(),
             'last_error' => null,
-        ]);
+        ])->save();
     }
 
     public function markError(string $message): void
     {
-        $this->update(['last_error' => $message]);
+        if ($this->last_error === $message) {
+            return;
+        }
+
+        $this->forceFill(['last_error' => $message])->save();
     }
 }

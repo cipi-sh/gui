@@ -5,31 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="robots" content="noindex, nofollow">
-    <title>{{ $title ?? 'Sign in' }} — Cipi GUI</title>
+    <title>{{ $title ?? 'Sign in' }} — {{ config('app.name', 'Cipi') }}</title>
     @include('cipi-gui::partials.favicon')
     @include('cipi-gui::partials.theme-script')
-    <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=inter:400,500,600" rel="stylesheet">
+    @include('cipi-gui::partials.fonts')
     @include('cipi-gui::partials.styles')
 </head>
-<body class="cipi-gui h-full font-sans antialiased">
-    <div class="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8 relative">
-        <div class="absolute top-4 right-4 sm:top-6 sm:right-6">
+<body class="cipi-gui h-full">
+    <div class="auth-shell">
+        <div class="absolute top-4 right-4">
             @include('cipi-gui::partials.theme-toggle')
         </div>
 
-        <div class="sm:mx-auto sm:w-full sm:max-w-md">
-            <div class="flex justify-center mb-6">
+        <div class="auth-card">
+            <div class="flex flex-col items-center text-center mb-6">
                 @include('cipi-gui::partials.logo', ['large' => true])
+                <h1 class="text-2xl font-semibold mt-4">@yield('heading', 'Sign in to Cipi')</h1>
+                <p class="text-muted mt-1">@yield('subtitle', 'Manage your servers, apps and deploys.')</p>
             </div>
-            <h2 class="text-center text-xl font-semibold tracking-tight">Cipi</h2>
-            <p class="mt-1 text-center text-sm text-surface-400">@yield('subtitle', 'Sign in to manage your servers')</p>
-        </div>
 
-        <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-            <div class="card">
+            <div class="card p-6">
                 @yield('content')
             </div>
+
+            <p class="text-center text-xs text-subtle mt-6">
+                Cipi control panel · <a href="https://cipi.sh/docs/gui" class="text-link" target="_blank" rel="noopener">Documentation</a>
+            </p>
         </div>
     </div>
     @include('cipi-gui::partials.theme-init')

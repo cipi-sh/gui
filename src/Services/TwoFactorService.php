@@ -2,7 +2,7 @@
 
 namespace CipiGui\Services;
 
-use App\Models\User;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Crypt;
 use PragmaRX\Google2FA\Google2FA;
 
@@ -17,7 +17,7 @@ class TwoFactorService
         return $this->google2fa->generateSecretKey();
     }
 
-    public function getQrCodeUrl(User $user, string $secret): string
+    public function getQrCodeUrl(Authenticatable $user, string $secret): string
     {
         $company = config('app.name', 'Cipi GUI');
 
@@ -28,18 +28,22 @@ class TwoFactorService
         );
     }
 
-    public function verify(User $user, string $code): bool
+    public function verify(Authenticatable $user, string $code): bool
     {
         if (! $user->two_factor_secret) {
             return false;
         }
 
-        $secret = Crypt::decryptString($user->two_factor_secret);
+        try {
+            $secret = Crypt::decryptString($user->two_factor_secret);
+        } catch (\Throwable) {
+            return false;
+        }
 
         return (bool) $this->google2fa->verifyKey($secret, $code);
     }
 
-    public function enable(User $user, string $secret, string $code): bool
+    public function enable(Authenticatable $user, string $secret, string $code): bool
     {
         $secretToVerify = $secret;
 
@@ -56,7 +60,7 @@ class TwoFactorService
         return true;
     }
 
-    public function disable(User $user): void
+    public function disable(Authenticatable $user): void
     {
         $user->forceFill([
             'two_factor_secret' => null,

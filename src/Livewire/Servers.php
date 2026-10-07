@@ -5,14 +5,17 @@ namespace CipiGui\Livewire;
 use CipiGui\Models\CipiServer;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
+use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
 #[Layout('cipi-gui::layouts.app')]
-#[Title('Servers')]
+#[Title('Connections')]
 class Servers extends Component
 {
+    public ?int $editingId = null;
+
     public string $name = '';
 
     public string $url = '';
@@ -21,84 +24,157 @@ class Servers extends Component
 
     public string $token = '';
 
-    public ?string $error = null;
+    public bool $showFormModal = false;
 
-    public ?string $success = null;
+    public ?int $confirmDeleteId = null;
 
-    public bool $testing = false;
-
-    public bool $showAddModal = false;
+    /** @var array<int, array{ok: bool, message: string, cipi?: ?string}> */
+    public array $testResults = [];
 
     public function openAdd(): void
     {
-        $this->reset(['name', 'url', 'ip', 'token']);
+        $this->reset(['editingId', 'name', 'url', 'ip', 'token']);
         $this->resetErrorBag();
-        $this->showAddModal = true;
+        $this->showFormModal = true;
     }
 
-    public function closeAdd(): void
+    public function openEdit(int $id): void
     {
-        $this->showAddModal = false;
-        $this->reset(['name', 'url', 'ip', 'token']);
+        $server = CipiServer::findOrFail($id);
+
+        $this->resetErrorBag();
+        $this->editingId = $server->id;
+        $this->name = $server->name;
+        $this->url = $server->url;
+        $this->ip = (string) $server->ip;
+        $this->token = '';
+        $this->showFormModal = true;
+    }
+
+    public function closeForm(): void
+    {
+        $this->showFormModal = false;
+        $this->reset(['editingId', 'name', 'url', 'ip', 'token']);
         $this->resetErrorBag();
     }
 
-    public function addServer(): void
+    public function save(): void
     {
-        $this->error = null;
-        $this->success = null;
-
         $this->name = trim($this->name);
         $this->url = $this->normalizeUrl($this->url);
         $this->ip = trim($this->ip);
         $this->token = $this->normalizeToken($this->token);
 
         $validated = $this->validate([
-            'name' => ['required', 'string', 'max:64', 'unique:cipi_servers,name', 'regex:/^[a-zA-Z0-9_-]+$/'],
+            'name' => ['required', 'string', 'max:64', 'regex:/^[a-zA-Z0-9_-]+$/', Rule::unique('cipi_servers', 'name')->ignore($this->editingId)],
             'url' => ['required', 'url', 'max:255'],
             'ip' => ['nullable', 'ip'],
-            'token' => ['required', 'string', 'min:10'],
+            'token' => [$this->editingId ? 'nullable' : 'required', 'string', 'min:10'],
         ], [
-            'name.regex' => 'Name may only contain letters, numbers, hyphens and underscores.',
+            'name.regex' => 'Use letters, numbers, hyphens and underscores only.',
             'name.unique' => 'A server with this name already exists.',
-            'url.url' => 'Enter a valid URL (e.g. https://vps.example.com).',
-            'ip.ip' => 'Enter a valid IP address.',
+            'url.url' => 'Enter a valid URL, e.g. https://vps.example.com',
+            'ip.ip' => 'Enter a valid IPv4 or IPv6 address.',
             'token.min' => 'The API token looks too short.',
         ]);
 
-        if ($validated['ip'] === '') {
+        if ($validated['ip'] === '' || $validated['ip'] === null) {
             $validated['ip'] = $this->resolveIpFromUrl($validated['url']);
         }
 
+        if ($this->editingId && ($validated['token'] ?? '') === '') {
+            unset($validated['token']);
+        }
+
         try {
-            $server = CipiServer::create($validated);
+            if ($this->editingId) {
+                $server = CipiServer::findOrFail($this->editingId);
+                $server->fill($validated);
+                $server->last_error = null;
+                $server->save();
+            } else {
+                $server = CipiServer::create($validated + ['is_active' => true]);
+            }
         } catch (\Illuminate\Database\QueryException $e) {
             report($e);
-            $this->error = 'Could not save the server. Ensure migrations ran: php artisan migrate';
-
-            return;
-        } catch (\Throwable $e) {
-            report($e);
-            $this->error = 'Could not save the server: '.$e->getMessage();
+            $this->addError('name', 'Could not save the server. Ensure migrations ran: php artisan migrate');
 
             return;
         }
 
-        try {
-            $status = CipiApiClient::for($server)->testConnection();
-            $this->syncIpFromStatus($server, $status);
-            $this->success = "Server \"{$server->name}\" connected successfully.";
-            $this->dispatch('notify', type: 'success', message: $this->success);
-        } catch (CipiApiException $e) {
-            $this->error = "Server saved but connection test failed: {$e->getMessage()}";
-            $this->dispatch('notify', type: 'error', message: $this->error);
-        }
-
-        $this->closeAdd();
+        $editing = (bool) $this->editingId;
+        $this->closeForm();
+        $this->testConnection($server->id);
 
         if (! session('cipi_gui_server_id')) {
             session(['cipi_gui_server_id' => $server->id]);
         }
+
+        $ok = $this->testResults[$server->id]['ok'] ?? false;
+        $this->dispatch('notify',
+            type: $ok ? 'success' : 'error',
+            message: $ok
+                ? ($editing ? "Connection \"{$server->name}\" updated." : "Server \"{$server->name}\" connected.")
+                : "Saved, but the connection test failed: ".($this->testResults[$server->id]['message'] ?? 'unknown error'),
+        );
+    }
+
+    public function testConnection(int $id): void
+    {
+        $server = CipiServer::findOrFail($id);
+
+        try {
+            $status = CipiApiClient::for($server)->testConnection();
+            $this->syncIpFromStatus($server, $status);
+            $this->testResults[$id] = [
+                'ok' => true,
+                'message' => 'Connected',
+                'cipi' => $status['system']['cipi'] ?? null,
+            ];
+        } catch (CipiApiException $e) {
+            $this->testResults[$id] = ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function toggleActive(int $id): void
+    {
+        $server = CipiServer::findOrFail($id);
+        $server->forceFill(['is_active' => ! $server->is_active])->save();
+
+        if (! $server->is_active && (int) session('cipi_gui_server_id') === $server->id) {
+            session()->forget('cipi_gui_server_id');
+        }
+
+        $this->dispatch('notify', type: 'info', message: $server->is_active ? "{$server->name} enabled." : "{$server->name} disabled — hidden from the switcher.");
+    }
+
+    public function confirmDelete(int $id): void
+    {
+        $this->confirmDeleteId = $id;
+    }
+
+    public function cancelDelete(): void
+    {
+        $this->confirmDeleteId = null;
+    }
+
+    public function deleteServer(): void
+    {
+        $server = CipiServer::find($this->confirmDeleteId);
+        $this->confirmDeleteId = null;
+
+        if (! $server) {
+            return;
+        }
+
+        if ((int) session('cipi_gui_server_id') === $server->id) {
+            session()->forget('cipi_gui_server_id');
+        }
+
+        $name = $server->name;
+        $server->delete();
+        unset($this->testResults[$server->id]);
+        $this->dispatch('notify', type: 'success', message: "Connection \"{$name}\" removed. Nothing was changed on the server.");
     }
 
     private function normalizeUrl(string $url): string
@@ -148,51 +224,20 @@ class Servers extends Component
     {
         $ip = $status['system']['ip'] ?? $status['system']['ipv4'] ?? null;
 
-        if (! is_string($ip) || ! filter_var($ip, FILTER_VALIDATE_IP)) {
-            return;
+        if (is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP) && $server->ip !== $ip) {
+            $server->forceFill(['ip' => $ip])->save();
         }
-
-        if ($server->ip !== $ip) {
-            $server->update(['ip' => $ip]);
-        }
-    }
-
-    public function testConnection(int $id): void
-    {
-        $this->testing = true;
-        $this->error = null;
-        $this->success = null;
-
-        $server = CipiServer::findOrFail($id);
-
-        try {
-            $status = CipiApiClient::for($server)->testConnection();
-            $this->syncIpFromStatus($server, $status);
-            $server->refresh();
-            $this->success = "Connection to \"{$server->name}\" OK.";
-        } catch (CipiApiException $e) {
-            $this->error = $e->getMessage();
-        } finally {
-            $this->testing = false;
-        }
-    }
-
-    public function deleteServer(int $id): void
-    {
-        $server = CipiServer::findOrFail($id);
-
-        if (session('cipi_gui_server_id') == $id) {
-            session()->forget('cipi_gui_server_id');
-        }
-
-        $server->delete();
-        $this->success = 'Server removed.';
     }
 
     public function render()
     {
+        $abilities = (array) config('cipi-gui.token_abilities', []);
+
         return view('cipi-gui::livewire.servers', [
             'servers' => CipiServer::orderBy('name')->get(),
+            'tokenCommand' => 'cipi api token create --name=gui --abilities='.implode(',', $abilities),
+            'abilityCount' => count($abilities),
+            'deleting' => $this->confirmDeleteId ? CipiServer::find($this->confirmDeleteId) : null,
         ]);
     }
 }

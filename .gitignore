@@ -1,8 +1,10 @@
 /dev/host/
+/dev/demo/storage/
 /vendor/
 composer.lock
 .env
 .env.*
 !.env.example
 .phpunit.result.cache
+/.phpunit.cache/
 .DS_Store

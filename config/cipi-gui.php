@@ -42,6 +42,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Token abilities (Cipi API 1.31)
+    |--------------------------------------------------------------------------
+    |
+    | Everything the panel calls. Shown on the Connections page as a ready-made
+    | `cipi api token create` command.
+    |
+    */
+    'token_abilities' => [
+        'apps-view', 'apps-create', 'apps-edit', 'apps-delete', 'apps-suspend', 'apps-basicauth',
+        'apps-env', 'apps-auth', 'apps-artisan', 'apps-run', 'apps-deploy-config',
+        'aliases-view', 'aliases-create', 'aliases-delete', 'www-manage',
+        'redirects-view', 'redirects-manage', 'proxies-view', 'proxies-manage',
+        'node-view', 'node-manage', 'search-view', 'search-manage',
+        'deploy-manage', 'ssl-manage', 'dbs-view', 'dbs-create', 'dbs-manage',
+        'php-view', 'php-manage', 'ssh-view', 'ssh-manage', 'services-view', 'services-manage',
+        'smtp-view', 'smtp-manage', 'health-view', 'health-manage',
+        'packages-view', 'monitor-view', 'zt-view',
+        'ip-whitelist-view', 'ip-whitelist-manage', 'status-view',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Job polling
     |--------------------------------------------------------------------------
     */
@@ -70,6 +92,6 @@ return [
     | Theme assets (bump after CSS changes to bust browser cache)
     |--------------------------------------------------------------------------
     */
-    'assets_version' => '5',
+    'assets_version' => '6',
 
 ];

@@ -10,19 +10,32 @@
         "deploy",
         "control-panel"
     ],
+    "homepage": "https://cipi.sh/docs/gui",
     "license": "MIT",
     "type": "library",
     "require": {
         "php": "^8.3",
         "laravel/framework": "^12.0 || ^13.0",
-        "livewire/livewire": "^3.5",
-        "pragmarx/google2fa": "^8.0",
+        "livewire/livewire": "^3.6 || ^4.0",
+        "pragmarx/google2fa": "^8.0 || ^9.0",
         "bacon/bacon-qr-code": "^3.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^10.0 || ^11.0",
+        "phpunit/phpunit": "^11.5 || ^12.0 || ^13.0"
     },
     "autoload": {
         "psr-4": {
             "CipiGui\\": "src/"
         }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "CipiGui\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
     },
     "extra": {
         "laravel": {

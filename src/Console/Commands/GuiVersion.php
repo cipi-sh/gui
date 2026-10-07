@@ -2,35 +2,35 @@
 
 namespace CipiGui\Console\Commands;
 
+use CipiGui\Models\CipiServer;
 use CipiGui\Support\Theme;
+use Composer\InstalledVersions;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Schema;
 
 class GuiVersion extends Command
 {
     protected $signature = 'cipi:gui-version';
 
-    protected $description = 'Show installed cipi/gui package version and sanity checks';
+    protected $description = 'Show the installed cipi/gui version and a few sanity checks';
 
     public function handle(): int
     {
-        $root = Theme::packageRoot();
-        $appDetail = $root.'/src/Livewire/AppDetail.php';
-        $seedUser = $root.'/src/Console/Commands/SeedGuiUser.php';
-
         $this->line('cipi/gui '.Theme::VERSION);
-        $this->line('  Package path: '.$root);
+        $this->line('  Package path:  '.Theme::packageRoot());
+        $this->line('  Laravel:       '.app()->version());
+        $this->line('  Livewire:      '.(InstalledVersions::isInstalled('livewire/livewire') ? InstalledVersions::getPrettyVersion('livewire/livewire') : 'missing'));
+        $this->line('  Theme:         '.Theme::fingerprint());
 
-        if (is_readable($appDetail)) {
-            $src = (string) file_get_contents($appDetail);
-            $ok = str_contains($src, 'function mount(string $name)')
-                || str_contains($src, 'request()->route(\'name\')');
-            $this->line('  AppDetail route fix: '.($ok ? 'OK' : 'MISSING — git pull /opt/cipi/cipi-gui'));
+        $migrated = Schema::hasTable('cipi_servers') && Schema::hasColumn('cipi_servers', 'ip');
+        $this->line('  Migrations:    '.($migrated ? 'OK' : 'MISSING — run php artisan migrate'));
+
+        if ($migrated) {
+            $active = CipiServer::where('is_active', true)->count();
+            $this->line('  Servers:       '.$active.' active / '.CipiServer::count().' total');
         }
 
-        if (is_readable($seedUser)) {
-            $ok = str_contains((string) file_get_contents($seedUser), '{--reset');
-            $this->line('  seed-gui-user --reset: '.($ok ? 'OK' : 'MISSING'));
-        }
+        $this->line('  2FA columns:   '.(Schema::hasColumn('users', 'two_factor_secret') ? 'OK' : 'MISSING'));
 
         return self::SUCCESS;
     }

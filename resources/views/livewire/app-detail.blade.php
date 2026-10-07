@@ -1,577 +1,632 @@
 <div>
-    @if($loading)
-        <div class="flex items-center justify-center py-24 gap-3">
-            <div class="spinner spinner-lg"></div>
-            <span class="text-surface-400">Loading app...</span>
+    @if($loading && ! $app)
+        <div class="skeleton h-4 w-32 mb-3"></div>
+        <div class="skeleton h-8 w-64 mb-6"></div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4"><div class="card"><div class="skeleton h-40 w-full"></div></div><div class="card"><div class="skeleton h-40 w-full"></div></div></div>
+    @elseif(! $app)
+        <x-cipi::page-header :title="$appName">
+            <x-slot:eyebrow><a href="{{ route('cipi-gui.apps') }}">← Apps</a></x-slot:eyebrow>
+        </x-cipi::page-header>
+        <div class="card">
+            <x-cipi::empty icon="warning" title="App not available">
+                {{ rtrim($error ?? 'The app could not be loaded', '.') }}. It may live on another server — switch server from the header.
+                <x-slot:actions><a href="{{ route('cipi-gui.apps') }}" class="btn btn-secondary">Back to apps</a></x-slot:actions>
+            </x-cipi::empty>
         </div>
-    @elseif($error && !$app)
-        <div class="card border-red-800 bg-red-900/20 text-red-400">{{ $error }}</div>
-        <a href="{{ route('cipi-gui.apps') }}" class="btn btn-secondary mt-4">Back to apps</a>
-    @elseif($app)
-        <div class="mb-6">
-            <a href="{{ route('cipi-gui.apps') }}" class="text-sm text-surface-400 hover:text-link">&larr; Back to apps</a>
-            <div class="flex items-center justify-between mt-2">
-                <div>
-                    <h2 class="text-2xl font-semibold text-white">{{ $app['app'] }}</h2>
-                    <p class="text-sm text-surface-400">
-                        {{ $app['domain'] }}
-                        · {{ $this->appKindLabel($app) }}
-                        @if($app['suspended'] ?? false)
-                            <span class="badge badge-gray ml-1">Suspended</span>
-                        @endif
-                    </p>
-                </div>
-                <div class="flex flex-wrap gap-2">
-                    @if($app['suspended'] ?? false)
-                        <button wire:click="unsuspendApp" class="btn btn-primary btn-sm">Unsuspend</button>
-                    @else
-                        <button wire:click="suspendApp" wire:confirm="Take this app offline with an HTTP 503 maintenance page?" class="btn btn-secondary btn-sm">Suspend</button>
-                    @endif
-                    <button wire:click="deploy" class="btn btn-primary btn-sm">Deploy</button>
-                    <button wire:click="confirmDeleteApp" class="btn btn-danger btn-sm">Delete</button>
-                </div>
-            </div>
-        </div>
+    @else
+        @php
+            $kind = $this->appKind($app);
+            $isNode = $kind === 'node';
+            $isLaravel = $kind === 'laravel';
+            $isSsr = $isNode && ($app['node_mode'] ?? '') === 'ssr';
+            $repoUrl = $this->repositoryUrl();
+        @endphp
 
-        {{-- Tabs --}}
-        <div class="flex flex-wrap gap-1 mb-6">
+        <x-cipi::page-header :title="$app['app']">
+            <x-slot:eyebrow>
+                <a href="{{ route('cipi-gui.apps') }}">Apps</a>
+                <x-cipi::icon name="chevron-right" class="h-3 w-3" />
+                <span>{{ $server?->name }}</span>
+            </x-slot:eyebrow>
+            <x-slot:meta>
+                <span class="flex flex-wrap items-center gap-2 mt-1">
+                    @if($app['suspended'] ?? false)
+                        <span class="badge badge-amber"><x-cipi::icon name="pause" class="h-3 w-3" /> Suspended</span>
+                    @else
+                        <span class="badge badge-green"><span class="dot dot-green" style="width:.4rem;height:.4rem;box-shadow:none"></span> Live</span>
+                    @endif
+                    <span class="badge {{ $isLaravel ? 'badge-accent' : ($isNode ? 'badge-blue' : 'badge-neutral') }}">{{ $this->appKindLabel($app) }}</span>
+                    <span class="badge">{{ $this->appRuntimeLabel($app) }}</span>
+                    @if($app['force_https'] ?? false)<span class="badge"><x-cipi::icon name="lock" class="h-3 w-3" /> HTTPS</span>@endif
+                    <a href="{{ $this->siteUrl() }}" target="_blank" rel="noopener" class="text-sm text-soft inline-flex items-center gap-1 ml-1">{{ $app['domain'] }} <x-cipi::icon name="external" class="h-3.5 w-3.5" /></a>
+                </span>
+            </x-slot:meta>
+            <x-slot:actions>
+                @if(! $isNode && ! $isLaravel && $app['repository'] === '')
+                    <span class="text-xs text-muted">SFTP-only app</span>
+                @else
+                    <button type="button" wire:click="deploy" class="btn btn-primary"><x-cipi::icon name="rocket" /> Deploy</button>
+                @endif
+                <div class="dropdown" x-data="{ open: false }" x-on:click.outside="open = false" x-on:keydown.escape.window="open = false">
+                    <button type="button" class="btn btn-secondary" x-on:click="open = !open" :aria-expanded="open">Actions <x-cipi::icon name="chevron-down" class="h-3.5 w-3.5" /></button>
+                    <div class="dropdown-menu" x-show="open" x-cloak x-transition.opacity.duration.150ms>
+                        <a href="{{ $this->siteUrl() }}" target="_blank" rel="noopener" class="dropdown-item"><x-cipi::icon name="external" /> Open site</a>
+                        @if($isSsr)
+                            <button type="button" class="dropdown-item" wire:click="restartNode" wire:confirm="Blue/green restart {{ $app['app'] }}? The new process must pass its health path before traffic switches." x-on:click="open = false"><x-cipi::icon name="refresh" /> Restart Node process</button>
+                        @endif
+                        <button type="button" class="dropdown-item" wire:click="fixPermissions" wire:confirm="Restore ownership and modes of /home/{{ $app['app'] }}?" x-on:click="open = false"><x-cipi::icon name="wrench" /> Fix permissions</button>
+                        @if($app['suspended'] ?? false)
+                            <button type="button" class="dropdown-item" wire:click="unsuspendApp" x-on:click="open = false"><x-cipi::icon name="play" /> Unsuspend</button>
+                        @else
+                            <button type="button" class="dropdown-item" wire:click="suspendApp" wire:confirm="Take {{ $app['app'] }} offline with an HTTP 503 maintenance page?" x-on:click="open = false"><x-cipi::icon name="pause" /> Suspend (maintenance page)</button>
+                        @endif
+                        <div class="dropdown-divider"></div>
+                        <button type="button" class="dropdown-item danger" wire:click="confirmDeleteApp" x-on:click="open = false"><x-cipi::icon name="trash" /> Delete app</button>
+                    </div>
+                </div>
+            </x-slot:actions>
+        </x-cipi::page-header>
+
+        <nav class="tabs" aria-label="App sections">
             @foreach($tabs as $tab => $label)
-                <button wire:click="setTab('{{ $tab }}')"
-                        class="tab-btn {{ $activeTab === $tab ? 'active' : '' }}">
+                <button type="button" wire:click="setTab('{{ $tab }}')" class="tab-btn {{ $activeTab === $tab ? 'active' : '' }}" @if($activeTab === $tab) aria-current="page" @endif>
                     {{ $label }}
+                    @if($tab === 'domains' && count($aliases))<span class="count">{{ count($aliases) + 1 }}</span>@endif
+                    @if($tab === 'routing' && (count($app['redirects']) + count($app['proxies'])))<span class="count">{{ count($app['redirects']) + count($app['proxies']) }}</span>@endif
                 </button>
             @endforeach
-        </div>
+        </nav>
 
         @if($error)
-            <div class="card border-red-800 bg-red-900/20 mb-4 text-sm text-red-400">{{ $error }}</div>
+            <x-cipi::alert type="danger" class="mb-4">{{ $error }}</x-cipi::alert>
         @endif
 
+        {{-- ═══ Overview ═══ --}}
         @if($activeTab === 'overview')
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="card">
-                    <h3 class="font-semibold text-white mb-4">App Details</h3>
-                    <dl class="space-y-3 text-sm">
-                        <div class="flex justify-between"><dt class="text-surface-400">Server</dt><dd class="text-white">{{ $server?->name ?? '—' }}</dd></div>
-                        <div class="flex justify-between"><dt class="text-surface-400">Type</dt><dd class="text-white">{{ $this->appKindLabel($app) }}</dd></div>
-                        @if($this->isNodeApp($app))
-                            <div class="flex justify-between"><dt class="text-surface-400">Node</dt><dd class="text-white">{{ $app['node_version'] ?: 'server default' }}</dd></div>
-                        @else
-                            <div class="flex justify-between"><dt class="text-surface-400">PHP</dt><dd class="text-white">{{ $app['php'] }}</dd></div>
-                            <div class="flex justify-between">
-                                <dt class="text-surface-400">Runtime</dt>
-                                <dd class="text-white">
-                                    @if($app['octane'] ?? null)
-                                        <span class="badge badge-neutral">Octane</span>
-                                        <span class="text-surface-400 text-xs ml-1">{{ $app['octane'] }}{{ isset($app['octane_port']) && $app['octane_port'] ? ' :'.$app['octane_port'] : '' }}</span>
-                                    @else
-                                        PHP-FPM
-                                    @endif
-                                </dd>
-                            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                <div class="card lg:col-span-2">
+                    <div class="card-header"><h2 class="card-title">Details</h2></div>
+                    <dl class="kv">
+                        <dt>Type</dt><dd>{{ $this->appKindLabel($app) }}@if($isNode && !empty($nodeInfo['framework'])) · {{ ucfirst($nodeInfo['framework']) }}@endif</dd>
+                        <dt>Runtime</dt>
+                        <dd>
+                            @if($isNode)
+                                Node {{ $app['node_version'] ?: 'server default' }}
+                            @else
+                                PHP {{ $app['php'] }} · {{ $this->runtimeLabel($app['octane'], $app['octane_port']) }}
+                            @endif
+                        </dd>
+                        @if($isLaravel)
+                            <dt>Database</dt><dd>{{ $this->engineLabel($app['engine']) }} · <span class="font-mono">{{ $app['app'] }}</span></dd>
+                            @if($app['node_version'])
+                                <dt>Asset build</dt><dd>Node {{ $app['node_version'] }} (pinned)</dd>
+                            @endif
                         @endif
-                        @if($this->isLaravelApp($app))
-                            <div class="flex justify-between"><dt class="text-surface-400">Database</dt><dd class="text-white">{{ $this->engineLabel($app['engine'] ?? null) }}</dd></div>
-                        @endif
-                        <div class="flex justify-between"><dt class="text-surface-400">Branch</dt><dd class="text-white">{{ $app['branch'] ?? '—' }}</dd></div>
-                        <div class="flex justify-between"><dt class="text-surface-400">Repository</dt><dd class="text-white truncate max-w-xs">{{ $app['repository'] ?? '—' }}</dd></div>
-                        <div class="flex justify-between"><dt class="text-surface-400">WWW redirect</dt><dd class="text-white">{{ $this->wwwRedirectLabel($app['www_redirect'] ?? null) }}</dd></div>
-                        <div class="flex justify-between"><dt class="text-surface-400">Force HTTPS</dt><dd class="text-white">{{ ($app['force_https'] ?? false) ? 'Yes' : 'No' }}</dd></div>
-                        @if(!empty($app['redirect']['to']))
-                            <div class="flex justify-between"><dt class="text-surface-400">App redirect</dt><dd class="text-white truncate max-w-xs">{{ ($app['redirect']['enabled'] ?? false) ? 'On' : 'Off' }} → {{ $app['redirect']['to'] }}</dd></div>
-                        @endif
-                        <div class="flex justify-between"><dt class="text-surface-400">Created</dt><dd class="text-white">{{ $app['created_at'] ?? '—' }}</dd></div>
+                        <dt>Repository</dt>
+                        <dd>
+                            @if($app['repository'] !== '')
+                                @if($repoUrl)
+                                    <a href="{{ $repoUrl }}" target="_blank" rel="noopener" class="text-link font-mono text-xs">{{ $app['repository'] }}</a>
+                                @else
+                                    <span class="font-mono text-xs">{{ $app['repository'] }}</span>
+                                @endif
+                            @else
+                                <span class="text-muted">None — SFTP uploads</span>
+                            @endif
+                        </dd>
+                        <dt>Branch</dt><dd class="font-mono text-xs">{{ $app['branch'] ?: '—' }}</dd>
+                        <dt>Domains</dt>
+                        <dd>
+                            {{ $app['domain'] }}
+                            @foreach($aliases as $alias)<br><span class="text-muted">{{ $alias }}</span>@endforeach
+                        </dd>
+                        <dt>Home</dt><dd class="font-mono text-xs">/home/{{ $app['app'] }}</dd>
+                        <dt>Created</dt><dd>{{ $app['created_at'] ?: '—' }}</dd>
                     </dl>
                 </div>
 
-                <div class="card">
-                    <h3 class="font-semibold text-white mb-4">Edit App</h3>
-                    <form wire:submit="saveApp" class="space-y-3">
-                        @if($this->isNodeApp($app))
-                            <div>
-                                <label>Node mode</label>
-                                <select wire:model="editNodeMode">
-                                    <option value="spa">SPA</option>
-                                    <option value="static">Static</option>
-                                    <option value="ssr">SSR</option>
-                                </select>
+                <div class="card lg:col-span-3">
+                    <div class="card-header">
+                        <div>
+                            <h2 class="card-title">Configuration</h2>
+                            <p class="card-subtitle">Only changed fields are sent. Changing the repository recreates the deploy key and webhook.</p>
+                        </div>
+                    </div>
+                    <form wire:submit="saveApp" class="space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div class="sm:col-span-2">
+                                <label for="edit-domain">Primary domain</label>
+                                <input id="edit-domain" type="text" wire:model="editDomain" placeholder="app.example.com or *.example.com">
+                                @error('editDomain') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
                             <div>
-                                <label>Node version</label>
-                                @if(count($nodeRuntimes) > 0)
-                                    <select wire:model="editNodeVersion">
+                                <label for="edit-repo">Repository</label>
+                                <input id="edit-repo" type="text" wire:model="editRepository" class="font-mono" placeholder="git@github.com:org/repo.git">
+                            </div>
+                            <div>
+                                <label for="edit-branch">Branch</label>
+                                <input id="edit-branch" type="text" wire:model="editBranch" class="font-mono">
+                            </div>
+                            @if($isNode)
+                                <div>
+                                    <label for="edit-mode">Mode</label>
+                                    <select id="edit-mode" wire:model.live="editNodeMode">
+                                        <option value="spa">SPA</option>
+                                        <option value="static">Static</option>
+                                        <option value="ssr">SSR</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="edit-node">Node version</label>
+                                    <select id="edit-node" wire:model="editNodeVersion">
                                         <option value="">Server default</option>
                                         @foreach($nodeRuntimes as $runtime)
-                                            <option value="{{ $runtime['major'] }}">
-                                                {{ $runtime['major'] }}
-                                                @if(!empty($runtime['version'])) ({{ $runtime['version'] }}) @endif
-                                                @if(!empty($runtime['default'])) — default @endif
-                                            </option>
+                                            <option value="{{ $runtime['major'] }}">Node {{ $runtime['major'] }}{{ !empty($runtime['version']) ? ' ('.$runtime['version'].')' : '' }}{{ !empty($runtime['default']) ? ' · default' : '' }}</option>
                                         @endforeach
                                     </select>
+                                </div>
+                                <div>
+                                    <label for="edit-build">Build command</label>
+                                    <input id="edit-build" type="text" wire:model="editBuild" class="font-mono" placeholder="npm run build">
+                                </div>
+                                @if($editNodeMode === 'ssr')
+                                    <div>
+                                        <label for="edit-start">Start command</label>
+                                        <input id="edit-start" type="text" wire:model="editStart" class="font-mono" placeholder="npm run start">
+                                    </div>
+                                    <div>
+                                        <label for="edit-health">Health path</label>
+                                        <input id="edit-health" type="text" wire:model="editHealthPath" class="font-mono" placeholder="/">
+                                    </div>
                                 @else
-                                    <input type="text" wire:model="editNodeVersion" placeholder="22" autocomplete="off">
+                                    <div>
+                                        <label for="edit-output">Output directory</label>
+                                        <input id="edit-output" type="text" wire:model="editOutput" class="font-mono" placeholder="dist">
+                                    </div>
                                 @endif
-                            </div>
-                            <div>
-                                <label>Build command</label>
-                                <input type="text" wire:model="editBuild" class="font-mono text-sm" placeholder="npm run build">
-                            </div>
-                            @if($editNodeMode === 'ssr')
-                                <div>
-                                    <label>Start command</label>
-                                    <input type="text" wire:model="editStart" class="font-mono text-sm" placeholder="npm run start">
-                                </div>
-                                <div>
-                                    <label>Health path</label>
-                                    <input type="text" wire:model="editHealthPath" class="font-mono text-sm" placeholder="/">
-                                </div>
                             @else
                                 <div>
-                                    <label>Output directory</label>
-                                    <input type="text" wire:model="editOutput" class="font-mono text-sm" placeholder="dist">
-                                </div>
-                            @endif
-                        @else
-                            <div>
-                                <label>PHP Version</label>
-                                @if(count($phpVersions) > 0)
-                                    <select wire:model="editPhp">
+                                    <label for="edit-php">PHP version</label>
+                                    <select id="edit-php" wire:model="editPhp">
                                         @foreach($phpVersions as $ver)
-                                            <option value="{{ $ver }}">{{ $ver }}</option>
+                                            <option value="{{ $ver }}">PHP {{ $ver }}</option>
                                         @endforeach
-                                        @if($editPhp !== '' && !in_array($editPhp, $phpVersions, true))
-                                            <option value="{{ $editPhp }}">{{ $editPhp }} (current — not installed?)</option>
+                                        @if($editPhp !== '' && ! in_array($editPhp, $phpVersions, true))
+                                            <option value="{{ $editPhp }}">PHP {{ $editPhp }} (not installed?)</option>
                                         @endif
                                     </select>
-                                @else
-                                    <input type="text" wire:model="editPhp" placeholder="e.g. 8.4" autocomplete="off">
-                                @endif
-                                <p class="text-xs text-surface-500 mt-1">
-                                    @if($phpListUnsupported)
-                                        PHP list API unavailable — using local hints. Install versions from Server → Manage.
-                                    @else
-                                        Only versions installed on this server are listed.
-                                        <a href="{{ route('cipi-gui.server-manage') }}" class="text-link">Manage PHP</a>
-                                    @endif
-                                </p>
-                                @error('editPhp') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
-                            </div>
-                            @if($this->isLaravelApp($app))
-                                <div>
-                                    <label>Pin Node version (optional)</label>
-                                    @if(count($nodeRuntimes) > 0)
-                                        <select wire:model="editNodeVersion">
+                                    <p class="field-hint">
+                                        @if($phpListUnsupported) PHP list unavailable — showing local hints. @else Installed on this server · <a href="{{ route('cipi-gui.server-manage') }}?tab=php" class="text-link">manage PHP</a> @endif
+                                    </p>
+                                    @error('editPhp') <p class="field-error">{{ $message }}</p> @enderror
+                                </div>
+                                @if($isLaravel)
+                                    <div>
+                                        <label for="edit-node-pin">Node for asset builds</label>
+                                        <select id="edit-node-pin" wire:model="editNodeVersion">
                                             <option value="">Server default</option>
                                             @foreach($nodeRuntimes as $runtime)
-                                                <option value="{{ $runtime['major'] }}">{{ $runtime['major'] }}@if(!empty($runtime['default'])) — default @endif</option>
+                                                <option value="{{ $runtime['major'] }}">Node {{ $runtime['major'] }}{{ !empty($runtime['default']) ? ' · default' : '' }}</option>
                                             @endforeach
                                         </select>
-                                    @else
-                                        <input type="text" wire:model="editNodeVersion" placeholder="22" autocomplete="off">
-                                    @endif
-                                    <p class="text-xs text-surface-500 mt-1">Pins frontend builds to a Node major. Empty = follow server default.</p>
-                                </div>
+                                        <p class="field-hint">Pins <code>npm run build</code> during deploys to a Node major.</p>
+                                    </div>
+                                @endif
                             @endif
-                        @endif
-                        <div>
-                            <label>Branch</label>
-                            <input type="text" wire:model="editBranch">
                         </div>
-                        <div>
-                            <label>Repository</label>
-                            <input type="text" wire:model="editRepository">
-                            <p class="text-xs text-surface-500 mt-1">Changing the repository recreates the deploy key and webhook. Unchanged values are not sent.</p>
+                        <div class="flex justify-end">
+                            <button type="submit" class="btn btn-primary" wire:loading.attr="disabled" wire:target="saveApp">Save changes</button>
                         </div>
-                        <div>
-                            <label>Primary Domain</label>
-                            <input type="text" wire:model="editDomain" placeholder="app.example.com or *.example.com">
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-sm">Save Changes</button>
                     </form>
-
-                    @if(!($app['custom'] ?? false) && !empty($app['repository']))
-                        <div class="mt-6 pt-4 border-t border-surface-800">
-                            <h4 class="font-medium text-white mb-2">Deploy webhook</h4>
-                            <p class="text-xs text-surface-500 mb-3">Recreate the GitHub/GitLab webhook, or rotate <code class="text-surface-300">CIPI_WEBHOOK_TOKEN</code> in <code class="text-surface-300">shared/.env</code>.</p>
-                            <div class="flex flex-wrap gap-2">
-                                <button type="button" wire:click="recreateWebhook(false)" wire:confirm="Recreate the provider webhook for this app?" class="btn btn-secondary btn-sm">Recreate webhook</button>
-                                <button type="button" wire:click="recreateWebhook(true)" wire:confirm="Rotate CIPI_WEBHOOK_TOKEN and recreate the webhook? The old secret will stop working." class="btn btn-ghost btn-sm">Recreate + rotate secret</button>
-                            </div>
-                        </div>
-                    @endif
-
-                    <div class="mt-6 pt-4 border-t border-surface-800">
-                        <h4 class="font-medium text-white mb-2">Maintenance</h4>
-                        <p class="text-xs text-surface-500 mb-3">Restore the Cipi permission model, or blue/green restart an SSR Node process.</p>
-                        <div class="flex flex-wrap gap-2">
-                            <button type="button" wire:click="fixPermissions" wire:confirm="Restore the app home permission model?" class="btn btn-secondary btn-sm">Fix permissions</button>
-                            @if($this->isNodeApp($app) && ($app['node_mode'] ?? '') === 'ssr')
-                                <button type="button" wire:click="restartNode" wire:confirm="Blue/green restart this Node SSR app?" class="btn btn-secondary btn-sm">Restart Node</button>
-                            @endif
-                        </div>
-                    </div>
                 </div>
 
-                @if($this->isLaravelApp($app))
-                    <div class="card md:col-span-2">
-                        <h3 class="font-semibold text-white mb-2">Search (Meilisearch / Scout)</h3>
-                        @if($searchUnsupported)
-                            <p class="text-sm text-surface-400">Search API unavailable (API 1.31+ / Cipi ≥ 5.2.2, abilities <code class="text-surface-300">search-view</code> / <code class="text-surface-300">search-manage</code>). Engine install stays on the host CLI.</p>
-                        @elseif($searchStatus === null)
-                            <button wire:click="loadSearchStatus" class="btn btn-secondary btn-sm">Load search status</button>
-                        @else
-                            <p class="text-sm text-surface-400 mb-3">
-                                Meilisearch:
-                                @if(!empty($searchStatus['installed']))
-                                    <span class="text-emerald-400">installed</span>
-                                    @if(!empty($searchStatus['running'])) · running @endif
-                                    @if(!empty($searchStatus['version'])) · {{ $searchStatus['version'] }} @endif
-                                    @if(!empty($searchStatus['health'])) · {{ $searchStatus['health'] }} @endif
-                                @else
-                                    <span class="text-amber-400">not installed</span> on this server
-                                    (<code class="text-surface-300">cipi search install</code> on the host)
-                                @endif
-                            </p>
-                            @if($this->searchEnabledForApp())
-                                <p class="text-sm text-emerald-400 mb-3">This app is search-enabled.</p>
-                                <button type="button" wire:click="disableSearch" wire:confirm="Disable Meilisearch/Scout for this app?" class="btn btn-ghost btn-sm text-red-400">Disable search</button>
-                            @else
-                                <button type="button" wire:click="enableSearch" @if(empty($searchStatus['installed']) || empty($searchStatus['running'])) disabled @endif class="btn btn-primary btn-sm">Enable search</button>
-                            @endif
+                <div class="card lg:col-span-3">
+                    <div class="card-header">
+                        <div>
+                            <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="heart" /> HTTP healthcheck</h2>
+                            <p class="card-subtitle">Probed every 5 minutes. Three failures in a row send the <code>health_fail</code> notification.</p>
+                        </div>
+                        @if($healthEnabled)
+                            @php $hs = $health['state'] ?? null; @endphp
+                            <span class="badge {{ $hs === 'ok' ? 'badge-green' : ($hs === 'fail' ? 'badge-red' : '') }}">{{ $hs ? strtoupper($hs) : 'Pending' }}@if(($health['failcount'] ?? 0) > 0) · {{ $health['failcount'] }} fails @endif</span>
                         @endif
                     </div>
-                @endif
-
-                <div class="card md:col-span-2">
-                    <h3 class="font-semibold text-white mb-2">HTTP healthcheck</h3>
                     @if($healthUnsupported)
-                        <p class="text-sm text-surface-400">Healthcheck API unavailable (API 1.16+ / Cipi ≥ 5.0.7, abilities <code class="text-surface-300">health-view</code> / <code class="text-surface-300">health-manage</code>).</p>
+                        <p class="text-muted">Healthchecks need API 1.16+ / Cipi 5.0.7+ and the <code>health-view</code> / <code>health-manage</code> abilities.</p>
                     @else
-                        <p class="text-xs text-surface-500 mb-4">
-                            Probed every 5 minutes. After 3 consecutive failures Cipi emails trigger
-                            <code class="text-surface-300">health_fail</code> (requires SMTP on
-                            <a href="{{ route('cipi-gui.server-manage') }}" class="text-link">Manage → Email</a>).
-                            @if($healthEnabled)
-                                Current:
-                                <span class="text-surface-300">{{ $health['state'] ?? 'pending' }}</span>
-                                · fails {{ $health['failcount'] ?? 0 }}
-                            @endif
-                        </p>
-                        <form wire:submit="saveHealth" class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-                            <div class="md:col-span-2">
-                                <label>URL</label>
-                                <input type="text" wire:model="healthUrl" placeholder="https://{{ $app['domain'] }}/up">
-                                @error('healthUrl') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                        <form wire:submit="saveHealth" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                            <div class="sm:col-span-3">
+                                <label for="health-url">URL</label>
+                                <input id="health-url" type="text" wire:model="healthUrl" placeholder="https://{{ $app['domain'] }}/up">
+                                @error('healthUrl') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
                             <div>
-                                <label>Expect HTTP</label>
-                                <input type="number" wire:model="healthExpect" min="100" max="599">
-                                @error('healthExpect') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                                <label for="health-expect">Expected status</label>
+                                <input id="health-expect" type="number" wire:model="healthExpect" min="100" max="599">
+                                @error('healthExpect') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
-                            <div class="md:col-span-3 flex flex-wrap gap-2">
-                                <button type="submit" class="btn btn-primary btn-sm">{{ $healthEnabled ? 'Update healthcheck' : 'Enable healthcheck' }}</button>
+                            <div class="col-span-full flex flex-wrap items-center gap-2">
+                                <button type="submit" class="btn btn-primary btn-sm">{{ $healthEnabled ? 'Update' : 'Enable healthcheck' }}</button>
                                 @if($healthEnabled)
-                                    <button type="button" wire:click="runHealthCheck" class="btn btn-secondary btn-sm">Check now</button>
-                                    <button type="button" wire:click="disableHealth" wire:confirm="Disable healthcheck for this app?" class="btn btn-ghost btn-sm text-red-400">Disable</button>
+                                    <button type="button" wire:click="runHealthCheck" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="runHealthCheck">Check now</button>
+                                    <button type="button" wire:click="disableHealth" wire:confirm="Disable the healthcheck for this app?" class="btn btn-ghost btn-sm danger">Disable</button>
+                                @endif
+                                @if($healthCheckResult)
+                                    <span class="text-sm ml-auto {{ ($healthCheckResult['ok'] ?? false) ? 'text-success' : 'text-danger' }}">
+                                        Got {{ $healthCheckResult['got'] ?? '?' }} · expected {{ $healthCheckResult['expect'] ?? '?' }}
+                                    </span>
                                 @endif
                             </div>
                         </form>
-                        @if($healthCheckResult)
-                            <p class="text-sm mt-3 {{ ($healthCheckResult['ok'] ?? false) ? 'text-emerald-400' : 'text-red-400' }}">
-                                Last check: got {{ $healthCheckResult['got'] ?? '?' }}, expected {{ $healthCheckResult['expect'] ?? '?' }}
-                                ← {{ $healthCheckResult['url'] ?? '' }}
-                            </p>
-                        @endif
                     @endif
                 </div>
+
+                @if($isLaravel)
+                    <div class="card lg:col-span-2">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="search" /> Search</h2>
+                                <p class="card-subtitle">Meilisearch for Laravel Scout, with a key scoped to this app.</p>
+                            </div>
+                            @if($searchStatus !== null && $this->searchEnabledForApp())
+                                <span class="badge badge-green">Enabled</span>
+                            @endif
+                        </div>
+                        @if($searchUnsupported)
+                            <p class="text-muted">Needs API 1.31+ / Cipi 5.2.2+ and the <code>search-view</code> ability.</p>
+                        @elseif($searchStatus === null)
+                            <button wire:click="loadSearchStatus" class="btn btn-secondary btn-sm">Load search status</button>
+                        @elseif(empty($searchStatus['installed']))
+                            <p class="text-muted">Meilisearch is not installed on this server. Install it on the host with <code>cipi search install</code>.</p>
+                        @else
+                            <p class="text-sm text-muted mb-3">
+                                Meilisearch {{ $searchStatus['version'] ?? '' }} · {{ !empty($searchStatus['running']) ? 'running' : 'stopped' }}
+                                @if($this->searchEnabledForApp() && !empty($searchStatus['apps'][$appName]['prefix'])) · indexes <code>{{ $searchStatus['apps'][$appName]['prefix'] }}*</code>@endif
+                            </p>
+                            @if($this->searchEnabledForApp())
+                                <button type="button" wire:click="disableSearch" wire:confirm="Disable Meilisearch for this app? The previous SCOUT_DRIVER is restored." class="btn btn-ghost btn-sm danger">Disable search</button>
+                            @else
+                                <button type="button" wire:click="enableSearch" @disabled(empty($searchStatus['running'])) class="btn btn-primary btn-sm">Enable search</button>
+                            @endif
+                        @endif
+                    </div>
+                @elseif($isNode && $nodeInfo)
+                    <div class="card lg:col-span-2">
+                        <div class="card-header">
+                            <h2 class="card-title">Node runtime</h2>
+                            @if($isSsr)
+                                <button type="button" wire:click="restartNode" wire:confirm="Blue/green restart {{ $app['app'] }}?" class="btn btn-secondary btn-sm"><x-cipi::icon name="refresh" /> Restart</button>
+                            @endif
+                        </div>
+                        <dl class="kv">
+                            <dt>Mode</dt><dd>{{ $this->nodeModeLabel($nodeInfo['mode'] ?? null) }}</dd>
+                            <dt>Version</dt><dd>Node {{ $nodeInfo['version'] ?? 'default' }}</dd>
+                            <dt>Build</dt><dd class="font-mono text-xs">{{ $nodeInfo['build'] ?? '—' }}</dd>
+                            @if($isSsr)
+                                <dt>Start</dt><dd class="font-mono text-xs">{{ $nodeInfo['start'] ?? '—' }}</dd>
+                                <dt>Health path</dt><dd class="font-mono text-xs">{{ $nodeInfo['health_path'] ?? '/' }}</dd>
+                            @else
+                                <dt>Output</dt><dd class="font-mono text-xs">{{ $nodeInfo['output'] ?? 'dist' }}</dd>
+                            @endif
+                        </dl>
+                    </div>
+                @endif
             </div>
 
-        @elseif($activeTab === 'aliases')
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {{-- ═══ Domains & SSL ═══ --}}
+        @elseif($activeTab === 'domains')
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div class="card">
-                    <h3 class="font-semibold text-white mb-4">Domain Aliases</h3>
-                    @if(empty($aliases))
-                        <p class="text-sm text-surface-400">No aliases configured.</p>
-                    @else
-                        <ul class="space-y-2">
-                            @foreach($aliases as $alias)
-                                <li class="flex items-center justify-between py-2 border-b border-surface-800">
-                                    <span class="text-sm text-surface-200">{{ $alias }}</span>
-                                    <button wire:click="removeAlias('{{ $alias }}')" wire:confirm="Remove alias {{ $alias }}?" class="btn btn-ghost btn-sm text-red-400">Remove</button>
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
-
-                    <form wire:submit="addAlias" class="mt-4 flex gap-2">
-                        <input type="text" wire:model="newAlias" placeholder="www.example.com" class="flex-1">
-                        <button type="submit" class="btn btn-primary btn-sm">Add</button>
+                    <div class="card-header">
+                        <div>
+                            <h2 class="card-title">Domains</h2>
+                            <p class="card-subtitle">The primary domain plus aliases served by the same vhost.</p>
+                        </div>
+                    </div>
+                    <ul>
+                        <li class="list-row">
+                            <span class="font-medium">{{ $app['domain'] }}</span>
+                            <span class="badge badge-accent">Primary</span>
+                        </li>
+                        @foreach($aliases as $alias)
+                            <li class="list-row" wire:key="alias-{{ $alias }}">
+                                <span>{{ $alias }}</span>
+                                <button type="button" wire:click="removeAlias(@js($alias))" wire:confirm="Remove alias {{ $alias }}?" class="btn btn-ghost btn-sm danger">Remove</button>
+                            </li>
+                        @endforeach
+                    </ul>
+                    <form wire:submit="addAlias" class="mt-4">
+                        <label for="new-alias">Add alias</label>
+                        <div class="flex gap-2">
+                            <input id="new-alias" type="text" wire:model="newAlias" placeholder="www.example.com" class="flex-1" autocomplete="off">
+                            <button type="submit" class="btn btn-secondary">Add</button>
+                        </div>
+                        @error('newAlias') <p class="field-error">{{ $message }}</p> @enderror
+                        <p class="field-hint">Re-run the certificate after adding hostnames.</p>
                     </form>
                 </div>
 
                 <div class="card">
-                    <h3 class="font-semibold text-white mb-4">SSL Certificate</h3>
-                    <p class="text-sm text-surface-400 mb-4">Install a Let's Encrypt certificate for this app and its aliases, or re-apply the HTTP → HTTPS redirect without new issuance.</p>
-                    <div class="flex flex-wrap gap-2">
-                        <button wire:click="installSsl" class="btn btn-primary">Install SSL</button>
-                        <button wire:click="forceSsl" class="btn btn-secondary">Force HTTPS</button>
+                    <div class="card-header">
+                        <div>
+                            <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="shield" /> SSL certificate</h2>
+                            <p class="card-subtitle">Let's Encrypt for the primary domain and every alias, renewed automatically.</p>
+                        </div>
+                        @if($app['force_https'] ?? false)
+                            <span class="badge badge-green"><x-cipi::icon name="lock" class="h-3 w-3" /> HTTPS forced</span>
+                        @else
+                            <span class="badge badge-amber">HTTP allowed</span>
+                        @endif
                     </div>
-                    @if($app['force_https'] ?? false)
-                        <p class="text-sm text-emerald-400 mt-3">Force HTTPS is active.</p>
-                    @endif
+                    <div class="btn-group">
+                        <button type="button" wire:click="installSsl" class="btn btn-primary"><x-cipi::icon name="shield" /> Issue / renew certificate</button>
+                        <button type="button" wire:click="forceSsl" class="btn btn-secondary">Re-apply HTTPS redirect</button>
+                    </div>
+                    <p class="field-hint mt-3">Wildcard (<code>*.domain</code>) certificates need DNS-01 with a Cloudflare token — run <code>cipi ssl install {{ $app['app'] }} --dns=cloudflare --wildcard</code> on the host.</p>
                 </div>
 
-                <div class="card md:col-span-2">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="font-semibold text-white">WWW / Apex Redirects</h3>
-                        <button wire:click="loadWwwStatus" class="btn btn-ghost btn-sm">Refresh</button>
+                <div class="card lg:col-span-2">
+                    <div class="card-header">
+                        <div>
+                            <h2 class="card-title">www ↔ apex</h2>
+                            <p class="card-subtitle">Serve both hostnames, or make one canonical with a 301.</p>
+                        </div>
+                        <button wire:click="loadWwwStatus" class="btn btn-ghost btn-sm"><x-cipi::icon name="refresh" /> Refresh</button>
                     </div>
-
                     @if($wwwUnsupported)
-                        <p class="text-sm text-surface-400">WWW redirects require Cipi 4.8+ and API 1.12+ with the <code class="text-surface-300">www-manage</code> token ability.</p>
+                        <p class="text-muted">Needs Cipi 4.8+ / API 1.12+ and the <code>www-manage</code> ability.</p>
                     @elseif($wwwStatus === null)
-                        <button wire:click="loadWwwStatus" class="btn btn-secondary btn-sm">Load status</button>
+                        <div class="skeleton h-12 w-full"></div>
                     @else
-                        <table class="mb-4">
-                            <tbody>
-                                <tr>
-                                    <th scope="row">Primary</th>
-                                    <td class="font-mono text-white break-all">{{ $wwwStatus['primary'] ?? '—' }}</td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">Apex</th>
-                                    <td class="font-mono text-white break-all">{{ $wwwStatus['apex'] ?? '—' }}</td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">WWW</th>
-                                    <td class="font-mono text-white break-all">{{ $wwwStatus['www'] ?? '—' }}</td>
-                                </tr>
-                                <tr>
-                                    <th scope="row">Redirect</th>
-                                    <td class="text-white">{{ $this->wwwRedirectLabel($wwwStatus['redirect'] ?? null) }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <div class="flex flex-wrap gap-2">
-                            <button wire:click="wwwAdd" class="btn btn-secondary btn-sm">Add counterpart alias</button>
-                            <button wire:click="wwwForceToRoot" class="btn btn-secondary btn-sm">Force www → apex</button>
-                            <button wire:click="wwwForceFromRoot" class="btn btn-secondary btn-sm">Force apex → www</button>
-                            <button wire:click="wwwClear" wire:confirm="Clear www/apex redirect?" class="btn btn-ghost btn-sm text-red-400">Clear redirect</button>
+                        @php $mode = $wwwStatus['redirect'] ?? null; @endphp
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                            <div class="card p-4 bg-raised"><p class="stat-label">Apex</p><p class="font-mono text-sm mt-1 break-words">{{ $wwwStatus['apex'] ?? '—' }}</p></div>
+                            <div class="card p-4 bg-raised"><p class="stat-label">www</p><p class="font-mono text-sm mt-1 break-words">{{ $wwwStatus['www'] ?? '—' }}</p></div>
+                            <div class="card p-4 bg-raised"><p class="stat-label">Canonical</p><p class="text-sm mt-1">{{ $this->wwwRedirectLabel($mode) }}</p></div>
+                        </div>
+                        <div class="btn-group">
+                            <button wire:click="wwwAdd" class="btn btn-secondary btn-sm">Add the other hostname as alias</button>
+                            <button wire:click="wwwForceToRoot" class="btn btn-sm {{ $mode === 'to-root' ? 'btn-primary' : 'btn-secondary' }}">www → apex</button>
+                            <button wire:click="wwwForceFromRoot" class="btn btn-sm {{ $mode === 'from-root' ? 'btn-primary' : 'btn-secondary' }}">apex → www</button>
+                            @if($mode)
+                                <button wire:click="wwwClear" wire:confirm="Serve both hostnames without a redirect?" class="btn btn-ghost btn-sm danger">Clear redirect</button>
+                            @endif
                         </div>
                     @endif
                 </div>
             </div>
 
+        {{-- ═══ Routing ═══ --}}
         @elseif($activeTab === 'routing')
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                @if($routingUnsupported)
-                    <div class="card md:col-span-2 text-sm text-surface-400">
-                        Redirects and proxies require API 1.31+ / Cipi ≥ 5.3.1 (sudoers ≥ 5.4.1) and token abilities
-                        <code class="text-surface-300">redirects-view</code>, <code class="text-surface-300">redirects-manage</code>,
-                        <code class="text-surface-300">proxies-view</code>, <code class="text-surface-300">proxies-manage</code>.
-                    </div>
-                @elseif(! $routingLoaded)
-                    <div class="card md:col-span-2">
-                        <button wire:click="loadRouting" class="btn btn-secondary btn-sm">Load routing</button>
-                    </div>
-                @else
+            @if($routingUnsupported)
+                <x-cipi::alert type="warn" title="Routing needs a newer server">
+                    Redirects and proxies need API 1.31+ and Cipi 5.4.1+ (run <code>cipi self-update</code>), plus the abilities
+                    <code>redirects-view</code>, <code>redirects-manage</code>, <code>proxies-view</code>, <code>proxies-manage</code>.
+                </x-cipi::alert>
+            @elseif(! $routingLoaded)
+                <div class="card"><div class="skeleton h-24 w-full"></div></div>
+            @else
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <div class="card">
-                        <h3 class="font-semibold text-white mb-2">Whole-app redirect</h3>
-                        <p class="text-xs text-surface-500 mb-4">Every hostname of this app redirects in one hop. App-served targets are refused as loops.</p>
-                        @if($appRedirect)
-                            <p class="text-sm mb-3">
-                                Status:
-                                @if(!empty($appRedirect['enabled']))
-                                    <span class="text-emerald-400">enabled</span>
-                                @else
-                                    <span class="text-amber-400">saved, disabled</span>
-                                @endif
-                                · {{ $appRedirect['code'] ?? 301 }}
-                                · keep path {{ !empty($appRedirect['keep_path']) ? 'yes' : 'no' }}
-                            </p>
-                        @endif
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">Whole-app redirect</h2>
+                                <p class="card-subtitle">Every hostname redirects in one hop — handy for moved or retired sites. ACME challenges stay reachable.</p>
+                            </div>
+                            @if($appRedirect)
+                                <span class="badge {{ !empty($appRedirect['enabled']) ? 'badge-blue' : 'badge-gray' }}">{{ !empty($appRedirect['enabled']) ? 'Active' : 'Saved · off' }}</span>
+                            @endif
+                        </div>
                         <form wire:submit="saveAppRedirect" class="space-y-3">
                             <div>
-                                <label>Target URL</label>
-                                <input type="text" wire:model="redirectTo" placeholder="https://new.example.com">
-                                @error('redirectTo') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                                <label for="redirect-to">Target URL</label>
+                                <input id="redirect-to" type="text" wire:model="redirectTo" placeholder="https://new.example.com">
+                                @error('redirectTo') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label>Code</label>
-                                    <select wire:model="redirectCode">
-                                        <option value="301">301</option>
-                                        <option value="302">302</option>
-                                        <option value="307">307</option>
-                                        <option value="308">308</option>
+                            <div class="flex flex-wrap items-end gap-4">
+                                <div class="w-48">
+                                    <label for="redirect-code">Status</label>
+                                    <select id="redirect-code" wire:model="redirectCode">
+                                        @foreach(['301' => '301 permanent', '302' => '302 temporary', '307' => '307 temporary', '308' => '308 permanent'] as $code => $label)
+                                            <option value="{{ $code }}">{{ $label }}</option>
+                                        @endforeach
                                     </select>
                                 </div>
-                                <div class="flex items-end pb-2">
-                                    <label class="flex items-center gap-2 text-sm text-surface-300">
-                                        <input type="checkbox" wire:model="redirectKeepPath"> Keep path
-                                    </label>
-                                </div>
+                                <label class="check pb-2"><input type="checkbox" wire:model="redirectKeepPath"> Keep path and query</label>
                             </div>
-                            <div class="flex flex-wrap gap-2">
+                            <div class="btn-group">
                                 <button type="submit" class="btn btn-primary btn-sm">Save redirect</button>
                                 @if($appRedirect)
                                     <button type="button" wire:click="toggleAppRedirect" class="btn btn-secondary btn-sm">{{ !empty($appRedirect['enabled']) ? 'Disable' : 'Enable' }}</button>
-                                    <button type="button" wire:click="removeAppRedirect" wire:confirm="Remove the whole-app redirect?" class="btn btn-ghost btn-sm text-red-400">Unset</button>
+                                    <button type="button" wire:click="removeAppRedirect" wire:confirm="Remove the whole-app redirect?" class="btn btn-ghost btn-sm danger">Remove</button>
                                 @endif
                             </div>
                         </form>
                     </div>
 
                     <div class="card">
-                        <h3 class="font-semibold text-white mb-2">Path redirects</h3>
-                        <p class="text-xs text-surface-500 mb-4">A <code class="text-surface-300">from</code> ending in <code class="text-surface-300">/</code> is a prefix match.</p>
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">Path redirects</h2>
+                                <p class="card-subtitle">A source ending in <code>/</code> matches the whole prefix.</p>
+                            </div>
+                        </div>
                         @if(empty($pathRedirects))
-                            <p class="text-sm text-surface-400 mb-3">No path redirects.</p>
+                            <p class="text-muted mb-4">No path redirects.</p>
                         @else
-                            <ul class="space-y-2 mb-4">
+                            <ul class="mb-4">
                                 @foreach($pathRedirects as $rule)
-                                    <li class="flex items-start justify-between gap-3 py-2 border-b border-surface-800 text-sm">
-                                        <div class="min-w-0">
-                                            <span class="font-mono text-white break-all">{{ $rule['from'] ?? '' }}</span>
-                                            <span class="text-surface-500"> → </span>
-                                            <span class="font-mono text-surface-300 break-all">{{ $rule['to'] ?? '' }}</span>
-                                            <span class="text-xs text-surface-500 ml-1">{{ $rule['code'] ?? 301 }}{{ !empty($rule['keep_path']) ? ' · keep path' : '' }}</span>
+                                    <li class="list-row" wire:key="pr-{{ md5($rule['from'] ?? '') }}">
+                                        <div class="min-w-0 flex-1">
+                                            <p class="font-mono text-xs break-words"><span class="text-strong">{{ $rule['from'] ?? '' }}</span> <span class="text-subtle">→</span> {{ $rule['to'] ?? '' }}</p>
+                                            <p class="text-2xs text-subtle mt-0.5">{{ $rule['code'] ?? 301 }}{{ !empty($rule['keep_path']) ? ' · keeps path' : '' }}</p>
                                         </div>
-                                        <button type="button" wire:click="removePathRedirect(@js($rule['from'] ?? ''))" wire:confirm="Remove this path redirect?" class="btn btn-ghost btn-sm text-red-400">Remove</button>
+                                        <button type="button" wire:click="removePathRedirect(@js($rule['from'] ?? ''))" wire:confirm="Remove this redirect?" class="btn btn-ghost btn-sm danger">Remove</button>
                                     </li>
                                 @endforeach
                             </ul>
                         @endif
                         <form wire:submit="addPathRedirect" class="space-y-3">
-                            <div class="grid grid-cols-2 gap-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
-                                    <label>From</label>
-                                    <input type="text" wire:model="pathRedirectFrom" placeholder="/blog/" class="font-mono text-sm">
-                                    @error('pathRedirectFrom') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                                    <label for="pr-from">From</label>
+                                    <input id="pr-from" type="text" wire:model="pathRedirectFrom" placeholder="/blog/" class="font-mono">
+                                    @error('pathRedirectFrom') <p class="field-error">{{ $message }}</p> @enderror
                                 </div>
                                 <div>
-                                    <label>To</label>
-                                    <input type="text" wire:model="pathRedirectTo" placeholder="https://blog.example.com/" class="font-mono text-sm">
-                                    @error('pathRedirectTo') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
+                                    <label for="pr-to">To</label>
+                                    <input id="pr-to" type="text" wire:model="pathRedirectTo" placeholder="https://blog.example.com/" class="font-mono">
+                                    @error('pathRedirectTo') <p class="field-error">{{ $message }}</p> @enderror
                                 </div>
                             </div>
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label>Code</label>
-                                    <select wire:model="pathRedirectCode">
-                                        <option value="301">301</option>
-                                        <option value="302">302</option>
-                                        <option value="307">307</option>
-                                        <option value="308">308</option>
+                            <div class="flex flex-wrap items-end gap-4">
+                                <div class="w-32">
+                                    <label for="pr-code">Status</label>
+                                    <select id="pr-code" wire:model="pathRedirectCode">
+                                        @foreach(['301', '302', '307', '308'] as $code)
+                                            <option value="{{ $code }}">{{ $code }}</option>
+                                        @endforeach
                                     </select>
                                 </div>
-                                <div class="flex items-end pb-2">
-                                    <label class="flex items-center gap-2 text-sm text-surface-300">
-                                        <input type="checkbox" wire:model="pathRedirectKeepPath"> Keep path
-                                    </label>
-                                </div>
+                                <label class="check pb-2"><input type="checkbox" wire:model="pathRedirectKeepPath"> Keep path</label>
+                                <button type="submit" class="btn btn-secondary btn-sm ml-auto mb-1">Add redirect</button>
                             </div>
-                            <button type="submit" class="btn btn-primary btn-sm">Add path redirect</button>
                         </form>
                     </div>
 
-                    <div class="card md:col-span-2">
-                        <h3 class="font-semibold text-white mb-2">Prefix reverse proxies</h3>
-                        <p class="text-xs text-surface-500 mb-4">Loopback guard is always enforced (no force). Upstreams on ports Cipi already uses are refused.</p>
+                    <div class="card lg:col-span-2">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">Prefix reverse proxies</h2>
+                                <p class="card-subtitle">Send a path prefix to another service. Ports Cipi already uses (SSH, databases, Valkey, Meilisearch, other apps) are refused.</p>
+                            </div>
+                        </div>
                         @if(empty($proxies))
-                            <p class="text-sm text-surface-400 mb-3">No proxies.</p>
+                            <p class="text-muted mb-4">No proxies.</p>
                         @else
-                            <ul class="space-y-2 mb-4">
-                                @foreach($proxies as $proxy)
-                                    <li class="flex items-start justify-between gap-3 py-2 border-b border-surface-800 text-sm">
-                                        <div class="min-w-0">
-                                            <span class="font-mono text-white">{{ $proxy['prefix'] ?? '' }}</span>
-                                            <span class="text-surface-500"> → </span>
-                                            <span class="font-mono text-surface-300 break-all">{{ $proxy['upstream'] ?? '' }}</span>
-                                            <span class="text-xs text-surface-500 ml-1">
-                                                timeout {{ $proxy['timeout'] ?? 60 }}s
-                                                @if(!empty($proxy['strip_prefix'])) · strip prefix @endif
-                                                @if(!empty($proxy['preserve_host'])) · preserve host @endif
-                                                @if(!array_key_exists('buffering', $proxy) || $proxy['buffering']) · buffering @endif
-                                            </span>
-                                        </div>
-                                        <button type="button" wire:click="removeProxy(@js($proxy['prefix'] ?? ''))" wire:confirm="Remove this proxy?" class="btn btn-ghost btn-sm text-red-400">Remove</button>
-                                    </li>
-                                @endforeach
-                            </ul>
+                            <div class="table-scroll mb-4">
+                                <table class="table-compact table-plain">
+                                    <thead><tr><th>Prefix</th><th>Upstream</th><th>Options</th><th></th></tr></thead>
+                                    <tbody>
+                                        @foreach($proxies as $proxy)
+                                            <tr wire:key="px-{{ md5($proxy['prefix'] ?? '') }}">
+                                                <td class="font-mono text-xs text-strong">{{ $proxy['prefix'] ?? '' }}</td>
+                                                <td class="font-mono text-xs">{{ $proxy['upstream'] ?? '' }}</td>
+                                                <td>
+                                                    <div class="flex flex-wrap gap-1">
+                                                        <span class="badge">{{ $proxy['timeout'] ?? 60 }}s</span>
+                                                        @if(!empty($proxy['strip_prefix']))<span class="badge">strip prefix</span>@endif
+                                                        @if(!empty($proxy['preserve_host']))<span class="badge">preserve host</span>@endif
+                                                        @if(!array_key_exists('buffering', $proxy) || $proxy['buffering'])<span class="badge">buffered</span>@else<span class="badge">streaming</span>@endif
+                                                    </div>
+                                                </td>
+                                                <td class="text-right"><button type="button" wire:click="removeProxy(@js($proxy['prefix'] ?? ''))" wire:confirm="Remove this proxy?" class="btn btn-ghost btn-sm danger">Remove</button></td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
                         @endif
-                        <form wire:submit="addProxy" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <form wire:submit="addProxy" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                             <div>
-                                <label>Prefix</label>
-                                <input type="text" wire:model="proxyPrefix" placeholder="/api/" class="font-mono text-sm">
-                                @error('proxyPrefix') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
-                            </div>
-                            <div>
-                                <label>Upstream</label>
-                                <input type="text" wire:model="proxyUpstream" placeholder="http://127.0.0.1:3000" class="font-mono text-sm">
-                                @error('proxyUpstream') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
-                            </div>
-                            <div>
-                                <label>Timeout (seconds)</label>
-                                <input type="number" wire:model="proxyTimeout" min="1" max="3600">
-                            </div>
-                            <div class="flex flex-wrap items-end gap-4 pb-2">
-                                <label class="flex items-center gap-2 text-sm text-surface-300"><input type="checkbox" wire:model="proxyStripPrefix"> Strip prefix</label>
-                                <label class="flex items-center gap-2 text-sm text-surface-300"><input type="checkbox" wire:model="proxyPreserveHost"> Preserve host</label>
-                                <label class="flex items-center gap-2 text-sm text-surface-300"><input type="checkbox" wire:model="proxyBuffering"> Buffering</label>
+                                <label for="px-prefix">Prefix</label>
+                                <input id="px-prefix" type="text" wire:model="proxyPrefix" placeholder="/api/" class="font-mono">
+                                @error('proxyPrefix') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
                             <div class="md:col-span-2">
-                                <button type="submit" class="btn btn-primary btn-sm">Add proxy</button>
+                                <label for="px-upstream">Upstream</label>
+                                <input id="px-upstream" type="text" wire:model="proxyUpstream" placeholder="http://127.0.0.1:3000" class="font-mono">
+                                @error('proxyUpstream') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                            <div>
+                                <label for="px-timeout">Timeout (s)</label>
+                                <input id="px-timeout" type="number" wire:model="proxyTimeout" min="1" max="3600">
+                            </div>
+                            <div class="col-span-full flex flex-wrap items-center gap-4">
+                                <label class="check"><input type="checkbox" wire:model="proxyStripPrefix"> Strip prefix</label>
+                                <label class="check"><input type="checkbox" wire:model="proxyPreserveHost"> Preserve Host header</label>
+                                <label class="check"><input type="checkbox" wire:model="proxyBuffering"> Buffering</label>
+                                <button type="submit" class="btn btn-secondary btn-sm ml-auto">Add proxy</button>
                             </div>
                         </form>
                     </div>
-                @endif
-            </div>
+                </div>
+            @endif
 
+        {{-- ═══ Deploy ═══ --}}
         @elseif($activeTab === 'deploy')
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div class="card">
-                    <h3 class="font-semibold text-white mb-4">Deploy Actions</h3>
-                    <div class="flex flex-wrap gap-2">
-                        <button wire:click="deploy" class="btn btn-primary">Deploy Now</button>
-                        <button wire:click="rollback" wire:confirm="Rollback to previous release?" class="btn btn-secondary">Rollback</button>
-                        <button wire:click="unlockDeploy" class="btn btn-secondary">Unlock Stuck Deploy</button>
+                    <div class="card-header"><h2 class="card-title">Deploy</h2></div>
+                    <p class="text-sm text-muted mb-4">Zero-downtime release from <code>{{ $app['branch'] ?: 'main' }}</code>. Pushes deploy automatically through the webhook.</p>
+                    <div class="space-y-2">
+                        <button wire:click="deploy" class="btn btn-primary w-full"><x-cipi::icon name="rocket" /> Deploy now</button>
+                        <button wire:click="rollback" wire:confirm="Roll back to the previous release?" class="btn btn-secondary w-full"><x-cipi::icon name="rollback" /> Roll back</button>
+                        <button wire:click="unlockDeploy" wire:confirm="Remove the deploy lock? Only do this if no deploy is running." class="btn btn-ghost w-full"><x-cipi::icon name="unlock" /> Unlock a stuck deploy</button>
                     </div>
+                    @if($app['repository'] !== '')
+                        <div class="mt-5 pt-4 border-t">
+                            <p class="font-medium text-strong mb-1">Git webhook</p>
+                            <p class="text-xs text-muted mb-3">Recreate the GitHub/GitLab hook, or rotate <code>CIPI_WEBHOOK_TOKEN</code>.</p>
+                            <div class="btn-group">
+                                <button type="button" wire:click="recreateWebhook(false)" wire:confirm="Recreate the provider webhook?" class="btn btn-secondary btn-sm">Recreate</button>
+                                <button type="button" wire:click="recreateWebhook(true)" wire:confirm="Rotate the webhook secret? The old one stops working immediately." class="btn btn-ghost btn-sm">Rotate secret</button>
+                            </div>
+                        </div>
+                    @endif
                 </div>
 
-                <div class="card">
-                    <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
-                        <h3 class="font-semibold text-white">Deploy audit</h3>
-                        <div class="flex gap-2 items-center">
-                            <input type="number" wire:model="auditDays" min="1" max="3650" class="w-20" title="Days">
-                            <button type="button" wire:click="loadDeployAudit" class="btn btn-ghost btn-sm">{{ $auditLoaded ? 'Refresh' : 'Load' }}</button>
+                <div class="card card-flush lg:col-span-2">
+                    <div class="card-header p-5 mb-0">
+                        <div>
+                            <h2 class="card-title">Deploy audit</h2>
+                            <p class="card-subtitle">Hash-chained ledger of every deploy — who or what started it, and from where.</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <select wire:model.live="auditDays" class="input-sm w-auto" aria-label="Period">
+                                @foreach(['7' => '7 days', '30' => '30 days', '90' => '90 days', '365' => '1 year'] as $d => $label)
+                                    <option value="{{ $d }}">{{ $label }}</option>
+                                @endforeach
+                            </select>
+                            <button type="button" wire:click="loadDeployAudit" class="btn btn-ghost btn-icon btn-sm" aria-label="Refresh audit"><x-cipi::icon name="refresh" /></button>
                         </div>
                     </div>
                     @if($auditUnsupported)
-                        <p class="text-sm text-surface-400">Deploy audit requires API 1.31+ / Cipi ≥ 5.4.0 and <code class="text-surface-300">deploy-manage</code>.</p>
+                        <div class="px-5 pb-5"><p class="text-muted">The audit needs API 1.31+ / Cipi 5.4.0+ and the <code>deploy-manage</code> ability.</p></div>
                     @elseif(! $auditLoaded)
-                        <p class="text-sm text-surface-400">Load the hash-chained ledger for this app.</p>
+                        <div class="px-5 pb-5"><div class="skeleton h-24 w-full"></div></div>
                     @elseif(empty($auditRecords))
-                        <p class="text-sm text-surface-400">No ledger records yet (empty until the first deploy after Cipi 5.4.0).</p>
+                        <div class="px-5 pb-5"><p class="text-muted">No records in this period. The ledger starts with the first deploy after Cipi 5.4.0.</p></div>
                     @else
-                        <div class="max-h-80 overflow-y-auto">
-                            <table>
+                        <div class="table-scroll max-h-panel overflow-y-auto">
+                            <table class="table-compact">
                                 <thead>
-                                    <tr>
-                                        <th>When</th>
-                                        <th>Event</th>
-                                        <th>Release</th>
-                                        <th>Origin</th>
-                                    </tr>
+                                    <tr><th>#</th><th>When</th><th>Event</th><th>Release</th><th>Origin</th><th>By</th></tr>
                                 </thead>
                                 <tbody>
                                     @foreach($auditRecords as $record)
-                                        <tr>
-                                            <td class="text-xs text-surface-400 whitespace-nowrap">{{ $record['ts'] ?? '—' }}</td>
-                                            <td class="text-white text-sm">{{ $record['event'] ?? '—' }}</td>
-                                            <td class="font-mono text-xs text-surface-300">{{ $record['release'] ?? '—' }}@if(!empty($record['commit'])) <span class="text-surface-500">{{ substr((string) $record['commit'], 0, 8) }}</span> @endif</td>
-                                            <td class="text-xs text-surface-400">{{ $record['origin'] ?? '—' }}@if(!empty($record['operator'])) · {{ $record['operator'] }} @endif</td>
+                                        @php
+                                            $event = (string) ($record['event'] ?? '');
+                                            $ts = isset($record['ts']) ? \Illuminate\Support\Carbon::parse($record['ts']) : null;
+                                            $claimed = is_array($record['claimed'] ?? null) ? array_filter($record['claimed']) : [];
+                                        @endphp
+                                        <tr wire:key="audit-{{ $record['seq'] ?? $loop->index }}">
+                                            <td class="font-mono text-2xs text-subtle">{{ $record['seq'] ?? '' }}</td>
+                                            <td class="whitespace-nowrap">
+                                                <span class="text-strong" title="{{ $record['ts'] ?? '' }}">{{ $ts?->diffForHumans() ?? '—' }}</span>
+                                                <span class="block text-2xs text-subtle">{{ $ts?->format('Y-m-d H:i') }}</span>
+                                            </td>
+                                            <td><span class="badge {{ match ($event) { 'published' => 'badge-green', 'failed' => 'badge-red', 'rollback' => 'badge-amber', default => '' } }}">{{ $event ?: '—' }}</span></td>
+                                            <td class="font-mono text-xs whitespace-nowrap">
+                                                {{ $record['release'] ?? '—' }}
+                                                @if(!empty($record['commit']))<span class="text-subtle"> · {{ substr((string) $record['commit'], 0, 7) }}</span>@endif
+                                            </td>
+                                            <td class="text-xs"><span class="badge badge-neutral">{{ $record['origin'] ?? '—' }}</span>@if(!empty($record['trigger']))<span class="text-subtle"> {{ $record['trigger'] }}</span>@endif</td>
+                                            <td class="text-xs">
+                                                {{ $record['operator'] ?? '—' }}
+                                                @if(!empty($record['ip']))<span class="block font-mono text-2xs text-subtle">{{ $record['ip'] }}</span>@endif
+                                                @if($claimed)<span class="block text-2xs text-subtle" title="{{ json_encode($claimed) }}">{{ $claimed['note'] ?? ('claimed by '.($claimed['by'] ?? '?')) }}</span>@endif
+                                            </td>
                                         </tr>
                                     @endforeach
                                 </tbody>
@@ -580,222 +635,264 @@
                     @endif
                 </div>
 
-                <div class="card lg:col-span-2">
-                    <h3 class="font-semibold text-white mb-2">Deploy config</h3>
-                    <p class="text-xs text-surface-500 mb-4">Structured Deployer options. Saving regenerates <code class="text-surface-300">deploy.php</code> from the template (not a raw PHP upload).</p>
-                    @if($deployConfigUnsupported)
-                        <p class="text-sm text-surface-400">Deploy config is unavailable (custom apps, missing <code class="text-surface-300">apps-deploy-config</code>, or API older than 1.14).</p>
-                    @elseif(! $deployConfigLoaded)
-                        <button type="button" wire:click="loadDeployConfig" class="btn btn-secondary btn-sm">Load deploy config</button>
-                    @else
-                        <form wire:submit="saveDeployConfig" class="space-y-4">
-                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                                <div>
-                                    <label>Keep releases</label>
-                                    <input type="number" wire:model="dcKeepReleases" min="1" max="20">
-                                </div>
-                                <div>
-                                    <label>Node build</label>
-                                    <input type="text" wire:model="dcNodeBuild" placeholder="npm ci && npm run build" class="font-mono text-sm">
-                                </div>
-                            </div>
-                            <div class="flex flex-wrap gap-4 text-sm text-surface-300">
-                                <label class="flex items-center gap-2"><input type="checkbox" wire:model="dcMigrate"> migrate</label>
-                                <label class="flex items-center gap-2"><input type="checkbox" wire:model="dcOptimize"> optimize</label>
-                                <label class="flex items-center gap-2"><input type="checkbox" wire:model="dcStorageLink"> storage:link</label>
-                                <label class="flex items-center gap-2"><input type="checkbox" wire:model="dcQueueRestart"> queue:restart</label>
-                                <label class="flex items-center gap-2"><input type="checkbox" wire:model="dcHorizonTerminate"> horizon:terminate</label>
-                                <label class="flex items-center gap-2"><input type="checkbox" wire:model="dcPredeploySnapshot"> predeploy snapshot</label>
-                            </div>
+                @if($isLaravel)
+                    <div class="card lg:col-span-3">
+                        <div class="card-header">
                             <div>
-                                <label>Extra artisan (one per line)</label>
-                                <textarea wire:model="dcExtraArtisan" rows="3" class="font-mono text-sm" placeholder="config:cache"></textarea>
+                                <h2 class="card-title">Deploy pipeline</h2>
+                                <p class="card-subtitle">Structured Deployer options. Saving regenerates <code>deploy.php</code> from Cipi's template.</p>
                             </div>
-                            <button type="submit" class="btn btn-primary btn-sm">Save deploy config</button>
-                        </form>
-                    @endif
-                </div>
-            </div>
-
-        @elseif($activeTab === 'env')
-            <div class="card">
-                <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
-                    <div>
-                        <h3 class="font-semibold text-white">Environment (.env)</h3>
-                        <p class="text-sm text-surface-400 mt-1">View and edit key/value pairs. Requires API 1.14+ and <code class="text-surface-300">apps-env</code>.</p>
-                    </div>
-                    <button wire:click="loadEnv" class="btn btn-ghost btn-sm" wire:loading.attr="disabled" wire:target="loadEnv,saveEnv">Refresh</button>
-                </div>
-
-                @if($envUnsupported)
-                    <p class="text-sm text-surface-400">.env management is unavailable (custom apps, missing ability, or API older than 1.14).</p>
-                @elseif(! $envLoaded)
-                    <button wire:click="loadEnv" class="btn btn-secondary btn-sm">Load .env</button>
-                @else
-                    <div class="space-y-2 mb-4 max-h-[28rem] overflow-y-auto pr-1">
-                        @forelse($envRows as $index => $row)
-                            <div class="grid grid-cols-1 sm:grid-cols-[minmax(10rem,14rem)_1fr_auto] gap-2 items-start" wire:key="env-row-{{ $index }}-{{ $row['key'] }}">
-                                <input type="text" wire:model="envRows.{{ $index }}.key" class="font-mono text-sm" placeholder="KEY" autocomplete="off">
-                                <input type="text" wire:model="envRows.{{ $index }}.value" class="font-mono text-sm" placeholder="value" autocomplete="off">
-                                <button type="button" wire:click="removeEnvRow({{ $index }})" class="btn btn-ghost btn-sm text-red-400">Remove</button>
-                            </div>
-                        @empty
-                            <p class="text-sm text-surface-400">No variables found.</p>
-                        @endforelse
-                    </div>
-
-                    <form wire:submit="addEnvRow" class="grid grid-cols-1 sm:grid-cols-[minmax(10rem,14rem)_1fr_auto] gap-2 mb-4">
-                        <input type="text" wire:model="envNewKey" class="font-mono text-sm" placeholder="NEW_KEY" autocomplete="off">
-                        <input type="text" wire:model="envNewValue" class="font-mono text-sm" placeholder="value" autocomplete="off">
-                        <button type="submit" class="btn btn-secondary btn-sm">Add</button>
-                    </form>
-
-                    <button wire:click="saveEnv" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="saveEnv">
-                        <span wire:loading.remove wire:target="saveEnv">Save .env</span>
-                        <span wire:loading wire:target="saveEnv">Saving…</span>
-                    </button>
-                @endif
-            </div>
-
-        @elseif($activeTab === 'authjson')
-            <div class="card max-w-3xl">
-                <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
-                    <div>
-                        <h3 class="font-semibold text-white">Composer auth.json</h3>
-                        <p class="text-sm text-surface-400 mt-1">Shared credentials for private Composer repos. Distinct from HTTP Basic Auth. Requires <code class="text-surface-300">apps-auth</code>.</p>
-                    </div>
-                    <button wire:click="loadAuthJson" class="btn btn-ghost btn-sm">Refresh</button>
-                </div>
-
-                @if($authJsonUnsupported)
-                    <p class="text-sm text-surface-400">auth.json management requires API 1.14+ with the <code class="text-surface-300">apps-auth</code> token ability.</p>
-                @elseif(! $authJsonLoaded)
-                    <button wire:click="loadAuthJson" class="btn btn-secondary btn-sm">Load auth.json</button>
-                @else
-                    @if(! $authJsonExists)
-                        <p class="text-sm text-surface-400 mb-3">No shared auth.json yet. Edit the draft below and create it, or create the default file.</p>
-                    @endif
-                    <div class="mb-3">
-                        <label class="text-sm text-surface-400">JSON document</label>
-                        <textarea wire:model="authJsonContent" rows="16" class="font-mono text-sm w-full mt-1" spellcheck="false"></textarea>
-                    </div>
-                    <div class="flex flex-wrap items-center gap-3">
-                        @if(! $authJsonExists)
-                            <label class="flex items-center gap-2 text-sm text-surface-300">
-                                <input type="checkbox" wire:model="authJsonForce" class="rounded border-surface-700">
-                                Force overwrite
-                            </label>
-                            <button wire:click="createAuthJson" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="createAuthJson">Create auth.json</button>
+                        </div>
+                        @if($deployConfigUnsupported)
+                            <p class="text-muted">Needs API 1.14+ / Cipi 5.0.3+ and the <code>apps-deploy-config</code> ability.</p>
+                        @elseif(! $deployConfigLoaded)
+                            <div class="skeleton h-20 w-full"></div>
                         @else
-                            <button wire:click="saveAuthJson" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="saveAuthJson">Save</button>
-                            <button wire:click="deleteAuthJson" wire:confirm="Delete shared auth.json for this app?" class="btn btn-danger btn-sm">Delete</button>
+                            <form wire:submit="saveDeployConfig" class="space-y-4">
+                                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+                                    @foreach([
+                                        'dcMigrate' => ['migrate', 'Run migrations'],
+                                        'dcOptimize' => ['optimize', 'Cache config & routes'],
+                                        'dcStorageLink' => ['storage:link', 'Public storage link'],
+                                        'dcQueueRestart' => ['queue:restart', 'Reload workers'],
+                                        'dcHorizonTerminate' => ['horizon:terminate', 'Restart Horizon'],
+                                        'dcPredeploySnapshot' => ['DB snapshot', 'Dump before migrating'],
+                                    ] as $prop => [$title, $text])
+                                        <label class="check-card">
+                                            <input type="checkbox" wire:model="{{ $prop }}">
+                                            <span><span class="check-card-title font-mono text-xs">{{ $title }}</span><span class="check-card-text">{{ $text }}</span></span>
+                                        </label>
+                                    @endforeach
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <label for="dc-keep">Releases to keep</label>
+                                        <input id="dc-keep" type="number" wire:model="dcKeepReleases" min="1" max="20">
+                                        @error('dcKeepReleases') <p class="field-error">{{ $message }}</p> @enderror
+                                    </div>
+                                    <div class="md:col-span-2">
+                                        <label for="dc-node">Asset build</label>
+                                        <input id="dc-node" type="text" wire:model="dcNodeBuild" placeholder="npm ci && npm run build — empty to skip" class="font-mono">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label for="dc-extra">Extra Artisan commands <span class="text-subtle font-normal">(one per line, after migrations)</span></label>
+                                    <textarea id="dc-extra" wire:model="dcExtraArtisan" rows="3" class="font-mono" placeholder="scout:sync-index-settings"></textarea>
+                                </div>
+                                <div class="flex justify-end"><button type="submit" class="btn btn-primary">Save pipeline</button></div>
+                            </form>
                         @endif
                     </div>
                 @endif
             </div>
 
-        @elseif($activeTab === 'artisan')
-            <div class="card max-w-2xl">
-                <h3 class="font-semibold text-white mb-1">Artisan</h3>
-                <p class="text-sm text-surface-400 mb-4">Run Artisan on this Laravel app (async job). Requires <code class="text-surface-300">apps-artisan</code>. Interactive commands like <code class="text-surface-300">tinker</code> are blocked.</p>
-
-                <div class="flex flex-wrap gap-2 mb-4">
-                    @foreach($artisanPresets as $preset)
-                        <button type="button"
-                                wire:click="runArtisanPreset(@js($preset['command']))"
-                                class="btn btn-secondary btn-sm font-mono">
-                            {{ $preset['label'] }}
-                        </button>
-                    @endforeach
+        {{-- ═══ Environment ═══ --}}
+        @elseif($activeTab === 'env')
+            <div class="card" x-data="{ filter: '' }">
+                <div class="card-header">
+                    <div>
+                        <h2 class="card-title">Environment</h2>
+                        <p class="card-subtitle"><code>shared/.env</code> — changes apply on the next deploy or <code>config:cache</code>.</p>
+                    </div>
+                    @if($envLoaded)
+                        <div class="flex items-center gap-2">
+                            <div class="search-input"><x-cipi::icon name="search" /><input type="search" x-model="filter" placeholder="Filter keys…" class="input-sm" aria-label="Filter variables"></div>
+                            <button wire:click="loadEnv" class="btn btn-ghost btn-icon btn-sm" aria-label="Reload"><x-cipi::icon name="refresh" /></button>
+                        </div>
+                    @endif
                 </div>
 
-                <form wire:submit="runArtisan" class="flex flex-col sm:flex-row gap-2">
-                    <div class="flex-1 flex items-center gap-2">
-                        <span class="text-sm text-surface-500 font-mono shrink-0">artisan</span>
-                        <input type="text" wire:model="artisanCommand" class="font-mono text-sm flex-1" placeholder="migrate --force" autocomplete="off">
+                @if($envUnsupported)
+                    <p class="text-muted">.env editing needs API 1.14+ / Cipi 5.0.3+ and the <code>apps-env</code> ability.</p>
+                @elseif(! $envLoaded)
+                    <div class="skeleton h-40 w-full"></div>
+                @else
+                    @php $changes = $this->envChangeCount(); @endphp
+                    <div class="space-y-2 max-h-panel overflow-y-auto pr-1">
+                        @forelse($envRows as $index => $row)
+                            @php
+                                $key = $row['key'];
+                                $isNew = ! array_key_exists($key, $envOriginal);
+                                $isChanged = ! $isNew && $envOriginal[$key] !== $row['value'];
+                                $secret = $this->isSensitiveKey($key);
+                            @endphp
+                            <div class="env-row {{ $isNew ? 'is-new' : ($isChanged ? 'is-changed' : '') }}" wire:key="env-{{ $key }}"
+                                 x-show="!filter || @js(strtolower($key)).includes(filter.toLowerCase())"
+                                 x-data="{ reveal: {{ $secret ? 'false' : 'true' }} }">
+                                <input type="text" value="{{ $key }}" class="font-mono input-sm" readonly tabindex="-1" aria-label="Key">
+                                <div class="relative">
+                                    <input :type="reveal ? 'text' : 'password'" wire:model.live.debounce.400ms="envRows.{{ $index }}.value" class="font-mono input-sm" autocomplete="off" aria-label="Value of {{ $key }}" style="{{ $secret ? 'padding-right:2.25rem' : '' }}">
+                                    @if($secret)
+                                        <button type="button" class="absolute text-subtle" style="right:.5rem;top:50%;transform:translateY(-50%)" x-on:click="reveal = !reveal" :aria-label="reveal ? 'Hide value' : 'Show value'">
+                                            <x-cipi::icon name="eye" x-show="!reveal" /><x-cipi::icon name="eye-off" x-show="reveal" x-cloak />
+                                        </button>
+                                    @endif
+                                </div>
+                                <button type="button" wire:click="removeEnvRow({{ $index }})" class="btn btn-ghost btn-icon btn-sm danger" aria-label="Remove {{ $key }}"><x-cipi::icon name="trash" /></button>
+                            </div>
+                        @empty
+                            <p class="text-muted">The file is empty.</p>
+                        @endforelse
                     </div>
-                    <button type="submit" class="btn btn-primary btn-sm" wire:confirm="Run this Artisan command?">Run</button>
+
+                    <form wire:submit="addEnvRow" class="env-row mt-4 pt-4 border-t">
+                        <input type="text" wire:model="envNewKey" class="font-mono input-sm" placeholder="NEW_KEY" autocomplete="off" aria-label="New key">
+                        <input type="text" wire:model="envNewValue" class="font-mono input-sm" placeholder="value" autocomplete="off" aria-label="New value">
+                        <button type="submit" class="btn btn-secondary btn-sm"><x-cipi::icon name="plus" /> Add</button>
+                    </form>
+                    @error('envNewKey') <p class="field-error">{{ $message }}</p> @enderror
+
+                    <div class="flex flex-wrap items-center justify-between gap-3 mt-4">
+                        <p class="text-xs {{ $changes ? 'text-accent' : 'text-subtle' }}">{{ $changes ? $changes.' unsaved '.\Illuminate\Support\Str::plural('change', $changes) : count($envRows).' variables · sensitive values are hidden' }}</p>
+                        <div class="btn-group">
+                            @if($changes)
+                                <button type="button" wire:click="resetEnv" class="btn btn-ghost">Discard</button>
+                            @endif
+                            <button type="button" wire:click="saveEnv" class="btn btn-primary" wire:loading.attr="disabled" wire:target="saveEnv">Save .env</button>
+                        </div>
+                    </div>
+                @endif
+            </div>
+
+        {{-- ═══ Composer auth.json ═══ --}}
+        @elseif($activeTab === 'authjson')
+            <div class="card max-w-3xl">
+                <div class="card-header">
+                    <div>
+                        <h2 class="card-title">Composer auth.json</h2>
+                        <p class="card-subtitle">Credentials for private Composer repositories (Nova, Spark, Satis…), shared across releases. Not the same as HTTP basic auth.</p>
+                    </div>
+                    @if($authJsonLoaded)
+                        <span class="badge {{ $authJsonExists ? 'badge-green' : 'badge-gray' }}">{{ $authJsonExists ? 'shared/auth.json' : 'Not created' }}</span>
+                    @endif
+                </div>
+                @if($authJsonUnsupported)
+                    <p class="text-muted">Needs API 1.14+ and the <code>apps-auth</code> ability.</p>
+                @elseif(! $authJsonLoaded)
+                    <div class="skeleton h-40 w-full"></div>
+                @else
+                    <textarea wire:model="authJsonContent" rows="14" class="font-mono text-sm" spellcheck="false" aria-label="auth.json"></textarea>
+                    @error('authJsonContent') <p class="field-error">{{ $message }}</p> @enderror
+                    <div class="flex flex-wrap items-center justify-between gap-2 mt-3">
+                        <p class="text-xs text-subtle">{{ $authJsonExists ? 'Saving replaces the whole file.' : 'Edit the template, then create the file.' }}</p>
+                        <div class="btn-group">
+                            @if($authJsonExists)
+                                <button wire:click="deleteAuthJson" wire:confirm="Delete shared/auth.json for this app?" class="btn btn-ghost danger">Delete</button>
+                            @endif
+                            <button wire:click="saveAuthJson" class="btn btn-primary">{{ $authJsonExists ? 'Save' : 'Create auth.json' }}</button>
+                        </div>
+                    </div>
+                @endif
+            </div>
+
+        {{-- ═══ Artisan ═══ --}}
+        @elseif($activeTab === 'artisan')
+            <div class="card max-w-3xl">
+                <div class="card-header">
+                    <div>
+                        <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="terminal" /> Artisan</h2>
+                        <p class="card-subtitle">Runs as the app user in the current release. Interactive commands like <code>tinker</code> are refused.</p>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-1.5 mb-4">
+                    @foreach($artisanPresets as $preset)
+                        <button type="button" wire:click="useArtisanPreset(@js($preset))" class="btn btn-secondary btn-xs font-mono">{{ $preset }}</button>
+                    @endforeach
+                </div>
+                <form wire:submit="runArtisan">
+                    <div class="input-group">
+                        <span class="input-addon">php artisan</span>
+                        <input type="text" wire:model="artisanCommand" class="font-mono flex-1" placeholder="migrate --force" autocomplete="off" aria-label="Artisan command">
+                        <button type="submit" class="btn btn-primary"><x-cipi::icon name="play" /> Run</button>
+                    </div>
+                    @error('artisanCommand') <p class="field-error">{{ $message }}</p> @enderror
                 </form>
             </div>
 
+        {{-- ═══ Commands ═══ --}}
         @elseif($activeTab === 'run')
-            <div class="card max-w-2xl">
-                <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+            <div class="card max-w-3xl">
+                <div class="card-header">
                     <div>
-                        <h3 class="font-semibold text-white">App commands</h3>
-                        <p class="text-sm text-surface-400 mt-1">Whitelisted non-interactive commands (composer, npm, …). Requires <code class="text-surface-300">apps-run</code> and Cipi CLI ≥ 5.0.3.</p>
+                        <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="code" /> Commands</h2>
+                        <p class="card-subtitle">Whitelisted, non-interactive commands in <code>/home/{{ $app['app'] }}</code> — composer, npm, git, file tools.</p>
                     </div>
-                    <button wire:click="loadRunCommands" class="btn btn-ghost btn-sm">Refresh whitelist</button>
                 </div>
-
                 @if($runUnsupported)
-                    <p class="text-sm text-surface-400">App run requires API 1.14+ with the <code class="text-surface-300">apps-run</code> token ability.</p>
+                    <p class="text-muted">Needs API 1.14+ / Cipi 5.0.3+ and the <code>apps-run</code> ability.</p>
                 @else
-                    <div class="flex flex-wrap gap-2 mb-4">
+                    <div class="flex flex-wrap gap-1.5 mb-4">
                         @foreach($runPresets as $preset)
-                            <button type="button"
-                                    wire:click="runAppPreset(@js($preset['command']))"
-                                    wire:confirm="Run: {{ $preset['command'] }}?"
-                                    class="btn btn-secondary btn-sm font-mono">
-                                {{ $preset['label'] }}
-                            </button>
+                            <button type="button" wire:click="useRunPreset(@js($preset))" class="btn btn-secondary btn-xs font-mono">{{ $preset }}</button>
                         @endforeach
                     </div>
-
-                    <form wire:submit="runAppCommand" class="flex flex-col sm:flex-row gap-2 mb-4">
-                        <input type="text" wire:model="runCommand" class="font-mono text-sm flex-1" placeholder="composer install --no-dev --no-interaction" autocomplete="off">
-                        <button type="submit" class="btn btn-primary btn-sm" wire:confirm="Run this command on the app?">Run</button>
+                    <form wire:submit="runAppCommand">
+                        <div class="input-group">
+                            <span class="input-addon">$</span>
+                            <input type="text" wire:model="runCommand" class="font-mono flex-1" placeholder="composer install --no-dev --no-interaction" autocomplete="off" aria-label="Command">
+                            <button type="submit" class="btn btn-primary"><x-cipi::icon name="play" /> Run</button>
+                        </div>
+                        @error('runCommand') <p class="field-error">{{ $message }}</p> @enderror
                     </form>
-
-                    @if($runLoaded && ! empty($runAllowedCommands))
-                        <details class="text-sm">
-                            <summary class="cursor-pointer text-surface-400 hover:text-surface-200">Allowed binaries ({{ count($runAllowedCommands) }})</summary>
-                            <p class="mt-2 font-mono text-xs text-surface-400 leading-relaxed">{{ implode(', ', $runAllowedCommands) }}</p>
-                            @if(! empty($runNotes))
-                                <ul class="mt-2 space-y-1 text-xs text-surface-500" style="list-style:disc;padding-left:1.25rem;">
-                                    @foreach($runNotes as $note)
-                                        <li>{{ $note }}</li>
-                                    @endforeach
+                    @if($runLoaded && $runAllowedCommands)
+                        <details class="mt-4 text-sm">
+                            <summary class="cursor-pointer text-muted">Allowed programs ({{ count($runAllowedCommands) }})</summary>
+                            <div class="flex flex-wrap gap-1 mt-3">
+                                @foreach($runAllowedCommands as $cmd)<span class="badge badge-mono">{{ $cmd }}</span>@endforeach
+                            </div>
+                            @if($runNotes)
+                                <ul class="mt-3 space-y-1 text-xs text-muted" style="list-style:disc;padding-left:1.1rem;">
+                                    @foreach($runNotes as $note)<li>{{ $note }}</li>@endforeach
                                 </ul>
                             @endif
                         </details>
-                    @elseif(! $runLoaded)
-                        <button wire:click="loadRunCommands" class="btn btn-ghost btn-sm">Load whitelist</button>
                     @endif
                 @endif
             </div>
 
-        @elseif($activeTab === 'basicauth')
-            <div class="card max-w-lg">
-                <h3 class="font-semibold text-white mb-4">HTTP Basic Auth</h3>
-                @if($basicAuth === null)
-                    <button wire:click="loadBasicAuth" class="btn btn-secondary btn-sm">Load status</button>
-                @elseif($basicAuth['enabled'] ?? false)
-                    <p class="text-sm text-emerald-400 mb-2">Basic auth is enabled.</p>
-                    <p class="text-sm text-surface-400 mb-4">Users: {{ implode(', ', $basicAuth['users'] ?? []) }}</p>
-                    <button wire:click="disableBasicAuth" class="btn btn-danger btn-sm">Disable</button>
-                @else
-                    <form wire:submit="enableBasicAuth" class="space-y-3">
-                        <div>
-                            <label>Username</label>
-                            <input type="text" wire:model="basicAuthUser">
-                        </div>
-                        <div>
-                            <label>Password (leave empty to auto-generate)</label>
-                            <input type="password" wire:model="basicAuthPassword">
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-sm">Enable Basic Auth</button>
-                    </form>
-                @endif
-
-                @if($generatedPassword)
-                    <div class="mt-4 p-3 rounded-lg border border-amber-600/30 bg-amber-600/10">
-                        <p class="text-sm text-amber-400">Auto-generated password (save it now):</p>
-                        <code>{{ $generatedPassword }}</code>
+        {{-- ═══ Access (basic auth) ═══ --}}
+        @elseif($activeTab === 'access')
+            <div class="card max-w-xl">
+                <div class="card-header">
+                    <div>
+                        <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="key" /> HTTP basic auth</h2>
+                        <p class="card-subtitle">Put a password in front of the whole site — staging, previews, launches.</p>
                     </div>
+                    @if($basicAuth !== null)
+                        <span class="badge {{ ($basicAuth['enabled'] ?? false) ? 'badge-green' : 'badge-gray' }}">{{ ($basicAuth['enabled'] ?? false) ? 'Enabled' : 'Off' }}</span>
+                    @endif
+                </div>
+                @if($basicAuth === null)
+                    <div class="skeleton h-20 w-full"></div>
+                @elseif($basicAuth['enabled'] ?? false)
+                    <p class="text-sm text-muted mb-4">Users: <span class="font-mono text-strong">{{ implode(', ', $basicAuth['users'] ?? []) ?: '—' }}</span></p>
+                    @if($generatedPassword)
+                        <div class="card p-4 mb-4" style="border-color: var(--accent-line);">
+                            <p class="text-xs text-muted mb-1">Generated password — shown once</p>
+                            <x-cipi::secret label="Password" :value="$generatedPassword" />
+                        </div>
+                    @endif
+                    <button wire:click="disableBasicAuth" wire:confirm="Remove the password prompt from this site?" class="btn btn-danger">Disable basic auth</button>
+                @else
+                    <form wire:submit="enableBasicAuth" class="space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label for="ba-user">Username</label>
+                                <input id="ba-user" type="text" wire:model="basicAuthUser" autocomplete="off">
+                                @error('basicAuthUser') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                            <div>
+                                <label for="ba-pass">Password</label>
+                                <input id="ba-pass" type="password" wire:model="basicAuthPassword" placeholder="Leave empty to generate" autocomplete="new-password">
+                                @error('basicAuthPassword') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Enable basic auth</button>
+                    </form>
                 @endif
             </div>
 
+        {{-- ═══ Logs ═══ --}}
         @elseif($activeTab === 'logs')
             @livewire('cipi-gui.log-viewer', [
                 'app' => $appName,
@@ -807,23 +904,24 @@
         @include('cipi-gui::partials.job-overlay')
 
         @if($showDeleteModal)
-            <div class="modal-overlay" wire:click.self="cancelDeleteApp">
-                <div class="modal-content">
-                    <div class="p-6 border-b border-surface-800">
-                        <h3 class="text-lg font-semibold text-white">Delete app</h3>
-                    </div>
-                    <div class="p-6 space-y-4">
-                        <p class="text-sm text-surface-300">
-                            Permanently delete <span class="font-mono text-white">{{ $appName }}</span>?
-                            This removes the app, its web config, and files from the server. This action cannot be undone.
-                        </p>
-                        <div class="flex justify-end gap-2">
-                            <button type="button" wire:click="cancelDeleteApp" class="btn btn-secondary">Cancel</button>
-                            <button type="button" wire:click="deleteApp" class="btn btn-danger">Delete app</button>
+            <x-cipi::modal title="Delete app" close="cancelDeleteApp">
+                <form wire:submit="deleteApp">
+                    <div class="modal-body space-y-4">
+                        <x-cipi::alert type="danger" title="This cannot be undone">
+                            Deleting <strong>{{ $appName }}</strong> removes its Linux user and home, vhost, PHP pool or Node process, workers and database.
+                        </x-cipi::alert>
+                        <div>
+                            <label for="delete-confirm">Type <code>{{ $appName }}</code> to confirm</label>
+                            <input id="delete-confirm" type="text" wire:model="deleteConfirmation" autocomplete="off" autofocus>
+                            @error('deleteConfirmation') <p class="field-error">{{ $message }}</p> @enderror
                         </div>
                     </div>
-                </div>
-            </div>
+                    <div class="modal-footer">
+                        <button type="button" wire:click="cancelDeleteApp" class="btn btn-secondary">Cancel</button>
+                        <button type="submit" class="btn btn-danger-solid"><x-cipi::icon name="trash" /> Delete app</button>
+                    </div>
+                </form>
+            </x-cipi::modal>
         @endif
     @endif
 </div>

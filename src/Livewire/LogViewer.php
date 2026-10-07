@@ -181,15 +181,12 @@ class LogViewer extends Component
     /** @return list<string> */
     public function logTypeOptions(): array
     {
-        $options = self::LOG_TYPES;
-
-        foreach ($this->availableTypes as $type) {
-            if (! in_array($type, $options, true)) {
-                $options[] = $type;
-            }
+        // The API lists the types that exist for this app (no php/laravel for Node apps).
+        if ($this->availableTypes !== []) {
+            return array_values(array_unique(array_merge(['all'], $this->availableTypes, [$this->logType])));
         }
 
-        return $options;
+        return self::LOG_TYPES;
     }
 
     public function render()

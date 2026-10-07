@@ -105,6 +105,45 @@ class JobOutputParser
         ];
     }
 
+    /**
+     * Credentials and one-time values from a job result, in display order.
+     *
+     * @param  array<string, mixed>  $result
+     * @return list<array{label: string, value: string, masked: bool}>
+     */
+    public function secrets(array $result): array
+    {
+        $rows = [];
+        $add = function (string $label, mixed $value, bool $masked = false) use (&$rows): void {
+            if (is_scalar($value) && (string) $value !== '') {
+                $rows[] = ['label' => $label, 'value' => (string) $value, 'masked' => $masked];
+            }
+        };
+
+        $ssh = is_array($result['ssh'] ?? null) ? $result['ssh'] : [];
+        $add('SSH / SFTP user', $ssh['user'] ?? null);
+        $add('SSH password', $ssh['password'] ?? null, true);
+
+        $database = is_array($result['database'] ?? null) ? $result['database'] : [];
+        $add('Database user', $database['user'] ?? null);
+        $add('Database password', $database['password'] ?? null, true);
+
+        if (! isset($result['ssh'])) {
+            $add('Database', is_string($result['database'] ?? null) ? $result['database'] : null);
+            $add('Engine', $result['engine'] ?? null);
+            $add('User', $result['user'] ?? null);
+            $add('Password', $result['password'] ?? null, true);
+            $add('Connection URL', $result['url'] ?? null, true);
+        }
+
+        $add('Deploy key', $result['deploy_key'] ?? null);
+        $add('Webhook URL', $result['webhook'] ?? $result['webhook_url'] ?? null);
+        $add('Webhook token', $result['webhook_token'] ?? null, true);
+        $add('Backup file', $result['file'] ?? null);
+
+        return $rows;
+    }
+
     private function isDeployerUsageLine(string $line): bool
     {
         return (bool) preg_match('/^deploy \[-p\|--parallel\]/', trim($line));

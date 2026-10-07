@@ -1,3 +1,3 @@
-<div class="logo-mark {{ ($large ?? false) ? 'logo-mark-lg' : '' }}">
+<span class="logo-mark {{ ($large ?? false) ? 'logo-mark-lg' : '' }}">
     @include('cipi-gui::partials.logo-icon')
-</div>
+</span>

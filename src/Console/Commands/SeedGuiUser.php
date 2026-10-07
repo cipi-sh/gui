@@ -2,9 +2,9 @@
 
 namespace CipiGui\Console\Commands;
 
-use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
@@ -30,11 +30,13 @@ class SeedGuiUser extends Command
 
         $password ??= Str::password(16);
 
-        User::updateOrCreate(
+        $this->userModel()::updateOrCreate(
             ['email' => $email],
             [
                 'name' => $name,
-                'password' => $password,
+                // Hash explicitly: hosts without the `hashed` cast must not store plain text,
+                // and the cast leaves an already-hashed value untouched.
+                'password' => Hash::make($password),
             ],
         );
 
@@ -72,7 +74,7 @@ class SeedGuiUser extends Command
             return self::FAILURE;
         }
 
-        $user = User::where('email', $email)->first();
+        $user = $this->userModel()::where('email', $email)->first();
 
         if (! $user) {
             $this->error("No GUI admin user found with email: {$email}");
@@ -82,7 +84,7 @@ class SeedGuiUser extends Command
 
         $attributes = [
             'name' => $name,
-            'password' => $password,
+            'password' => Hash::make($password),
         ];
 
         if (Schema::hasColumn('users', 'two_factor_secret')) {
@@ -107,7 +109,13 @@ class SeedGuiUser extends Command
         return self::SUCCESS;
     }
 
-    private function clearUserSessions(User $user): void
+    /** @return class-string<\Illuminate\Database\Eloquent\Model> */
+    private function userModel(): string
+    {
+        return config('auth.providers.users.model', 'App\\Models\\User');
+    }
+
+    private function clearUserSessions(\Illuminate\Database\Eloquent\Model $user): void
     {
         if (! Schema::hasTable('sessions')) {
             return;

@@ -40,6 +40,7 @@ fi
 if grep -q '^APP_DEBUG=' "${ENV}"; then
     sed -i.bak 's|^APP_DEBUG=.*|APP_DEBUG=true|' "${ENV}"
 fi
+sed -i.bak 's|^APP_NAME=.*|APP_NAME=Cipi|' "${ENV}"
 if grep -q '^SESSION_DRIVER=' "${ENV}"; then
     sed -i.bak 's|^SESSION_DRIVER=.*|SESSION_DRIVER=file|' "${ENV}"
 else
@@ -57,6 +58,7 @@ rm -rf "${HOST}/resources/views/vendor/cipi-gui" 2>/dev/null || true
 (cd "${HOST}" && php artisan cipi:gui-refresh-theme 2>/dev/null) || (cd "${HOST}" && php artisan view:clear)
 
 echo "==> Seeding admin user..."
+(cd "${HOST}" && php artisan package:discover --ansi >/dev/null)
 (cd "${HOST}" && php artisan cipi:seed-gui-user --password=admin)
 
 echo ""
@@ -67,5 +69,6 @@ echo "   cd dev/host && php artisan serve"
 echo "   Login: http://127.0.0.1:8000/login"
 echo "   Email: admin@cipi.local  Password: admin"
 echo ""
-echo " Add a Cipi server under Servers (requires cipi api on target)."
+echo " Add a Cipi server under Connections (requires cipi api on target),
+ or run ./dev/demo.sh for a demo fleet backed by the bundled demo API."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

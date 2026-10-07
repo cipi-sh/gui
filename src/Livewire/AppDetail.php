@@ -4,10 +4,10 @@ namespace CipiGui\Livewire;
 
 use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
-use CipiGui\Models\CipiServer;
+use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
 use Livewire\Attributes\Layout;
-use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 
 #[Layout('cipi-gui::layouts.app')]
@@ -15,6 +15,16 @@ class AppDetail extends Component
 {
     use InteractsWithCipiServer;
     use ManagesAsyncJobs;
+
+    public const ARTISAN_PRESETS = [
+        'about', 'migrate:status', 'migrate --force', 'optimize', 'optimize:clear', 'cache:clear',
+        'config:cache', 'queue:restart', 'schedule:list', 'storage:link',
+    ];
+
+    public const RUN_PRESETS = [
+        'composer install --no-dev --no-interaction', 'composer dump-autoload --optimize',
+        'npm ci', 'npm run build', 'git status', 'du -sh current shared logs',
+    ];
 
     public string $appName;
 
@@ -25,6 +35,7 @@ class AppDetail extends Component
 
     public bool $loading = true;
 
+    #[Url(as: 'tab', except: 'overview')]
     public string $activeTab = 'overview';
 
     // Edit form
@@ -36,7 +47,7 @@ class AppDetail extends Component
 
     public string $editDomain = '';
 
-    // Node edit fields (Node apps; node version pin also for Laravel apps — API 1.31+)
+    // Node fields (Node apps; the version pin also applies to Laravel builds — API 1.31+)
     public string $editNodeVersion = '';
 
     public string $editBuild = '';
@@ -49,20 +60,19 @@ class AppDetail extends Component
 
     public string $editNodeMode = '';
 
+    public ?array $nodeInfo = null;
+
     /** @var list<array{major: string, version: ?string, default: bool, apps?: list<string>}> */
     public array $nodeRuntimes = [];
 
-    public bool $nodeUnsupported = false;
-
-    /** @var list<string> Installed PHP versions from API (fallback: config hints) */
+    /** @var list<string> */
     public array $installedPhpVersions = [];
 
     public bool $phpListUnsupported = false;
 
-    // Alias form
+    // Aliases / WWW
     public string $newAlias = '';
 
-    // WWW redirects (Cipi 4.8+ / API 1.12+)
     public ?array $wwwStatus = null;
 
     public bool $wwwUnsupported = false;
@@ -100,12 +110,9 @@ class AppDetail extends Component
 
     public bool $authJsonUnsupported = false;
 
-    public bool $authJsonForce = false;
-
-    // Artisan (Laravel apps)
+    // Artisan / app run
     public string $artisanCommand = '';
 
-    // Whitelisted app run (composer / npm / …)
     public string $runCommand = '';
 
     /** @var list<string> */
@@ -118,10 +125,12 @@ class AppDetail extends Component
 
     public bool $runUnsupported = false;
 
+    // Delete
     public bool $showDeleteModal = false;
 
+    public string $deleteConfirmation = '';
+
     // HTTP healthcheck (API 1.16+)
-    /** @var array{enabled?: bool, url?: ?string, expect?: ?int, state?: ?string, failcount?: int} */
     public array $health = [];
 
     public bool $healthUnsupported = false;
@@ -134,13 +143,13 @@ class AppDetail extends Component
 
     public ?array $healthCheckResult = null;
 
-    // Routing: whole-app redirect, path redirects, proxies (API 1.31+ / Cipi ≥ 5.3.1)
+    // Routing (API 1.31+ / Cipi ≥ 5.3.1)
     public ?array $appRedirect = null;
 
     /** @var list<array{from: string, to: string, code: int, keep_path: bool}> */
     public array $pathRedirects = [];
 
-    /** @var list<array{prefix: string, upstream: string, strip_prefix: bool, preserve_host: bool, timeout: int, buffering: bool}> */
+    /** @var list<array<string, mixed>> */
     public array $proxies = [];
 
     public bool $routingLoaded = false;
@@ -173,7 +182,7 @@ class AppDetail extends Component
 
     public bool $proxyBuffering = true;
 
-    // Deploy config (structured deploy.php options — API 1.31+)
+    // Deploy config (structured deploy.php options)
     public bool $deployConfigLoaded = false;
 
     public bool $deployConfigUnsupported = false;
@@ -221,6 +230,14 @@ class AppDetail extends Component
 
         $this->ensureServerSelected();
         $this->loadApp();
+
+        if ($this->app !== null && ! array_key_exists($this->activeTab, $this->tabs())) {
+            $this->activeTab = 'overview';
+        }
+
+        if ($this->app !== null && $this->activeTab !== 'overview') {
+            $this->loadTab($this->activeTab);
+        }
     }
 
     public function loadApp(): void
@@ -230,17 +247,13 @@ class AppDetail extends Component
 
         try {
             $this->app = $this->normalizeApp($this->client()->showApp($this->appName));
-            $this->aliases = $this->client()->listAliases($this->appName);
-            $this->editPhp = $this->app['php'] ?? '8.5';
-            $this->editBranch = $this->app['branch'] ?? '';
-            $this->editRepository = $this->app['repository'] ?? '';
-            $this->editDomain = $this->app['domain'] ?? '';
+            $this->aliases = $this->app['aliases'];
+            $this->editPhp = $this->app['php'] !== '' ? $this->app['php'] : '8.5';
+            $this->editBranch = $this->app['branch'];
+            $this->editRepository = $this->app['repository'];
+            $this->editDomain = $this->app['domain'];
             $this->editNodeMode = (string) ($this->app['node_mode'] ?? '');
             $this->editNodeVersion = (string) ($this->app['node_version'] ?? '');
-            $this->editBuild = (string) ($this->app['build'] ?? '');
-            $this->editStart = (string) ($this->app['start'] ?? '');
-            $this->editOutput = (string) ($this->app['output'] ?? '');
-            $this->editHealthPath = (string) ($this->app['health_path'] ?? '');
             $this->loadInstalledPhpVersions();
             $this->loadNodeRuntimes();
             $this->loadNodeStatus();
@@ -255,22 +268,151 @@ class AppDetail extends Component
         }
     }
 
+    /** @return array<string, string> */
+    public function tabs(): array
+    {
+        $app = $this->app ?? [];
+        $isLaravel = $this->isLaravelApp($app);
+        $isNode = $this->isNodeApp($app);
+
+        $tabs = [
+            'overview' => 'Overview',
+            'domains' => 'Domains & SSL',
+            'routing' => 'Routing',
+            'deploy' => 'Deploy',
+        ];
+        if ($isLaravel) {
+            $tabs['env'] = 'Environment';
+        }
+        if (! $isNode) {
+            $tabs['authjson'] = 'Composer auth';
+        }
+        if ($isLaravel) {
+            $tabs['artisan'] = 'Artisan';
+        }
+        $tabs['run'] = 'Commands';
+        $tabs['access'] = 'Access';
+        $tabs['logs'] = 'Logs';
+
+        return $tabs;
+    }
+
+    public function setTab(string $tab): void
+    {
+        if (! array_key_exists($tab, $this->tabs())) {
+            return;
+        }
+
+        $this->activeTab = $tab;
+        $this->loadTab($tab);
+    }
+
+    protected function loadTab(string $tab): void
+    {
+        match ($tab) {
+            'domains' => $this->loadWwwStatus(),
+            'routing' => $this->loadRouting(),
+            'deploy' => $this->loadDeployTab(),
+            'env' => $this->loadEnv(),
+            'authjson' => $this->loadAuthJson(),
+            'run' => $this->loadRunCommands(),
+            'access' => $this->loadBasicAuth(),
+            default => null,
+        };
+    }
+
+    protected function loadDeployTab(): void
+    {
+        if ($this->isLaravelApp($this->app ?? [])) {
+            $this->loadDeployConfig();
+        }
+        if (! $this->auditLoaded) {
+            $this->loadDeployAudit();
+        }
+    }
+
+    // ── Overview: PHP / Node / health / search ────────────────────────
+
+    protected function loadInstalledPhpVersions(): void
+    {
+        $this->phpListUnsupported = false;
+        $fallback = (array) config('cipi-gui.php_versions', ['8.4', '8.5']);
+
+        try {
+            $versions = [];
+            foreach ($this->client()->listPhp()['versions'] ?? [] as $row) {
+                if (is_array($row) && ! empty($row['version'])) {
+                    $versions[] = (string) $row['version'];
+                }
+            }
+            $this->installedPhpVersions = $versions !== [] ? $versions : $fallback;
+        } catch (CipiApiException $e) {
+            $this->phpListUnsupported = $this->isUnsupported($e);
+            $this->installedPhpVersions = $fallback;
+        }
+    }
+
+    protected function loadNodeRuntimes(): void
+    {
+        $this->nodeRuntimes = [];
+
+        try {
+            $this->nodeRuntimes = array_values(array_filter(
+                $this->client()->listNodeRuntimes(),
+                fn ($item) => is_array($item) && ! empty($item['major']),
+            ));
+        } catch (CipiApiException $e) {
+            if (! $this->isUnsupported($e)) {
+                $this->handleApiError($e);
+            }
+        }
+    }
+
+    protected function loadNodeStatus(): void
+    {
+        $this->nodeInfo = null;
+
+        if (! $this->isNodeApp($this->app ?? [])) {
+            return;
+        }
+
+        try {
+            $status = $this->client()->nodeStatus($this->appName);
+            $this->nodeInfo = $status;
+            if (! empty($status['version'])) {
+                $this->editNodeVersion = (string) $status['version'];
+            }
+            if (! empty($status['mode'])) {
+                $this->editNodeMode = (string) $status['mode'];
+            }
+            $this->editBuild = (string) ($status['build'] ?? '');
+            $this->editStart = (string) ($status['start'] ?? '');
+            $this->editOutput = (string) ($status['output'] ?? '');
+            $this->editHealthPath = (string) ($status['health_path'] ?? '');
+        } catch (CipiApiException $e) {
+            if (! $this->isUnsupported($e)) {
+                $this->handleApiError($e);
+            }
+        }
+    }
+
     protected function loadHealth(): void
     {
         $this->healthUnsupported = false;
         $this->healthCheckResult = null;
-        $domain = (string) ($this->app['domain'] ?? '');
+        $domain = str_replace('*.', '', (string) ($this->app['domain'] ?? ''));
+        $default = $domain !== '' ? 'https://'.$domain.($this->isLaravelApp($this->app ?? []) ? '/up' : '/') : '';
 
         try {
             $this->health = $this->client()->getAppHealth($this->appName);
             $this->healthEnabled = (bool) ($this->health['enabled'] ?? false);
-            $this->healthUrl = (string) ($this->health['url'] ?? ($domain !== '' ? 'https://'.$domain.'/up' : ''));
+            $this->healthUrl = (string) ($this->health['url'] ?? $default);
             $this->healthExpect = (string) ($this->health['expect'] ?? 200);
-        } catch (CipiApiException $e) {
+        } catch (CipiApiException) {
             $this->healthUnsupported = true;
             $this->health = [];
             $this->healthEnabled = false;
-            $this->healthUrl = $domain !== '' ? 'https://'.$domain.'/up' : '';
+            $this->healthUrl = $default;
             $this->healthExpect = '200';
         }
     }
@@ -280,18 +422,14 @@ class AppDetail extends Component
         $this->validate([
             'healthUrl' => ['nullable', 'string', 'max:512', 'regex:/^https?:\/\/.+/i'],
             'healthExpect' => ['required', 'integer', 'min:100', 'max:599'],
-        ]);
+        ], ['healthUrl.regex' => 'The URL must start with http:// or https://']);
 
         try {
             $url = trim($this->healthUrl);
-            $this->health = $this->client()->setAppHealth(
-                $this->appName,
-                $url !== '' ? $url : null,
-                (int) $this->healthExpect,
-            );
+            $this->health = $this->client()->setAppHealth($this->appName, $url !== '' ? $url : null, (int) $this->healthExpect);
             $this->healthEnabled = true;
             $this->healthCheckResult = null;
-            $this->dispatch('notify', type: 'success', message: 'Healthcheck enabled');
+            $this->dispatch('notify', type: 'success', message: 'Healthcheck saved — probed every 5 minutes.');
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -303,7 +441,7 @@ class AppDetail extends Component
             $this->health = $this->client()->unsetAppHealth($this->appName);
             $this->healthEnabled = false;
             $this->healthCheckResult = null;
-            $this->dispatch('notify', type: 'success', message: 'Healthcheck disabled');
+            $this->dispatch('notify', type: 'success', message: 'Healthcheck disabled.');
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -314,127 +452,14 @@ class AppDetail extends Component
         try {
             $this->healthCheckResult = $this->client()->checkAppHealth($this->appName);
             $ok = (bool) ($this->healthCheckResult['ok'] ?? false);
-            $this->dispatch(
-                'notify',
+            $this->dispatch('notify',
                 type: $ok ? 'success' : 'error',
                 message: $ok
-                    ? 'Healthcheck OK ('.$this->healthCheckResult['got'].')'
-                    : 'Healthcheck failed (got '.$this->healthCheckResult['got'].', expected '.$this->healthCheckResult['expect'].')',
+                    ? 'Healthcheck OK ('.($this->healthCheckResult['got'] ?? '').')'
+                    : 'Healthcheck failed: got '.($this->healthCheckResult['got'] ?? '?').', expected '.($this->healthCheckResult['expect'] ?? '?'),
             );
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
-        }
-    }
-
-    protected function loadInstalledPhpVersions(): void
-    {
-        $this->phpListUnsupported = false;
-        $this->installedPhpVersions = [];
-
-        try {
-            $data = $this->client()->listPhp();
-            $versions = [];
-            foreach ($data['versions'] ?? [] as $row) {
-                if (is_array($row) && ! empty($row['version'])) {
-                    $versions[] = (string) $row['version'];
-                }
-            }
-            $this->installedPhpVersions = $versions !== []
-                ? $versions
-                : (array) config('cipi-gui.php_versions', ['8.4', '8.5']);
-        } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                $this->phpListUnsupported = true;
-                $this->installedPhpVersions = (array) config('cipi-gui.php_versions', ['8.4', '8.5']);
-
-                return;
-            }
-            $this->installedPhpVersions = (array) config('cipi-gui.php_versions', ['8.4', '8.5']);
-        }
-    }
-
-    public function setTab(string $tab): void
-    {
-        $this->activeTab = $tab;
-
-        if ($tab === 'basicauth') {
-            $this->loadBasicAuth();
-        }
-
-        if ($tab === 'aliases') {
-            $this->loadWwwStatus();
-        }
-
-        if ($tab === 'env') {
-            $this->loadEnv();
-        }
-
-        if ($tab === 'authjson') {
-            $this->loadAuthJson();
-        }
-
-        if ($tab === 'run') {
-            $this->loadRunCommands();
-        }
-
-        if ($tab === 'routing') {
-            $this->loadRouting();
-        }
-
-        if ($tab === 'deploy') {
-            $this->loadDeployConfig();
-        }
-    }
-
-    protected function loadNodeRuntimes(): void
-    {
-        $this->nodeUnsupported = false;
-        $this->nodeRuntimes = [];
-
-        try {
-            $this->nodeRuntimes = array_values(array_filter(
-                $this->client()->listNodeRuntimes(),
-                fn ($item) => is_array($item) && ! empty($item['major']),
-            ));
-        } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                $this->nodeUnsupported = true;
-
-                return;
-            }
-            $this->handleApiError($e);
-        }
-    }
-
-    protected function loadNodeStatus(): void
-    {
-        if (! $this->isNodeApp($this->app ?? []) && ($this->app['node_version'] ?? null) === null) {
-            return;
-        }
-
-        try {
-            $status = $this->client()->nodeStatus($this->appName);
-            if (($status['version'] ?? null) !== null && $status['version'] !== '') {
-                $this->editNodeVersion = (string) $status['version'];
-            }
-            if (! empty($status['mode'])) {
-                $this->editNodeMode = (string) $status['mode'];
-            }
-            foreach (['build', 'start', 'output', 'health_path'] as $key) {
-                if (! empty($status[$key])) {
-                    $prop = match ($key) {
-                        'health_path' => 'editHealthPath',
-                        'build' => 'editBuild',
-                        'start' => 'editStart',
-                        'output' => 'editOutput',
-                    };
-                    $this->{$prop} = (string) $status[$key];
-                }
-            }
-        } catch (CipiApiException $e) {
-            if (! in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                $this->handleApiError($e);
-            }
         }
     }
 
@@ -444,51 +469,46 @@ class AppDetail extends Component
 
         $rules = [
             'editBranch' => ['nullable', 'string', 'max:64'],
-            'editRepository' => ['nullable', 'string'],
-            'editDomain' => ['nullable', 'string', 'max:255'],
+            'editRepository' => ['nullable', 'string', 'max:512'],
+            'editDomain' => ['nullable', 'string', 'max:255', 'regex:/^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i'],
             'editNodeVersion' => ['nullable', 'string', 'max:8'],
         ];
 
         if ($isNode) {
-            $rules['editNodeMode'] = ['required', 'in:spa,static,ssr'];
-            $rules['editBuild'] = ['nullable', 'string', 'max:256'];
-            $rules['editStart'] = ['nullable', 'string', 'max:256'];
-            $rules['editOutput'] = ['nullable', 'string', 'max:128'];
-            $rules['editHealthPath'] = ['nullable', 'string', 'max:128'];
+            $rules += [
+                'editNodeMode' => ['required', 'in:spa,static,ssr'],
+                'editBuild' => ['nullable', 'string', 'max:256'],
+                'editStart' => ['nullable', 'string', 'max:256'],
+                'editOutput' => ['nullable', 'string', 'max:128'],
+                'editHealthPath' => ['nullable', 'string', 'max:128'],
+            ];
         } else {
             $rules['editPhp'] = ['required', 'regex:/^\d+\.\d+$/'];
         }
 
-        $this->validate($rules);
+        $this->validate($rules, ['editDomain.regex' => 'Enter a hostname such as app.example.com or *.example.com.']);
 
-        if (! $isNode
-            && $this->installedPhpVersions !== []
-            && ! in_array($this->editPhp, $this->installedPhpVersions, true)) {
-            $this->addError('editPhp', 'PHP '.$this->editPhp.' is not installed on this server. Install it from Server → Manage, or pick: '.implode(', ', $this->installedPhpVersions).'.');
+        if (! $isNode && $this->installedPhpVersions !== [] && ! in_array($this->editPhp, $this->installedPhpVersions, true)) {
+            $this->addError('editPhp', 'PHP '.$this->editPhp.' is not installed on this server. Install it from Server → PHP, or pick: '.implode(', ', $this->installedPhpVersions).'.');
 
             return;
         }
 
-        $currentPhp = (string) ($this->app['php'] ?? '');
-        $currentBranch = (string) ($this->app['branch'] ?? '');
-        $currentRepo = (string) ($this->app['repository'] ?? '');
-        $currentDomain = (string) ($this->app['domain'] ?? '');
-
         $payload = [];
-        if (! $isNode && $this->editPhp !== '' && $this->editPhp !== $currentPhp) {
+        if (! $isNode && $this->editPhp !== '' && $this->editPhp !== (string) $this->app['php']) {
             $payload['php'] = $this->editPhp;
         }
-        if ($this->editBranch !== $currentBranch) {
+        if ($this->editBranch !== (string) $this->app['branch']) {
             $payload['branch'] = $this->editBranch;
         }
-        if ($this->editRepository !== $currentRepo) {
+        if ($this->editRepository !== (string) $this->app['repository']) {
             $payload['repository'] = $this->editRepository;
         }
-        if ($this->editDomain !== '' && $this->editDomain !== $currentDomain) {
-            $payload['domain'] = $this->editDomain;
+        if ($this->editDomain !== '' && $this->editDomain !== (string) $this->app['domain']) {
+            $payload['domain'] = strtolower($this->editDomain);
         }
 
-        // Node fields (API 1.31+): node_version also pins a Laravel app to a major.
+        // node_version also pins a Laravel app's asset build to a Node major.
         $currentNodeVersion = (string) ($this->app['node_version'] ?? '');
         $nodeVersion = trim($this->editNodeVersion);
         if ($nodeVersion !== $currentNodeVersion) {
@@ -502,136 +522,83 @@ class AppDetail extends Component
         }
 
         if ($isNode) {
-            $mode = trim($this->editNodeMode);
-            if ($mode !== '' && $mode !== (string) ($this->app['node_mode'] ?? '')) {
-                $payload['node'] = $mode;
+            if ($this->editNodeMode !== '' && $this->editNodeMode !== (string) ($this->app['node_mode'] ?? '')) {
+                $payload['node'] = $this->editNodeMode;
             }
 
-            foreach ([
-                'build' => trim($this->editBuild),
-                'start' => trim($this->editStart),
-                'output' => trim($this->editOutput),
-                'health_path' => trim($this->editHealthPath),
-            ] as $key => $value) {
-                if ($value !== '' && $value !== (string) ($this->app[$key] ?? '')) {
+            foreach (['build' => $this->editBuild, 'start' => $this->editStart, 'output' => $this->editOutput, 'health_path' => $this->editHealthPath] as $key => $value) {
+                $value = trim($value);
+                if ($value !== '' && $value !== (string) ($this->nodeInfo[$key] ?? '')) {
                     $payload[$key] = $value;
                 }
             }
         }
 
         if ($payload === []) {
-            $this->dispatch('notify', type: 'info', message: 'No changes to save.');
+            $this->dispatch('notify', type: 'info', message: 'Nothing changed.');
 
             return;
         }
 
-        try {
-            $response = $this->client()->editApp($this->appName, $payload);
-            $this->dispatchJob($response, 'App update');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('Update '.$this->appName, fn (CipiApiClient $api) => $api->editApp($this->appName, $payload));
     }
+
+    // ── Lifecycle actions (async jobs) ────────────────────────────────
 
     public function suspendApp(): void
     {
-        try {
-            $response = $this->client()->suspendApp($this->appName);
-            $this->dispatchJob($response, 'Suspend app');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('Suspend '.$this->appName, fn (CipiApiClient $api) => $api->suspendApp($this->appName));
     }
 
     public function unsuspendApp(): void
     {
-        try {
-            $response = $this->client()->unsuspendApp($this->appName);
-            $this->dispatchJob($response, 'Unsuspend app');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('Unsuspend '.$this->appName, fn (CipiApiClient $api) => $api->unsuspendApp($this->appName));
     }
 
     public function fixPermissions(): void
     {
-        try {
-            $response = $this->client()->fixPermissions($this->appName);
-            $this->dispatchJob($response, 'Fix permissions');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('Fix permissions', fn (CipiApiClient $api) => $api->fixPermissions($this->appName));
     }
 
     public function restartNode(): void
     {
-        try {
-            $response = $this->client()->nodeRestart($this->appName);
-            $this->dispatchJob($response, 'Node restart');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('Restart Node (blue/green)', fn (CipiApiClient $api) => $api->nodeRestart($this->appName));
     }
 
     public function recreateWebhook(bool $rotateSecret = false): void
     {
-        try {
-            $response = $this->client()->recreateWebhook($this->appName, $rotateSecret);
-            $this->dispatchJob($response, $rotateSecret ? 'Webhook recreate + rotate secret' : 'Webhook recreate');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob(
+            $rotateSecret ? 'Recreate webhook + rotate secret' : 'Recreate webhook',
+            fn (CipiApiClient $api) => $api->recreateWebhook($this->appName, $rotateSecret),
+        );
     }
 
     public function deploy(): void
     {
-        try {
-            $response = $this->client()->deploy($this->appName);
-            $this->dispatchJob($response, 'Deploy');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('Deploy '.$this->appName, fn (CipiApiClient $api) => $api->deploy($this->appName));
     }
 
     public function rollback(): void
     {
-        try {
-            $response = $this->client()->deployRollback($this->appName);
-            $this->dispatchJob($response, 'Deploy rollback');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('Roll back '.$this->appName, fn (CipiApiClient $api) => $api->deployRollback($this->appName));
     }
 
     public function unlockDeploy(): void
     {
-        try {
-            $response = $this->client()->deployUnlock($this->appName);
-            $this->dispatchJob($response, 'Deploy unlock');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('Unlock deploy', fn (CipiApiClient $api) => $api->deployUnlock($this->appName));
     }
 
     public function installSsl(): void
     {
-        try {
-            $response = $this->client()->installSsl($this->appName);
-            $this->dispatchJob($response, 'SSL install');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob("Let's Encrypt certificate", fn (CipiApiClient $api) => $api->installSsl($this->appName));
     }
 
     public function forceSsl(): void
     {
-        try {
-            $response = $this->client()->forceSsl($this->appName);
-            $this->dispatchJob($response, 'Force HTTPS');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('Force HTTPS', fn (CipiApiClient $api) => $api->forceSsl($this->appName));
     }
+
+    // ── Domains: aliases + www ────────────────────────────────────────
 
     public function loadWwwStatus(): void
     {
@@ -640,7 +607,7 @@ class AppDetail extends Component
         try {
             $this->wwwStatus = $this->client()->wwwStatus($this->appName);
         } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [404, 403, 501], true)) {
+            if ($this->isUnsupported($e)) {
                 $this->wwwStatus = null;
                 $this->wwwUnsupported = true;
 
@@ -653,45 +620,43 @@ class AppDetail extends Component
 
     public function wwwAdd(): void
     {
-        try {
-            $response = $this->client()->wwwAdd($this->appName);
-            $this->dispatchJob($response, 'Add www/apex alias');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('Add www/apex alias', fn (CipiApiClient $api) => $api->wwwAdd($this->appName));
     }
 
     public function wwwForceToRoot(): void
     {
-        try {
-            $response = $this->client()->wwwForceToRoot($this->appName);
-            $this->dispatchJob($response, 'Force www → apex');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('Redirect www → apex', fn (CipiApiClient $api) => $api->wwwForceToRoot($this->appName));
     }
 
     public function wwwForceFromRoot(): void
     {
-        try {
-            $response = $this->client()->wwwForceFromRoot($this->appName);
-            $this->dispatchJob($response, 'Force apex → www');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('Redirect apex → www', fn (CipiApiClient $api) => $api->wwwForceFromRoot($this->appName));
     }
 
     public function wwwClear(): void
     {
-        try {
-            $response = $this->client()->wwwClear($this->appName);
-            $this->dispatchJob($response, 'Clear www redirect');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
+        $this->startJob('Clear www redirect', fn (CipiApiClient $api) => $api->wwwClear($this->appName));
+    }
+
+    public function addAlias(): void
+    {
+        $this->newAlias = strtolower(trim($this->newAlias));
+        $this->validate(['newAlias' => ['required', 'string', 'max:255', 'regex:/^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/']], [
+            'newAlias.regex' => 'Enter a hostname such as www.example.com.',
+        ]);
+
+        $alias = $this->newAlias;
+        if ($this->startJob("Add alias {$alias}", fn (CipiApiClient $api) => $api->addAlias($this->appName, $alias))) {
+            $this->newAlias = '';
         }
     }
 
-    // ── Routing: app/path redirects + proxies (API 1.31+ / Cipi ≥ 5.3.1) ──
+    public function removeAlias(string $alias): void
+    {
+        $this->startJob("Remove alias {$alias}", fn (CipiApiClient $api) => $api->removeAlias($this->appName, $alias));
+    }
+
+    // ── Routing: app/path redirects + proxies ─────────────────────────
 
     public function loadRouting(): void
     {
@@ -702,7 +667,7 @@ class AppDetail extends Component
             $this->syncProxies($this->client()->listProxies($this->appName));
             $this->routingLoaded = true;
         } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+            if ($this->isUnsupported($e)) {
                 $this->routingUnsupported = true;
 
                 return;
@@ -734,51 +699,34 @@ class AppDetail extends Component
     public function saveAppRedirect(): void
     {
         $this->validate([
-            'redirectTo' => ['required', 'string', 'max:2048'],
+            'redirectTo' => ['required', 'string', 'max:2048', 'regex:/^https?:\/\//i'],
             'redirectCode' => ['required', 'in:301,302,307,308'],
-        ]);
+        ], ['redirectTo.regex' => 'Use an absolute URL starting with https://']);
 
-        try {
-            $data = $this->client()->setAppRedirect(
-                $this->appName,
-                trim($this->redirectTo),
-                (int) $this->redirectCode,
-                $this->redirectKeepPath,
-            );
-            $this->syncRedirects($data);
-            $this->dispatch('notify', type: 'success', message: 'App redirect saved.');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->routingCall(
+            fn (CipiApiClient $api) => $this->syncRedirects($api->setAppRedirect($this->appName, trim($this->redirectTo), (int) $this->redirectCode, $this->redirectKeepPath)),
+            'Whole-app redirect saved.',
+        );
     }
 
     public function toggleAppRedirect(): void
     {
         $enabled = (bool) ($this->appRedirect['enabled'] ?? false);
 
-        try {
-            $data = $enabled
-                ? $this->client()->disableAppRedirect($this->appName)
-                : $this->client()->enableAppRedirect($this->appName);
-            $this->syncRedirects($data);
-            $this->dispatch('notify', type: 'success', message: $enabled ? 'App redirect disabled.' : 'App redirect enabled.');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->routingCall(
+            fn (CipiApiClient $api) => $this->syncRedirects($enabled ? $api->disableAppRedirect($this->appName) : $api->enableAppRedirect($this->appName)),
+            $enabled ? 'Redirect disabled — the app serves traffic again.' : 'Redirect enabled.',
+        );
     }
 
     public function removeAppRedirect(): void
     {
-        try {
-            $data = $this->client()->unsetAppRedirect($this->appName);
-            $this->syncRedirects($data);
+        $this->routingCall(function (CipiApiClient $api) {
+            $this->syncRedirects($api->unsetAppRedirect($this->appName));
             $this->redirectTo = '';
             $this->redirectCode = '301';
             $this->redirectKeepPath = true;
-            $this->dispatch('notify', type: 'success', message: 'App redirect removed.');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        }, 'Whole-app redirect removed.');
     }
 
     public function addPathRedirect(): void
@@ -787,86 +735,64 @@ class AppDetail extends Component
             'pathRedirectFrom' => ['required', 'string', 'max:512', 'regex:/^\//'],
             'pathRedirectTo' => ['required', 'string', 'max:2048'],
             'pathRedirectCode' => ['required', 'in:301,302,307,308'],
-        ]);
+        ], ['pathRedirectFrom.regex' => 'The path starts with /']);
 
-        try {
-            $data = $this->client()->addPathRedirect(
-                $this->appName,
-                trim($this->pathRedirectFrom),
-                trim($this->pathRedirectTo),
-                (int) $this->pathRedirectCode,
-                $this->pathRedirectKeepPath,
-            );
-            $this->syncRedirects($data);
-            $this->pathRedirectFrom = '';
-            $this->pathRedirectTo = '';
-            $this->pathRedirectCode = '301';
-            $this->pathRedirectKeepPath = true;
-            $this->dispatch('notify', type: 'success', message: 'Path redirect saved.');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->routingCall(function (CipiApiClient $api) {
+            $this->syncRedirects($api->addPathRedirect($this->appName, trim($this->pathRedirectFrom), trim($this->pathRedirectTo), (int) $this->pathRedirectCode, $this->pathRedirectKeepPath));
+            $this->reset(['pathRedirectFrom', 'pathRedirectTo', 'pathRedirectCode', 'pathRedirectKeepPath']);
+        }, 'Path redirect saved.');
     }
 
     public function removePathRedirect(string $from): void
     {
-        try {
-            $data = $this->client()->removePathRedirect($this->appName, $from);
-            $this->syncRedirects($data);
-            $this->dispatch('notify', type: 'success', message: 'Path redirect removed.');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->routingCall(fn (CipiApiClient $api) => $this->syncRedirects($api->removePathRedirect($this->appName, $from)), 'Path redirect removed.');
     }
 
     public function addProxy(): void
     {
         $this->validate([
             'proxyPrefix' => ['required', 'string', 'max:512', 'regex:/^\//'],
-            'proxyUpstream' => ['required', 'string', 'max:2048'],
+            'proxyUpstream' => ['required', 'string', 'max:2048', 'regex:/^https?:\/\//i'],
             'proxyTimeout' => ['required', 'integer', 'min:1', 'max:3600'],
-        ]);
+        ], ['proxyPrefix.regex' => 'The prefix starts with /', 'proxyUpstream.regex' => 'Use an http:// or https:// upstream URL']);
 
-        try {
-            $data = $this->client()->addProxy($this->appName, [
+        $this->routingCall(function (CipiApiClient $api) {
+            $this->syncProxies($api->addProxy($this->appName, [
                 'prefix' => trim($this->proxyPrefix),
                 'upstream' => trim($this->proxyUpstream),
                 'strip_prefix' => $this->proxyStripPrefix,
                 'preserve_host' => $this->proxyPreserveHost,
                 'timeout' => (int) $this->proxyTimeout,
                 'buffering' => $this->proxyBuffering,
-            ]);
-            $this->syncProxies($data);
-            $this->proxyPrefix = '';
-            $this->proxyUpstream = '';
-            $this->proxyStripPrefix = false;
-            $this->proxyPreserveHost = false;
-            $this->proxyTimeout = '60';
-            $this->proxyBuffering = true;
-            $this->dispatch('notify', type: 'success', message: 'Proxy saved.');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+            ]));
+            $this->reset(['proxyPrefix', 'proxyUpstream', 'proxyStripPrefix', 'proxyPreserveHost', 'proxyTimeout', 'proxyBuffering']);
+        }, 'Proxy saved.');
     }
 
     public function removeProxy(string $prefix): void
     {
+        $this->routingCall(fn (CipiApiClient $api) => $this->syncProxies($api->removeProxy($this->appName, $prefix)), 'Proxy removed.');
+    }
+
+    /** @param  callable(CipiApiClient): mixed  $call */
+    protected function routingCall(callable $call, string $success): void
+    {
         try {
-            $data = $this->client()->removeProxy($this->appName, $prefix);
-            $this->syncProxies($data);
-            $this->dispatch('notify', type: 'success', message: 'Proxy removed.');
+            $call($this->client());
+            $this->dispatch('notify', type: 'success', message: $success);
+            $this->loadApp();
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
     }
 
-    // ── Deploy config (structured deploy.php options — API 1.31+) ─────
+    // ── Deploy config + audit ─────────────────────────────────────────
 
     public function loadDeployConfig(): void
     {
         $this->deployConfigUnsupported = false;
 
-        if (($this->app['custom'] ?? false) || $this->isNodeApp($this->app ?? [])) {
+        if (! $this->isLaravelApp($this->app ?? [])) {
             $this->deployConfigUnsupported = true;
 
             return;
@@ -876,7 +802,7 @@ class AppDetail extends Component
             $this->syncDeployConfig($this->client()->showDeployConfig($this->appName));
             $this->deployConfigLoaded = true;
         } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 422, 501], true)) {
+            if ($this->isUnsupported($e) || $e->getStatusCode() === 422) {
                 $this->deployConfigUnsupported = true;
 
                 return;
@@ -908,8 +834,6 @@ class AppDetail extends Component
             'dcNodeBuild' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $extraArtisan = array_values(array_filter(array_map('trim', explode("\n", $this->dcExtraArtisan))));
-
         try {
             $data = $this->client()->updateDeployConfig($this->appName, [
                 'keep_releases' => (int) $this->dcKeepReleases,
@@ -920,16 +844,19 @@ class AppDetail extends Component
                 'horizon_terminate' => $this->dcHorizonTerminate,
                 'predeploy_snapshot' => $this->dcPredeploySnapshot,
                 'node_build' => $this->dcNodeBuild,
-                'extra_artisan' => $extraArtisan,
+                'extra_artisan' => array_values(array_filter(array_map('trim', explode("\n", $this->dcExtraArtisan)))),
             ]);
             $this->syncDeployConfig($data);
-            $this->dispatch('notify', type: 'success', message: 'Deploy config saved (deploy.php regenerated).');
+            $this->dispatch('notify', type: 'success', message: 'Deploy options saved — deploy.php regenerated.');
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
     }
 
-    // ── Deploy audit ledger (API 1.31+ / Cipi ≥ 5.4.0) ────────────────
+    public function updatedAuditDays(): void
+    {
+        $this->loadDeployAudit();
+    }
 
     public function loadDeployAudit(): void
     {
@@ -944,7 +871,7 @@ class AppDetail extends Component
             $this->auditRecords = array_reverse(array_values($records)); // newest first
             $this->auditLoaded = true;
         } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+            if ($this->isUnsupported($e) || $e->getStatusCode() === 503) {
                 $this->auditUnsupported = true;
 
                 return;
@@ -954,7 +881,7 @@ class AppDetail extends Component
         }
     }
 
-    // ── Meilisearch / Laravel Scout (API 1.31+ / Cipi ≥ 5.2.2) ────────
+    // ── Search (Meilisearch / Scout) ──────────────────────────────────
 
     public function loadSearchStatus(): void
     {
@@ -963,7 +890,7 @@ class AppDetail extends Component
         try {
             $this->searchStatus = $this->client()->searchStatus();
         } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+            if ($this->isUnsupported($e) || $e->getStatusCode() === 503) {
                 $this->searchUnsupported = true;
 
                 return;
@@ -977,7 +904,7 @@ class AppDetail extends Component
     {
         try {
             $this->client()->enableSearch($this->appName);
-            $this->dispatch('notify', type: 'success', message: 'Search (Meilisearch/Scout) enabled.');
+            $this->dispatch('notify', type: 'success', message: 'Search enabled — SCOUT_DRIVER=meilisearch with a scoped key.');
             $this->loadSearchStatus();
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
@@ -988,7 +915,7 @@ class AppDetail extends Component
     {
         try {
             $this->client()->disableSearch($this->appName);
-            $this->dispatch('notify', type: 'success', message: 'Search disabled (previous SCOUT_DRIVER restored).');
+            $this->dispatch('notify', type: 'success', message: 'Search disabled — previous SCOUT_DRIVER restored.');
             $this->loadSearchStatus();
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
@@ -1002,37 +929,13 @@ class AppDetail extends Component
         return is_array($apps) && array_key_exists($this->appName, $apps);
     }
 
-    public function addAlias(): void
-    {
-        $this->validate(['newAlias' => ['required', 'string', 'max:255']]);
-
-        try {
-            $response = $this->client()->addAlias($this->appName, $this->newAlias);
-            $this->newAlias = '';
-            $this->dispatchJob($response, 'Add alias');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    public function removeAlias(string $alias): void
-    {
-        try {
-            $response = $this->client()->removeAlias($this->appName, $alias);
-            $this->dispatchJob($response, 'Remove alias');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
+    // ── Access: HTTP basic auth ───────────────────────────────────────
 
     public function loadBasicAuth(): void
     {
         try {
             $this->basicAuth = $this->client()->basicAuthStatus($this->appName);
-
-            if (is_array($this->basicAuth) && array_key_exists('enabled', $this->basicAuth)) {
-                $this->basicAuth['enabled'] = $this->appFlagIsTrue($this->basicAuth['enabled']);
-            }
+            $this->basicAuth['enabled'] = $this->appFlagIsTrue($this->basicAuth['enabled'] ?? false);
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -1040,23 +943,22 @@ class AppDetail extends Component
 
     public function enableBasicAuth(): void
     {
-        $payload = array_filter([
-            'user' => $this->basicAuthUser ?: 'admin',
-            'password' => $this->basicAuthPassword ?: null,
+        $this->validate([
+            'basicAuthUser' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9._-]+$/'],
+            'basicAuthPassword' => ['nullable', 'string', 'min:8', 'max:128'],
         ]);
 
         try {
-            $result = $this->client()->basicAuthEnable($this->appName, $payload);
+            $result = $this->client()->basicAuthEnable($this->appName, array_filter([
+                'user' => $this->basicAuthUser,
+                'password' => $this->basicAuthPassword ?: null,
+            ]));
             $this->basicAuth = $result;
-            if (array_key_exists('enabled', $this->basicAuth)) {
-                $this->basicAuth['enabled'] = $this->appFlagIsTrue($this->basicAuth['enabled']);
-            }
+            $this->basicAuth['enabled'] = $this->appFlagIsTrue($result['enabled'] ?? true);
             $this->generatedPassword = $result['password'] ?? null;
             $this->basicAuthPassword = '';
             $this->patchApp(['basic_auth' => true]);
             $this->dispatch('notify', type: 'success', message: 'Basic auth enabled.');
-            $this->loadApp();
-            $this->patchApp(['basic_auth' => true]);
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -1067,10 +969,9 @@ class AppDetail extends Component
         try {
             $this->client()->basicAuthDisable($this->appName);
             $this->basicAuth = ['enabled' => false, 'users' => []];
+            $this->generatedPassword = null;
             $this->patchApp(['basic_auth' => false]);
             $this->dispatch('notify', type: 'success', message: 'Basic auth disabled.');
-            $this->loadApp();
-            $this->patchApp(['basic_auth' => false]);
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -1083,7 +984,7 @@ class AppDetail extends Component
         $this->envUnsupported = false;
         $this->envLoaded = false;
 
-        if (($this->app['custom'] ?? false) || $this->isNodeApp($this->app ?? [])) {
+        if (! $this->isLaravelApp($this->app ?? [])) {
             $this->envUnsupported = true;
 
             return;
@@ -1091,12 +992,10 @@ class AppDetail extends Component
 
         try {
             $data = $this->client()->showEnv($this->appName);
-            $vars = is_array($data['vars'] ?? null) ? $data['vars'] : [];
-            $this->syncEnvRowsFromVars($vars);
+            $this->syncEnvRowsFromVars(is_array($data['vars'] ?? null) ? $data['vars'] : []);
             $this->envLoaded = true;
         } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)
-                || str_contains(strtolower($e->getMessage()), 'custom app')) {
+            if ($this->isUnsupported($e) || str_contains(strtolower($e->getMessage()), 'custom app')) {
                 $this->envUnsupported = true;
 
                 return;
@@ -1109,15 +1008,15 @@ class AppDetail extends Component
     public function addEnvRow(): void
     {
         $key = strtoupper(trim($this->envNewKey));
-        if ($key === '') {
-            $this->dispatch('notify', type: 'error', message: 'Env key is required.');
+        if (! preg_match('/^[A-Z][A-Z0-9_]*$/', $key)) {
+            $this->addError('envNewKey', 'Keys use A–Z, 0–9 and _ and start with a letter.');
 
             return;
         }
 
         foreach ($this->envRows as $row) {
             if (strcasecmp($row['key'], $key) === 0) {
-                $this->dispatch('notify', type: 'error', message: "Key {$key} already exists.");
+                $this->addError('envNewKey', "{$key} already exists — edit it in the list.");
 
                 return;
             }
@@ -1126,27 +1025,31 @@ class AppDetail extends Component
         $this->envRows[] = ['key' => $key, 'value' => $this->envNewValue];
         $this->envNewKey = '';
         $this->envNewValue = '';
+        $this->resetErrorBag('envNewKey');
     }
 
     public function removeEnvRow(int $index): void
     {
-        if (! isset($this->envRows[$index])) {
-            return;
+        if (isset($this->envRows[$index])) {
+            unset($this->envRows[$index]);
+            $this->envRows = array_values($this->envRows);
         }
-
-        unset($this->envRows[$index]);
-        $this->envRows = array_values($this->envRows);
     }
 
-    public function saveEnv(): void
+    public function resetEnv(): void
+    {
+        $this->syncEnvRowsFromVars($this->envOriginal);
+    }
+
+    /** @return array{set: array<string, string>, unset: list<string>} */
+    protected function envDiff(): array
     {
         $current = [];
         foreach ($this->envRows as $row) {
             $key = trim((string) ($row['key'] ?? ''));
-            if ($key === '') {
-                continue;
+            if ($key !== '') {
+                $current[$key] = (string) ($row['value'] ?? '');
             }
-            $current[$key] = (string) ($row['value'] ?? '');
         }
 
         $set = [];
@@ -1156,12 +1059,21 @@ class AppDetail extends Component
             }
         }
 
-        $unset = [];
-        foreach (array_keys($this->envOriginal) as $key) {
-            if (! array_key_exists($key, $current)) {
-                $unset[] = $key;
-            }
-        }
+        $unset = array_values(array_diff(array_keys($this->envOriginal), array_keys($current)));
+
+        return ['set' => $set, 'unset' => $unset];
+    }
+
+    public function envChangeCount(): int
+    {
+        $diff = $this->envDiff();
+
+        return count($diff['set']) + count($diff['unset']);
+    }
+
+    public function saveEnv(): void
+    {
+        ['set' => $set, 'unset' => $unset] = $this->envDiff();
 
         if ($set === [] && $unset === []) {
             $this->dispatch('notify', type: 'info', message: 'No .env changes to save.');
@@ -1171,9 +1083,8 @@ class AppDetail extends Component
 
         try {
             $data = $this->client()->updateEnv($this->appName, $set, $unset);
-            $vars = is_array($data['vars'] ?? null) ? $data['vars'] : $current;
-            $this->syncEnvRowsFromVars($vars);
-            $this->dispatch('notify', type: 'success', message: '.env updated.');
+            $this->syncEnvRowsFromVars(is_array($data['vars'] ?? null) ? $data['vars'] : []);
+            $this->dispatch('notify', type: 'success', message: '.env saved ('.(count($set) + count($unset)).' changes). Deploy or run config:cache to apply.');
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -1184,13 +1095,11 @@ class AppDetail extends Component
     {
         $normalized = [];
         foreach ($vars as $key => $value) {
-            if (! is_string($key) || $key === '') {
-                continue;
+            if (is_string($key) && $key !== '') {
+                $normalized[$key] = is_scalar($value) || $value === null ? (string) $value : (string) json_encode($value);
             }
-            $normalized[$key] = is_scalar($value) || $value === null ? (string) $value : json_encode($value);
         }
 
-        ksort($normalized, SORT_STRING);
         $this->envOriginal = $normalized;
         $this->envRows = [];
         foreach ($normalized as $key => $value) {
@@ -1198,7 +1107,12 @@ class AppDetail extends Component
         }
     }
 
-    // ── Shared auth.json ──────────────────────────────────────────────
+    public function isSensitiveKey(string $key): bool
+    {
+        return (bool) preg_match('/(PASSWORD|PASS|SECRET|TOKEN|_KEY$|^APP_KEY$|PRIVATE|CREDENTIAL|DSN)/i', $key);
+    }
+
+    // ── Composer auth.json ────────────────────────────────────────────
 
     public function loadAuthJson(): void
     {
@@ -1209,8 +1123,7 @@ class AppDetail extends Component
 
         try {
             $data = $this->client()->showAuthJson($this->appName);
-            $content = $data['content'] ?? [];
-            $this->authJsonContent = json_encode($content, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}';
+            $this->authJsonContent = json_encode($data['content'] ?? [], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}';
             $this->authJsonExists = true;
             $this->authJsonLoaded = true;
         } catch (CipiApiException $e) {
@@ -1220,14 +1133,10 @@ class AppDetail extends Component
                 return;
             }
 
-            // 404 (or CLI "not found") → file missing; offer create.
-            if ($e->getStatusCode() === 404
-                || str_contains(strtolower($e->getMessage()), 'not found')
-                || str_contains(strtolower($e->getMessage()), 'does not exist')
-                || str_contains(strtolower($e->getMessage()), 'no such file')) {
-                $this->authJsonExists = false;
+            $message = strtolower($e->getMessage());
+            if ($e->getStatusCode() === 404 || str_contains($message, 'not found') || str_contains($message, 'does not exist') || str_contains($message, 'no such file')) {
                 $this->authJsonLoaded = true;
-                $this->authJsonContent = "{\n    \"http-basic\": {}\n}";
+                $this->authJsonContent = $this->authJsonTemplate();
 
                 return;
             }
@@ -1236,70 +1145,33 @@ class AppDetail extends Component
         }
     }
 
-    public function createAuthJson(): void
+    protected function authJsonTemplate(): string
     {
-        $raw = trim($this->authJsonContent ?? '');
-        $hasCustomBody = $raw !== '' && $raw !== "{\n    \"http-basic\": {}\n}";
-
-        if ($hasCustomBody) {
-            json_decode($raw);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                $this->dispatch('notify', type: 'error', message: 'Invalid JSON: '.json_last_error_msg());
-
-                return;
-            }
-        }
-
-        try {
-            $data = $this->client()->createAuthJson($this->appName, $this->authJsonForce);
-            $this->authJsonExists = true;
-            $this->authJsonLoaded = true;
-            $this->authJsonForce = false;
-
-            if ($hasCustomBody) {
-                $data = $this->client()->updateAuthJson($this->appName, $raw);
-                $content = $data['content'] ?? json_decode($raw, true);
-                $this->authJsonContent = json_encode($content, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: $raw;
-                $this->dispatch('notify', type: 'success', message: 'auth.json created and saved.');
-            } else {
-                $content = $data['content'] ?? [];
-                $this->authJsonContent = json_encode($content, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}';
-                $this->dispatch('notify', type: 'success', message: 'auth.json created.');
-            }
-        } catch (CipiApiException $e) {
-            if ($e->getStatusCode() === 409) {
-                $this->dispatch('notify', type: 'error', message: 'auth.json already exists. Enable force to overwrite, or load and edit it.');
-                $this->loadAuthJson();
-
-                return;
-            }
-
-            $this->handleApiError($e);
-        }
+        return json_encode([
+            'http-basic' => ['repo.example.com' => ['username' => 'token', 'password' => 'secret']],
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     }
 
     public function saveAuthJson(): void
     {
         $raw = trim($this->authJsonContent ?? '');
-        if ($raw === '') {
-            $this->dispatch('notify', type: 'error', message: 'JSON body is required.');
+        $decoded = json_decode($raw, true);
 
-            return;
-        }
-
-        json_decode($raw);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            $this->dispatch('notify', type: 'error', message: 'Invalid JSON: '.json_last_error_msg());
+        if ($raw === '' || ! is_array($decoded) || json_last_error() !== JSON_ERROR_NONE) {
+            $this->addError('authJsonContent', 'Invalid JSON: '.(json_last_error() !== JSON_ERROR_NONE ? json_last_error_msg() : 'an object is required'));
 
             return;
         }
 
         try {
+            if (! $this->authJsonExists) {
+                $this->client()->createAuthJson($this->appName, false);
+            }
             $data = $this->client()->updateAuthJson($this->appName, $raw);
-            $content = $data['content'] ?? json_decode($raw, true);
-            $this->authJsonContent = json_encode($content, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: $raw;
+            $this->authJsonContent = json_encode($data['content'] ?? $decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: $raw;
+            $this->dispatch('notify', type: 'success', message: $this->authJsonExists ? 'auth.json saved.' : 'auth.json created.');
             $this->authJsonExists = true;
-            $this->dispatch('notify', type: 'success', message: 'auth.json saved.');
+            $this->resetErrorBag('authJsonContent');
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -1310,60 +1182,47 @@ class AppDetail extends Component
         try {
             $this->client()->deleteAuthJson($this->appName);
             $this->authJsonExists = false;
-            $this->authJsonContent = "{\n    \"http-basic\": {}\n}";
+            $this->authJsonContent = $this->authJsonTemplate();
             $this->dispatch('notify', type: 'success', message: 'auth.json deleted.');
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
     }
 
-    // ── Artisan ───────────────────────────────────────────────────────
+    // ── Artisan + whitelisted commands ────────────────────────────────
 
-    public function runArtisanPreset(string $command): void
+    public function useArtisanPreset(string $command): void
     {
         $this->artisanCommand = $command;
     }
 
     public function runArtisan(): void
     {
-        $command = trim($this->artisanCommand);
+        $command = trim(preg_replace('/^(php\s+)?artisan\s+/', '', $this->artisanCommand) ?? '');
         if ($command === '') {
-            $this->dispatch('notify', type: 'error', message: 'Artisan command is required.');
+            $this->addError('artisanCommand', 'Enter an Artisan command.');
 
             return;
         }
 
-        try {
-            $response = $this->client()->runArtisan($this->appName, $command);
-            $this->dispatchJob($response, 'Artisan: '.$command);
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('artisan '.$command, fn (CipiApiClient $api) => $api->runArtisan($this->appName, $command));
     }
-
-    // ── Whitelisted run ───────────────────────────────────────────────
 
     public function loadRunCommands(): void
     {
         $this->runUnsupported = false;
 
-        if ($this->runLoaded && $this->runAllowedCommands !== []) {
+        if ($this->runLoaded) {
             return;
         }
 
         try {
             $data = $this->client()->listRunCommands();
-            $commands = $data['commands'] ?? [];
-            $notes = $data['notes'] ?? [];
-            $this->runAllowedCommands = is_array($commands)
-                ? array_values(array_filter($commands, fn ($c) => is_string($c) && $c !== ''))
-                : [];
-            $this->runNotes = is_array($notes)
-                ? array_values(array_filter($notes, fn ($n) => is_string($n) && $n !== ''))
-                : [];
+            $this->runAllowedCommands = array_values(array_filter((array) ($data['commands'] ?? []), fn ($c) => is_string($c) && $c !== ''));
+            $this->runNotes = array_values(array_filter((array) ($data['notes'] ?? []), fn ($n) => is_string($n) && $n !== ''));
             $this->runLoaded = true;
         } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
+            if ($this->isUnsupported($e)) {
                 $this->runUnsupported = true;
 
                 return;
@@ -1373,26 +1232,47 @@ class AppDetail extends Component
         }
     }
 
-    public function runAppPreset(string $command): void
+    public function useRunPreset(string $command): void
     {
         $this->runCommand = $command;
-        $this->runAppCommand();
     }
 
     public function runAppCommand(): void
     {
         $command = trim($this->runCommand);
         if ($command === '') {
-            $this->dispatch('notify', type: 'error', message: 'Command is required.');
+            $this->addError('runCommand', 'Enter a command.');
 
             return;
         }
 
-        try {
-            $response = $this->client()->runAppCommand($this->appName, $command);
-            $this->dispatchJob($response, 'Run: '.$command);
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
+        $this->startJob('$ '.$command, fn (CipiApiClient $api) => $api->runAppCommand($this->appName, $command));
+    }
+
+    // ── Delete ────────────────────────────────────────────────────────
+
+    public function confirmDeleteApp(): void
+    {
+        $this->deleteConfirmation = '';
+        $this->resetErrorBag('deleteConfirmation');
+        $this->showDeleteModal = true;
+    }
+
+    public function cancelDeleteApp(): void
+    {
+        $this->showDeleteModal = false;
+    }
+
+    public function deleteApp(): void
+    {
+        if ($this->deleteConfirmation !== $this->appName) {
+            $this->addError('deleteConfirmation', 'Type the app name to confirm.');
+
+            return;
+        }
+
+        if ($this->startJob("Delete app {$this->appName}", fn (CipiApiClient $api) => $api->deleteApp($this->appName))) {
+            $this->showDeleteModal = false;
         }
     }
 
@@ -1406,95 +1286,55 @@ class AppDetail extends Component
         $this->rememberAppPatch($this->appName, $patch);
     }
 
-    public function confirmDeleteApp(): void
-    {
-        $this->showDeleteModal = true;
-    }
-
-    public function cancelDeleteApp(): void
-    {
-        $this->showDeleteModal = false;
-    }
-
-    public function deleteApp(): void
-    {
-        try {
-            $response = $this->client()->deleteApp($this->appName);
-            $this->showDeleteModal = false;
-            $this->dispatchJob($response, "Delete app {$this->appName}");
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
     protected function onJobCompleted(array $data): void
     {
         if (str_starts_with($this->jobLabel, 'Delete app')) {
-            $this->redirect(route('cipi-gui.apps'), navigate: true);
+            $this->redirect(route('cipi-gui.apps'));
 
             return;
         }
 
         $this->loadApp();
 
-        if ($this->activeTab === 'aliases') {
-            $this->loadWwwStatus();
+        match ($this->activeTab) {
+            'domains' => $this->loadWwwStatus(),
+            'routing' => $this->loadRouting(),
+            'deploy' => (function () {
+                $this->auditLoaded = false;
+                $this->loadDeployTab();
+            })(),
+            default => null,
+        };
+    }
+
+    public function siteUrl(): string
+    {
+        $domain = ltrim(str_replace('*.', '', (string) ($this->app['domain'] ?? '')), '.');
+
+        return (($this->app['force_https'] ?? false) ? 'https://' : 'http://').$domain;
+    }
+
+    public function repositoryUrl(): ?string
+    {
+        $repo = (string) ($this->app['repository'] ?? '');
+
+        if (preg_match('#^git@([^:]+):(.+?)(\.git)?$#', $repo, $m)) {
+            return 'https://'.$m[1].'/'.$m[2];
         }
 
-        if ($this->activeTab === 'routing') {
-            $this->loadRouting();
-        }
-
-        if ($this->activeTab === 'deploy') {
-            $this->loadDeployConfig();
-        }
+        return preg_match('#^https?://#', $repo) ? preg_replace('/\.git$/', '', $repo) : null;
     }
 
     public function render()
     {
-        $isLaravel = $this->isLaravelApp($this->app ?? []);
-
-        $tabs = [
-            'overview' => 'Overview',
-            'aliases' => 'Aliases & SSL',
-            'routing' => 'Routing',
-            'deploy' => 'Deploy',
-        ];
-
-        if ($isLaravel) {
-            $tabs['env'] = 'Env';
-        }
-
-        $tabs['authjson'] = 'Auth.json';
-
-        if ($isLaravel) {
-            $tabs['artisan'] = 'Artisan';
-        }
-
-        $tabs['run'] = 'Commands';
-        $tabs['basicauth'] = 'Basic Auth';
-        $tabs['logs'] = 'Logs';
+        $server = $this->currentServer();
 
         return view('cipi-gui::livewire.app-detail', [
-            'phpVersions' => $this->installedPhpVersions !== []
-                ? $this->installedPhpVersions
-                : config('cipi-gui.php_versions'),
-            'server' => $this->currentServer(),
-            'tabs' => $tabs,
-            'artisanPresets' => [
-                ['label' => 'cache:clear', 'command' => 'cache:clear'],
-                ['label' => 'optimize', 'command' => 'optimize'],
-                ['label' => 'optimize:clear', 'command' => 'optimize:clear'],
-                ['label' => 'migrate --force', 'command' => 'migrate --force'],
-            ],
-            'runPresets' => [
-                ['label' => 'composer install', 'command' => 'composer install --no-interaction'],
-                ['label' => 'composer install --no-dev', 'command' => 'composer install --no-dev --no-interaction'],
-                ['label' => 'composer dump-autoload', 'command' => 'composer dump-autoload --no-interaction'],
-                ['label' => 'npm install', 'command' => 'npm install'],
-                ['label' => 'npm ci', 'command' => 'npm ci'],
-                ['label' => 'npm run build', 'command' => 'npm run build'],
-            ],
-        ])->title($this->appName.' — App');
+            'phpVersions' => $this->installedPhpVersions !== [] ? $this->installedPhpVersions : config('cipi-gui.php_versions'),
+            'server' => $server,
+            'tabs' => $this->app ? $this->tabs() : [],
+            'artisanPresets' => self::ARTISAN_PRESETS,
+            'runPresets' => self::RUN_PRESETS,
+        ])->title($this->appName.($server ? ' · '.$server->name : ''));
     }
 }

@@ -4,6 +4,8 @@ namespace CipiGui\Services;
 
 use CipiGui\Models\CipiServer;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
@@ -16,6 +18,46 @@ class CipiApiClient
     public static function for(CipiServer $server): self
     {
         return new self($server);
+    }
+
+    /**
+     * GET /api/status on many servers concurrently (dashboard).
+     *
+     * @param  iterable<CipiServer>  $servers
+     * @return array<int, array{status: ?array, error: ?string}> keyed by server id
+     */
+    public static function statusForMany(iterable $servers): array
+    {
+        $servers = collect($servers)->keyBy('id');
+        if ($servers->isEmpty()) {
+            return [];
+        }
+
+        $responses = Http::pool(fn (Pool $pool) => $servers->map(
+            fn (CipiServer $server) => self::configure($pool->as((string) $server->id), $server)->get($server->api_url.'/status'),
+        )->all());
+
+        $results = [];
+        foreach ($servers as $id => $server) {
+            $response = $responses[(string) $id] ?? null;
+            $client = new self($server);
+
+            if (! $response instanceof Response) {
+                $message = $response instanceof \Throwable ? $response->getMessage() : 'No response';
+                $server->markError('Connection failed: '.$message);
+                $results[$id] = ['status' => null, 'error' => 'Unable to connect to server. Check the URL and network.'];
+
+                continue;
+            }
+
+            try {
+                $results[$id] = ['status' => $client->handle($response)['data'] ?? [], 'error' => null];
+            } catch (CipiApiException $e) {
+                $results[$id] = ['status' => null, 'error' => $e->getMessage()];
+            }
+        }
+
+        return $results;
     }
 
     // ── Apps ──────────────────────────────────────────────────────────
@@ -705,10 +747,7 @@ class CipiApiClient
         $url = $this->server->api_url.$path;
 
         try {
-            $pending = Http::withToken($this->server->token)
-                ->acceptJson()
-                ->timeout(config('cipi-gui.http_timeout', 30))
-                ->connectTimeout(config('cipi-gui.http_connect_timeout', 10));
+            $pending = self::configure(Http::createPendingRequest(), $this->server);
 
             /** @var Response $response */
             $response = match ($method) {
@@ -733,15 +772,38 @@ class CipiApiClient
             );
         }
 
-        if ($response->successful() || in_array($response->status(), [202], true)) {
+        return $this->handle($response);
+    }
+
+    protected static function configure(PendingRequest $request, CipiServer $server): PendingRequest
+    {
+        return $request
+            ->withToken((string) $server->token)
+            ->acceptJson()
+            ->withUserAgent('cipi-gui/'.\CipiGui\Support\Theme::VERSION)
+            ->timeout((int) config('cipi-gui.http_timeout', 30))
+            ->connectTimeout((int) config('cipi-gui.http_connect_timeout', 10));
+    }
+
+    protected function handle(Response $response): array
+    {
+        if ($response->successful()) {
             $this->server->markConnected();
 
             return $response->json() ?? [];
         }
 
         $body = $response->json();
-        $this->server->markError($body['error'] ?? $body['message'] ?? "HTTP {$response->status()}");
+        $status = $response->status();
 
-        throw CipiApiException::fromResponse($response->status(), is_array($body) ? $body : null);
+        // 4xx answers such as 404/409/422 prove the server is reachable; only
+        // auth failures and server errors flag the connection as broken.
+        if ($status === 401 || ($status === 403 && str_contains((string) ($body['error'] ?? ''), 'IP not allowed')) || $status >= 500) {
+            $this->server->markError($body['error'] ?? $body['message'] ?? "HTTP {$status}");
+        } else {
+            $this->server->markConnected();
+        }
+
+        throw CipiApiException::fromResponse($status, is_array($body) ? $body : null);
     }
 }

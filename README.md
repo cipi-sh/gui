@@ -1,126 +1,157 @@
 # Cipi GUI
 
-Laravel package that provides a web control panel for managing one or more [Cipi](https://cipi.sh) servers via the [Cipi REST API](https://github.com/cipi-sh/api).
+The optional web control panel for [Cipi](https://cipi.sh): manage one or many Cipi servers from the browser through the [Cipi REST API](https://github.com/cipi-sh/api) — apps, deploys, domains, routing, databases, PHP and Node runtimes, monitoring and API access.
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/dashboard-light.webp">
+  <img alt="Cipi GUI dashboard with three connected servers" src="docs/screenshots/dashboard.webp">
+</picture>
+
+Cipi stays CLI-first. The panel is a thin Laravel + Livewire client of the API: everything it does can still be done with `cipi` over SSH, it keeps no state about your servers besides an encrypted API token, and removing it leaves every server untouched.
+
+> Screenshots in this README come from the bundled demo environment (`./dev/demo.sh`) — a stand-in for `cipi api` 1.31 with three fictional servers. See [Local development & demo](#local-development--demo).
 
 ## Requirements
 
-- PHP 8.3+
-- Laravel 12+
-- **Cipi API** enabled on each managed server (`cipi api`)
-- MySQL/SQLite (host Laravel app database for GUI users and server registry)
+- A Cipi server to host the panel — `cipi gui <domain>` provisions everything
+- **Cipi API** on every server you manage (`cipi api`), ideally API **1.31+** with Cipi **5.4.1+**
+- PHP 8.3+, Laravel 12 or 13, Livewire 3.6+ or 4 (only relevant for manual installs)
 
 ## Installation
 
-This package is automatically installed and configured by `cipi gui`. No manual setup is needed when using the Cipi CLI.
+On a Cipi server:
 
-For manual installation in a Laravel host app:
+```bash
+cipi gui panel.example.com     # Laravel host app, FPM pool, vhost, scheduler, first admin
+cipi gui ssl                   # Let's Encrypt for the panel
+```
+
+Updates: `cipi gui update` (Composer update + migrations + theme refresh) or `cipi gui upgrade` (clean rebuild). See the [GUI docs](https://cipi.sh/docs/gui) for every subcommand.
+
+Manual install in an existing Laravel app:
 
 ```bash
 composer require cipi/gui
 php artisan vendor:publish --tag=cipi-gui-config
 php artisan migrate
-php artisan cipi:seed-gui-user
+php artisan cipi:seed-gui-user --email=admin@example.com --password='a-long-passphrase'
 ```
-
-## Features
-
-- **Multi-server** — Register N Cipi servers with API tokens; switch between them from any page
-- **Dashboard** — Live server status (CPU, memory, disk, services, app count) via `GET /api/status`
-- **Apps** — Create, edit, deploy Laravel, Node (SPA/static/SSR), and custom apps; manage aliases, WWW/apex redirects, path redirects, prefix proxies, SSL (install + force HTTPS), basic auth, suspend/unsuspend, fix-permissions
-- **Env & auth.json** — View/edit Laravel `.env` key/values; create, edit, and delete shared Composer `auth.json` (API 1.14+ / Cipi CLI ≥ 5.0.3)
-- **Artisan & commands** — Run Artisan (presets + custom) and whitelisted app commands such as `composer` / `npm` with job overlay output
-- **Deploy** — Deploy / rollback / unlock; structured `deploy.php` options; hash-chained deploy audit ledger (API 1.31+ / Cipi ≥ 5.4.0)
-- **Search** — Meilisearch / Laravel Scout status and per-app enable/disable (API 1.31+ / Cipi ≥ 5.2.2)
-- **Databases** — Multi-engine MariaDB/PostgreSQL: list, create, regenerate passwords (API 1.12+ / Cipi 4.8+)
-- **Laravel Octane** — optional FrankenPHP runtime at app create (API 1.13+ / Cipi 5.0+); list/detail show FPM vs Octane
-- **Server insights** — PHP/Node runtimes, optional packages, system monitor, Cloudflare Zero Trust (read-only), API IP whitelist
-- **Async jobs** — Interactive job overlay with spinner and terminal output while polling `GET /api/jobs/{id}`
-- **Logs** — Terminal-style log viewer with type filter, pagination, and auto-refresh
-- **Security** — Password login with optional TOTP two-factor authentication (Google Authenticator compatible)
-- **Production-ready** — Encrypted token storage, connection error handling, configurable timeouts and poll intervals
-
-## Authentication
-
-### Admin user
-
-```bash
-php artisan cipi:seed-gui-user
-php artisan cipi:seed-gui-user --email=admin@example.com --password='your-secure-password'
-```
-
-### Two-factor authentication
-
-Enable 2FA from **Settings** after first login. When enabled, a TOTP code is required on each new session.
 
 ## Connecting servers
 
-1. Ensure **Cipi API** is installed on the target server: `cipi api`
-2. Create an API token with the required abilities:
+1. Enable the API on the server: `cipi api`
+2. Create a token with every ability the panel uses (the **Connections** page shows the same command with a copy button):
 
 ```bash
 cipi api token create --name=gui --abilities=apps-view,apps-create,apps-edit,apps-delete,apps-suspend,apps-basicauth,apps-env,apps-auth,apps-artisan,apps-run,apps-deploy-config,aliases-view,aliases-create,aliases-delete,www-manage,redirects-view,redirects-manage,proxies-view,proxies-manage,node-view,node-manage,search-view,search-manage,deploy-manage,ssl-manage,dbs-view,dbs-create,dbs-manage,php-view,php-manage,ssh-view,ssh-manage,services-view,services-manage,smtp-view,smtp-manage,health-view,health-manage,packages-view,monitor-view,zt-view,ip-whitelist-view,ip-whitelist-manage,status-view
 ```
 
-3. In the GUI, go to **Servers → Add Server** and enter:
-   - **Name** — A short identifier (e.g. `production`)
-   - **URL** — Base URL of the Cipi API host (e.g. `https://vps.example.com`)
-   - **Token** — The bearer token from step 2
+3. In the panel open **Connections → Add server** and enter a name, the API URL (`https://vps.example.com`) and the token. The connection is tested right away; tokens are encrypted at rest with Laravel's `Crypt`.
 
-Tokens are encrypted at rest using Laravel's `Crypt` facade.
+Sections a server's API or token does not support are shown as "not available" one by one — an older server still works for everything else.
 
-## Configuration
+## What you can do
 
-Publish and edit `config/cipi-gui.php`:
+| | |
+|---|---|
+| ![Apps](docs/screenshots/apps.webp) | **Apps** — Laravel (PHP-FPM or Octane/FrankenPHP), Node (SPA, static, SSR with Next, Nuxt, SvelteKit, Astro, Remix or Vite) and custom PHP apps on the current server. Filter by type, search by name, domain or alias, deploy from the list. |
+| ![Create app](docs/screenshots/create-app.webp) | **Create** apps with a type picker; Node framework presets use the same defaults as `cipi app create --node`. Wildcard primary domains (`*.example.com`) are accepted. |
+| ![Credentials](docs/screenshots/job-credentials.webp) | **Async jobs** run in an overlay with live status, elapsed time and the CLI output. One-time secrets — SSH and database passwords, deploy key, webhook URL and token — are listed with copy buttons. |
+| ![App overview](docs/screenshots/app-overview.webp) | **App overview** — details, configuration (PHP version, Node pin, repository, branch, domain), HTTP healthcheck and Meilisearch/Scout. Tabs are part of the URL, so every view can be bookmarked. |
+| ![Deploy](docs/screenshots/app-deploy.webp) | **Deploy** — deploy, roll back, unlock, recreate or rotate the Git webhook, the hash-chained **deploy audit** (who, from where, which commit) and the structured `deploy.php` pipeline. |
+| ![Routing](docs/screenshots/app-routing.webp) | **Routing** — whole-app redirect (set, toggle, remove), path redirects and prefix reverse proxies, with the same validation as `cipi redirect` / `cipi proxy`. |
+| ![Domains](docs/screenshots/app-domains.webp) | **Domains & SSL** — aliases, Let's Encrypt, forced HTTPS and www ↔ apex canonical redirects. |
+| ![Environment](docs/screenshots/app-env.webp) | **Environment** — edit `shared/.env` with sensitive values masked, a filter, and changed rows highlighted before saving. Also Composer `auth.json`, Artisan, whitelisted commands and HTTP basic auth. |
+| ![Logs](docs/screenshots/app-logs.webp) | **Logs** — nginx, PHP-FPM, Laravel, worker and deploy logs with pagination, live refresh and copy as Markdown. |
+| ![Databases](docs/screenshots/databases.webp) | **Databases** — MariaDB and PostgreSQL: create, back up, restore and rotate passwords (dropping stays on the CLI by design). |
+| ![Server](docs/screenshots/server-overview.webp) | **Server** — overview, PHP versions, Node runtimes, database engines, services, healthchecks, monitor, email notifications, SSH keys, Meilisearch, optional packages, Cloudflare Zero Trust and the API IP whitelist. |
+| ![Connections](docs/screenshots/connections.webp) | **Connections & switcher** — add, edit, rotate tokens, disable or test servers; switch the current server from the header on any page. |
+| ![Settings](docs/screenshots/settings-2fa.webp) | **Settings** — profile, password (12+ characters, mixed case, number, symbol) and TOTP two-factor authentication. |
 
-| Key | Description | Default |
-|-----|-------------|---------|
-| `route_prefix` | URL prefix for all GUI routes | `''` (root) |
-| `job_poll_interval_ms` | Job status poll interval | `1500` |
-| `job_poll_max_attempts` | Max poll attempts before timeout | `120` |
-| `http_timeout` | API request timeout (seconds) | `30` |
+Light and dark themes follow the system preference (toggle in the header), and the layout adapts to phones:
 
-Environment variables: `CIPI_GUI_PREFIX`, `CIPI_GUI_JOB_POLL_MS`, `CIPI_GUI_HTTP_TIMEOUT`, `CIPI_GUI_ADMIN_EMAIL`.
+<p>
+  <img alt="Apps on a phone" src="docs/screenshots/mobile-apps.webp" width="260">
+  <img alt="App detail on a phone" src="docs/screenshots/mobile-app.webp" width="260">
+  <img alt="Navigation drawer" src="docs/screenshots/mobile-nav.webp" width="260">
+</p>
 
 ## API coverage
 
-The GUI consumes the full [Cipi API OpenAPI spec](https://vps.deploying.it/docs):
+The panel targets **Cipi API 1.31** and degrades per section on older APIs or narrower tokens.
 
 | Area | Endpoints |
 |------|-----------|
-| Server | `GET /api/status`; Manage page: PHP / DB engines / Node runtimes / SSH / services / SMTP / search / packages / monitor / Zero Trust / IP whitelist (API 1.15–1.31, Cipi ≥ 5.0.6; Node/redirects need ≥ 5.4.1) |
-| Apps | CRUD, suspend/unsuspend, fix-permissions, basic auth, logs; create accepts `engine`, `octane`, and Node (`node`, `framework`, `node_version`, `build`, `start`, `output`, `health_path`); list/show expose `node` / `node_mode` / `node_version` / `redirect` / `redirects` / `proxies`; wildcard primary domains (`*.example.com`); webhook recreate + secret rotate; per-app HTTP healthcheck |
-| Env | `GET`/`PUT /api/apps/{name}/env` (`apps-env`, API 1.14+) |
-| Auth.json | `GET`/`POST`/`PUT`/`DELETE /api/apps/{name}/auth` — Composer shared credentials, not HTTP Basic Auth (`apps-auth`) |
-| Artisan | `POST /api/apps/{name}/artisan` — async job (`apps-artisan`) |
-| App run | `GET /api/run-commands`, `POST /api/apps/{name}/run` — whitelisted composer/npm/… (`apps-run`) |
-| Aliases | List, add, remove |
-| WWW | Status, add counterpart, force-to-root / force-from-root, clear (`www-manage`) |
-| Routing | Whole-app + path redirects (`/redirect*`); prefix reverse proxies (`/proxies`) — API 1.31+ / Cipi ≥ 5.3.1 |
-| Node | `GET /api/node`, `GET /api/apps/{name}/node`, `POST /api/apps/{name}/node/restart` (SSR blue/green) |
-| Search | `GET /api/search`; `POST /api/apps/{name}/search/enable` and `.../disable` |
-| Deploy | Deploy, rollback, unlock; `GET`/`PUT /api/apps/{name}/deploy-config`; `GET /api/apps/{name}/deploy/audit` |
-| SSL | Install Let's Encrypt, force HTTPS redirect |
-| Databases | Engines + list (sync); create/backup/restore/password with optional `engine` (async). Database deletion is host-CLI only (API 1.19+) |
-| Jobs | Poll status and CLI output |
+| Status | `GET /api/status` — dashboard (queried concurrently for every server) and server overview |
+| Apps | `GET/POST /api/apps`, `GET/PUT/DELETE /api/apps/{name}`, suspend, unsuspend, fix-permissions, webhook recreate; create accepts `engine`, `octane`, `custom`/`docroot` and Node (`node`, `framework`, `node_version`, `build`, `start`, `output`, `health_path`) |
+| Env / auth.json | `GET/PUT /api/apps/{name}/env`, `GET/POST/PUT/DELETE /api/apps/{name}/auth` |
+| Artisan / commands | `POST /api/apps/{name}/artisan`, `GET /api/run-commands`, `POST /api/apps/{name}/run` |
+| Deploy | deploy, rollback, unlock, `GET /api/apps/{name}/deploy/audit`, `GET/PUT /api/apps/{name}/deploy-config` |
+| Domains | aliases, `www` status/add/force-to-root/force-from-root/clear, `ssl`, `ssl/force` |
+| Routing | `/redirects`, `/redirect` (set, enable, disable, unset), `/proxies` |
+| Node | `GET /api/node`, `GET /api/apps/{name}/node`, `POST /api/apps/{name}/node/restart` |
+| Search | `GET /api/search`, `POST /api/apps/{name}/search/enable` and `…/disable` |
+| Health | `GET /api/health`, `GET/PUT/DELETE /api/apps/{name}/health`, `POST /api/apps/{name}/health/check` |
+| Databases | `GET /api/dbs/engines`, `POST /api/dbs/engines/install`, `GET/POST /api/dbs`, backup, restore, password |
+| Server | PHP list/install, SSH keys, services + restart, SMTP (configure, enable, disable, test, delete), packages, monitor, Zero Trust, IP whitelist |
+| Logs | `GET /api/apps/{name}/logs` |
+| Jobs | `GET /api/jobs/{id}` |
+
+What Cipi 5.5 adds on the CLI only — `cipi disk`, per-app disk limits, `cipi ssh apps`, `cipi firewall attempts`, Cloudflare DNS accounts — is not part of API 1.31, so the panel points to the command where it matters instead of offering it.
+
+## Configuration
+
+`config/cipi-gui.php` (publish with `--tag=cipi-gui-config`):
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `route_prefix` | URL prefix for every panel route | `''` |
+| `job_poll_interval_ms` | How often a running job is polled | `1500` |
+| `job_poll_max_attempts` | Poll attempts before giving up | `120` |
+| `http_timeout` / `http_connect_timeout` | API request timeouts (seconds) | `30` / `10` |
+| `php_versions` | Fallback PHP hints when a server cannot list its versions | `['8.4', '8.5']` |
+| `token_abilities` | Abilities shown in the token command on Connections | API 1.31 list |
+
+Environment variables: `CIPI_GUI_PREFIX`, `CIPI_GUI_JOB_POLL_MS`, `CIPI_GUI_JOB_POLL_MAX`, `CIPI_GUI_HTTP_TIMEOUT`, `CIPI_GUI_HTTP_CONNECT_TIMEOUT`, `CIPI_GUI_ADMIN_EMAIL`, `CIPI_GUI_ADMIN_NAME`.
+
+Artisan commands: `cipi:seed-gui-user` (create or `--reset` the admin), `cipi:gui-refresh-theme`, `cipi:gui-version`.
+
+## Local development & demo
+
+```bash
+./dev/setup.sh      # Laravel host app in dev/host that loads this package from the working tree
+./dev/demo.sh       # demo API + panel on http://127.0.0.1:8000 (admin@cipi.local / admin)
+```
+
+`dev/demo/api` is a stateful stand-in for `cipi api` 1.31: three fictional servers (production, client hosting, staging) with Laravel, Node and custom apps, databases, monitor checks, a deploy ledger and logs. Async jobs go from pending to completed with CLI-like output, and changes persist until `./dev/demo.sh --reset`. Domains and IPs are reserved documentation ranges. Details in [`dev/README.md`](dev/README.md).
+
+Tests (Orchestra Testbench + PHPUnit) and the CI matrix (PHP 8.3–8.5 × Laravel 12/13 × Livewire 3/4):
+
+```bash
+composer install
+composer test
+```
 
 ## Architecture
 
-Same integration model as [`cipi/api`](https://github.com/cipi-sh/api): a Laravel **library** package bootstrapped by `CipiGuiServiceProvider` into a host runtime provisioned by `cipi gui`.
-
-See [`docs/CIPI_CLI.md`](docs/CIPI_CLI.md) for integrating `cipi gui` into the Cipi server CLI, and [`dev/README.md`](dev/README.md) for local development.
-
 ```
-cipi/gui/
+cipi/gui
 ├── config/cipi-gui.php
-├── database/migrations/     # cipi_servers, users 2FA columns
-├── resources/views/         # Blade + Livewire UI
+├── database/migrations/        # cipi_servers, users 2FA columns
+├── resources/
+│   ├── css/cipi-gui.css         # theme, inlined — no build step
+│   └── views/                   # layouts, partials, <x-cipi::…> components, Livewire views
 ├── routes/web.php
-└── src/
-    ├── CipiGuiServiceProvider.php
-    ├── Livewire/            # Dashboard, Apps, Databases, …
-    ├── Services/            # CipiApiClient, JobPoller, TwoFactorService
-    └── Models/CipiServer.php
+├── src/
+│   ├── CipiGuiServiceProvider.php
+│   ├── Livewire/                # Dashboard, Servers, Apps, AppDetail, Databases, ServerManage, Settings, LogViewer
+│   ├── Services/                # CipiApiClient, JobOutputParser, TwoFactorService
+│   └── Models/CipiServer.php
+├── dev/                         # host bootstrap + demo API
+└── tests/
 ```
+
+How `cipi gui` provisions the panel on a server is described in [`docs/CIPI_CLI.md`](docs/CIPI_CLI.md). Release notes: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## License
 

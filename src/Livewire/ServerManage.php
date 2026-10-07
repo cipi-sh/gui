@@ -4,23 +4,46 @@ namespace CipiGui\Livewire;
 
 use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
+use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
 use Livewire\Attributes\Layout;
-use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 
 #[Layout('cipi-gui::layouts.app')]
-#[Title('Server')]
 class ServerManage extends Component
 {
     use InteractsWithCipiServer;
     use ManagesAsyncJobs;
 
-    public string $activeTab = 'php';
+    public const TABS = [
+        'overview' => 'Overview',
+        'php' => 'PHP',
+        'node' => 'Node',
+        'engines' => 'Databases',
+        'services' => 'Services',
+        'health' => 'Health',
+        'monitor' => 'Monitor',
+        'smtp' => 'Email',
+        'ssh' => 'SSH',
+        'search' => 'Search',
+        'packages' => 'Packages',
+        'zt' => 'Zero Trust',
+        'ip' => 'API access',
+    ];
+
+    #[Url(as: 'tab', except: 'overview')]
+    public string $activeTab = 'overview';
 
     public bool $loading = true;
 
-    public bool $unsupported = false;
+    /** @var array<string, bool> tab => endpoint missing or ability not granted */
+    public array $unsupported = [];
+
+    /** @var array<string, bool> */
+    public array $loaded = [];
+
+    public array $status = [];
 
     /** @var array{default: ?string, installable: list<string>, versions: list<array>} */
     public array $phpData = ['default' => null, 'installable' => [], 'versions' => []];
@@ -30,18 +53,15 @@ class ServerManage extends Component
     /** @var array{default: ?string, engines: list<array>} */
     public array $enginesData = ['default' => null, 'engines' => []];
 
-    /** @var list<array{id: int, type: string, comment: string, fingerprint: string, current_session: bool}> */
     public array $sshKeys = [];
 
     public string $sshKey = '';
 
-    /** @var list<array{name: string, status: string, since: ?string}> */
     public array $services = [];
 
-    /** @var array<string, mixed> */
-    public array $smtp = [];
+    public array $healthChecks = [];
 
-    public bool $smtpUnsupported = false;
+    public array $smtp = [];
 
     public string $smtpHost = '';
 
@@ -61,429 +81,143 @@ class ServerManage extends Component
 
     public bool $smtpSendTest = true;
 
-    /** @var list<array{major: string, version: ?string, default: bool, apps?: list<string>}> */
     public array $nodeRuntimes = [];
 
-    public bool $nodeUnsupported = false;
-
-    /** @var list<array{id: string, packages?: list<string>, description?: string, installed?: bool, partial?: bool}> */
     public array $packages = [];
 
-    public bool $packagesUnsupported = false;
-
-    /** @var array{reminder_minutes?: int, checks?: list<array>} */
     public array $monitor = [];
 
-    public bool $monitorUnsupported = false;
-
-    /** @var array<string, mixed> */
     public array $zt = [];
 
-    public bool $ztUnsupported = false;
-
-    /** @var array{allow_all?: bool, entries?: list<string>, file?: string, client_ip?: string} */
     public array $ipWhitelist = [];
-
-    public bool $ipWhitelistUnsupported = false;
 
     public string $ipWhitelistEntry = '';
 
-    /** @var array<string, mixed> */
     public array $search = [];
-
-    public bool $searchUnsupported = false;
 
     public function mount(?int $serverId = null): void
     {
-        if ($serverId !== null) {
-            $this->serverId = $serverId;
-            session(['cipi_gui_server_id' => $serverId]);
+        $this->ensureServerSelected($serverId);
+
+        if (! array_key_exists($this->activeTab, self::TABS)) {
+            $this->activeTab = 'overview';
         }
 
-        $this->ensureServerSelected();
-        $this->loadAll();
-    }
-
-    public function updatedServerId(): void
-    {
-        session(['cipi_gui_server_id' => $this->serverId]);
-        $this->loadAll();
+        $this->loadTab($this->activeTab);
+        $this->loading = false;
     }
 
     public function setTab(string $tab): void
     {
-        $this->activeTab = $tab;
-
-        try {
-            $this->loadOptionalTab($tab);
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    public function loadAll(): void
-    {
-        $this->loading = true;
-        $this->error = null;
-        $this->unsupported = false;
-
-        if (! $this->currentServer()) {
-            $this->loading = false;
-
+        if (! array_key_exists($tab, self::TABS)) {
             return;
         }
 
+        $this->activeTab = $tab;
+
+        if (! ($this->loaded[$tab] ?? false)) {
+            $this->loadTab($tab);
+        }
+    }
+
+    public function refresh(): void
+    {
+        $this->loaded = [];
+        $this->loadTab($this->activeTab);
+        $this->dispatch('notify', type: 'info', message: 'Refreshed.');
+    }
+
+    protected function loadTab(string $tab): void
+    {
+        if (! $this->currentServer()) {
+            return;
+        }
+
+        $this->error = null;
+
+        $loader = match ($tab) {
+            'overview' => function () {
+                $this->status = $this->client()->getStatus();
+                $this->guard('services', fn () => $this->services = $this->client()->listServices());
+                $this->guard('monitor', fn () => $this->monitor = $this->client()->monitorStatus());
+                $this->guard('health', fn () => $this->healthChecks = $this->client()->listHealth());
+            },
+            'php' => function () {
+                $this->phpData = $this->client()->listPhp() + ['default' => null, 'installable' => [], 'versions' => []];
+                $installed = array_column($this->phpData['versions'], 'version');
+                $candidates = array_values(array_diff($this->phpData['installable'] ?: ['8.3', '8.4', '8.5'], $installed));
+                $this->phpInstallVersion = $candidates[0] ?? '';
+            },
+            'node' => fn () => $this->nodeRuntimes = array_values(array_filter($this->client()->listNodeRuntimes(), fn ($r) => is_array($r) && ! empty($r['major']))),
+            'engines' => fn () => $this->enginesData = $this->client()->listDatabaseEngines() + ['default' => null, 'engines' => []],
+            'services' => fn () => $this->services = $this->client()->listServices(),
+            'health' => fn () => $this->healthChecks = $this->client()->listHealth(),
+            'monitor' => fn () => $this->monitor = $this->client()->monitorStatus(),
+            'smtp' => fn () => $this->syncSmtp($this->client()->getSmtp()),
+            'ssh' => fn () => $this->sshKeys = $this->client()->listSshKeys(),
+            'search' => fn () => $this->search = $this->client()->searchStatus(),
+            'packages' => fn () => $this->packages = $this->client()->listPackages(),
+            'zt' => fn () => $this->zt = $this->client()->ztStatus(),
+            'ip' => fn () => $this->ipWhitelist = $this->client()->getIpWhitelist(),
+            default => null,
+        };
+
+        if ($loader) {
+            $this->guard($tab, $loader);
+        }
+    }
+
+    /** Run a loader; a missing endpoint or ability marks only that section as unsupported. */
+    protected function guard(string $tab, callable $loader): void
+    {
         try {
-            $this->loadPhp();
-            $this->loadEngines();
-            $this->loadSsh();
-            $this->loadServices();
-            $this->loadSmtp();
-            $this->loadOptionalTab($this->activeTab);
+            $loader();
+            $this->unsupported[$tab] = false;
         } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                $this->unsupported = true;
+            if ($this->isUnsupported($e) || $e->getStatusCode() === 503) {
+                $this->unsupported[$tab] = true;
             } else {
                 $this->handleApiError($e);
             }
         } finally {
-            $this->loading = false;
+            $this->loaded[$tab] = true;
         }
     }
 
-    protected function loadOptionalTab(string $tab): void
-    {
-        match ($tab) {
-            'node' => $this->loadNodeRuntimes(),
-            'packages' => $this->loadPackages(),
-            'monitor' => $this->loadMonitor(),
-            'zt' => $this->loadZt(),
-            'ip' => $this->loadIpWhitelist(),
-            'search' => $this->loadSearch(),
-            default => null,
-        };
-    }
-
-    protected function loadNodeRuntimes(): void
-    {
-        $this->nodeUnsupported = false;
-        try {
-            $this->nodeRuntimes = array_values(array_filter(
-                $this->client()->listNodeRuntimes(),
-                fn ($item) => is_array($item) && ! empty($item['major']),
-            ));
-        } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                $this->nodeUnsupported = true;
-                $this->nodeRuntimes = [];
-
-                return;
-            }
-            throw $e;
-        }
-    }
-
-    protected function loadPackages(): void
-    {
-        $this->packagesUnsupported = false;
-        try {
-            $this->packages = $this->client()->listPackages();
-        } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                $this->packagesUnsupported = true;
-                $this->packages = [];
-
-                return;
-            }
-            throw $e;
-        }
-    }
-
-    protected function loadMonitor(): void
-    {
-        $this->monitorUnsupported = false;
-        try {
-            $this->monitor = $this->client()->monitorStatus();
-        } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                $this->monitorUnsupported = true;
-                $this->monitor = [];
-
-                return;
-            }
-            throw $e;
-        }
-    }
-
-    protected function loadZt(): void
-    {
-        $this->ztUnsupported = false;
-        try {
-            $this->zt = $this->client()->ztStatus();
-        } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                $this->ztUnsupported = true;
-                $this->zt = [];
-
-                return;
-            }
-            throw $e;
-        }
-    }
-
-    protected function loadIpWhitelist(): void
-    {
-        $this->ipWhitelistUnsupported = false;
-        try {
-            $this->ipWhitelist = $this->client()->getIpWhitelist();
-        } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                $this->ipWhitelistUnsupported = true;
-                $this->ipWhitelist = [];
-
-                return;
-            }
-            throw $e;
-        }
-    }
-
-    protected function loadSearch(): void
-    {
-        $this->searchUnsupported = false;
-        try {
-            $this->search = $this->client()->searchStatus();
-        } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                $this->searchUnsupported = true;
-                $this->search = [];
-
-                return;
-            }
-            throw $e;
-        }
-    }
-
-    public function addIpWhitelistEntry(): void
-    {
-        $this->validate(['ipWhitelistEntry' => ['required', 'string', 'max:64']]);
-
-        try {
-            $this->ipWhitelist = $this->client()->addIpWhitelistEntry(trim($this->ipWhitelistEntry));
-            $this->ipWhitelistEntry = '';
-            $this->dispatch('notify', type: 'success', message: 'IP added to API whitelist');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    public function removeIpWhitelistEntry(string $ip): void
-    {
-        try {
-            $this->ipWhitelist = $this->client()->removeIpWhitelistEntry($ip);
-            $this->dispatch('notify', type: 'success', message: 'IP removed from API whitelist');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    public function allowAllIpWhitelist(): void
-    {
-        try {
-            $this->ipWhitelist = $this->client()->allowAllIpWhitelist();
-            $this->dispatch('notify', type: 'success', message: 'API whitelist set to allow all');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    protected function loadPhp(): void
-    {
-        try {
-            $this->phpData = $this->client()->listPhp();
-            $installable = $this->phpData['installable'] ?? ['8.3', '8.4', '8.5'];
-            $installed = array_column($this->phpData['versions'] ?? [], 'version');
-            $candidates = array_values(array_diff($installable, $installed));
-            $this->phpInstallVersion = $candidates[0] ?? ($installable[0] ?? '8.5');
-        } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                $this->unsupported = true;
-
-                return;
-            }
-            throw $e;
-        }
-    }
-
-    protected function loadEngines(): void
-    {
-        try {
-            $this->enginesData = $this->client()->listDatabaseEngines();
-        } catch (CipiApiException $e) {
-            if (! in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                throw $e;
-            }
-        }
-    }
-
-    protected function loadSsh(): void
-    {
-        try {
-            $this->sshKeys = $this->client()->listSshKeys();
-        } catch (CipiApiException $e) {
-            if (! in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                throw $e;
-            }
-        }
-    }
-
-    protected function loadServices(): void
-    {
-        try {
-            $this->services = $this->client()->listServices();
-        } catch (CipiApiException $e) {
-            if (! in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                throw $e;
-            }
-        }
-    }
-
-    protected function loadSmtp(): void
-    {
-        $this->smtpUnsupported = false;
-        try {
-            $this->smtp = $this->client()->getSmtp();
-            $this->smtpHost = (string) ($this->smtp['host'] ?? '');
-            $this->smtpPort = (string) ($this->smtp['port'] ?? '587');
-            $this->smtpUser = (string) ($this->smtp['user'] ?? '');
-            $this->smtpFrom = (string) ($this->smtp['from'] ?? '');
-            $this->smtpTo = (string) ($this->smtp['to'] ?? '');
-            $this->smtpTls = (bool) ($this->smtp['tls'] ?? true);
-            $this->smtpEnabled = (bool) ($this->smtp['enabled'] ?? true);
-            // Never prefill password from API (not returned).
-            $this->smtpPassword = '';
-        } catch (CipiApiException $e) {
-            if (in_array($e->getStatusCode(), [403, 404, 501], true)) {
-                $this->smtpUnsupported = true;
-
-                return;
-            }
-            throw $e;
-        }
-    }
-
-    public function saveSmtp(): void
-    {
-        $rules = [
-            'smtpHost' => ['required', 'string', 'max:255'],
-            'smtpPort' => ['required', 'integer', 'min:1', 'max:65535'],
-            'smtpUser' => ['required', 'string', 'max:255'],
-            'smtpFrom' => ['required', 'email', 'max:255'],
-            'smtpTo' => ['required', 'email', 'max:255'],
-        ];
-        if (empty($this->smtp['configured'])) {
-            $rules['smtpPassword'] = ['required', 'string', 'min:1', 'max:512'];
-        } else {
-            $rules['smtpPassword'] = ['nullable', 'string', 'max:512'];
-        }
-        $this->validate($rules);
-
-        try {
-            $payload = [
-                'host' => $this->smtpHost,
-                'port' => (int) $this->smtpPort,
-                'user' => $this->smtpUser,
-                'from' => $this->smtpFrom,
-                'to' => $this->smtpTo,
-                'tls' => $this->smtpTls,
-                'enabled' => $this->smtpEnabled,
-                'test' => $this->smtpSendTest,
-            ];
-            if ($this->smtpPassword !== '') {
-                $payload['password'] = $this->smtpPassword;
-            }
-            $this->smtp = $this->client()->updateSmtp($payload);
-            $this->smtpPassword = '';
-            $this->dispatch('notify', type: 'success', message: 'SMTP settings saved');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    public function enableSmtp(): void
-    {
-        try {
-            $this->smtp = $this->client()->enableSmtp();
-            $this->smtpEnabled = true;
-            $this->dispatch('notify', type: 'success', message: 'SMTP notifications enabled');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    public function disableSmtp(): void
-    {
-        try {
-            $this->smtp = $this->client()->disableSmtp();
-            $this->smtpEnabled = false;
-            $this->dispatch('notify', type: 'success', message: 'SMTP notifications disabled');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    public function testSmtp(): void
-    {
-        try {
-            $this->client()->testSmtp();
-            $this->dispatch('notify', type: 'success', message: 'Test email sent');
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
-
-    public function deleteSmtp(): void
-    {
-        try {
-            $this->smtp = $this->client()->deleteSmtp();
-            $this->smtpPassword = '';
-            $this->dispatch('notify', type: 'success', message: 'SMTP configuration removed');
-            $this->loadSmtp();
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
-    }
+    // ── PHP / engines / services ──────────────────────────────────────
 
     public function installPhp(): void
     {
         $this->validate(['phpInstallVersion' => ['required', 'regex:/^\d+\.\d+$/']]);
 
-        try {
-            $response = $this->client()->installPhp($this->phpInstallVersion);
-            $this->dispatchJob($response, 'Install PHP '.$this->phpInstallVersion);
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $version = $this->phpInstallVersion;
+        $this->startJob('Install PHP '.$version, fn (CipiApiClient $api) => $api->installPhp($version));
     }
 
     public function installEngine(string $engine): void
     {
-        try {
-            $response = $this->client()->installDbEngine($engine);
-            $this->dispatchJob($response, 'Install '.$engine);
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        }
+        $this->startJob('Install '.$this->engineLabel($engine), fn (CipiApiClient $api) => $api->installDbEngine($engine));
     }
+
+    public function restartService(string $name): void
+    {
+        $this->startJob('Restart '.$name, fn (CipiApiClient $api) => $api->restartService($name));
+    }
+
+    // ── SSH keys ──────────────────────────────────────────────────────
 
     public function addSshKey(): void
     {
-        $this->validate(['sshKey' => ['required', 'string', 'min:20']]);
+        $this->sshKey = trim($this->sshKey);
+        $this->validate(['sshKey' => ['required', 'string', 'min:40', 'regex:/^(ssh-(ed25519|rsa)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com)\s+\S+/']], [
+            'sshKey.regex' => 'Paste a public key (ssh-ed25519 AAAA… comment).',
+        ]);
 
         try {
-            $this->client()->addSshKey(trim($this->sshKey));
+            $this->client()->addSshKey($this->sshKey);
             $this->sshKey = '';
-            $this->loadSsh();
-            $this->dispatch('notify', type: 'success', message: 'SSH key added');
+            $this->sshKeys = $this->client()->listSshKeys();
+            $this->dispatch('notify', type: 'success', message: 'SSH key added for the cipi user.');
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -493,18 +227,120 @@ class ServerManage extends Component
     {
         try {
             $this->client()->removeSshKey($id);
-            $this->loadSsh();
-            $this->dispatch('notify', type: 'success', message: 'SSH key removed');
+            $this->sshKeys = $this->client()->listSshKeys();
+            $this->dispatch('notify', type: 'success', message: 'SSH key removed.');
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
     }
 
-    public function restartService(string $name): void
+    // ── SMTP ──────────────────────────────────────────────────────────
+
+    /** @param  array<string, mixed>  $smtp */
+    protected function syncSmtp(array $smtp): void
+    {
+        $this->smtp = $smtp;
+        $this->smtpHost = (string) ($smtp['host'] ?? '');
+        $this->smtpPort = (string) ($smtp['port'] ?? '587');
+        $this->smtpUser = (string) ($smtp['user'] ?? '');
+        $this->smtpFrom = (string) ($smtp['from'] ?? '');
+        $this->smtpTo = (string) ($smtp['to'] ?? '');
+        $this->smtpTls = (bool) ($smtp['tls'] ?? true);
+        $this->smtpEnabled = empty($smtp['configured']) ? true : (bool) ($smtp['enabled'] ?? true);
+        $this->smtpPassword = ''; // never returned by the API
+    }
+
+    public function saveSmtp(): void
+    {
+        $this->validate([
+            'smtpHost' => ['required', 'string', 'max:255'],
+            'smtpPort' => ['required', 'integer', 'min:1', 'max:65535'],
+            'smtpUser' => ['required', 'string', 'max:255'],
+            'smtpPassword' => [empty($this->smtp['configured']) ? 'required' : 'nullable', 'string', 'max:512'],
+            'smtpFrom' => ['required', 'email', 'max:255'],
+            'smtpTo' => ['required', 'email', 'max:255'],
+        ]);
+
+        $payload = [
+            'host' => $this->smtpHost,
+            'port' => (int) $this->smtpPort,
+            'user' => $this->smtpUser,
+            'from' => $this->smtpFrom,
+            'to' => $this->smtpTo,
+            'tls' => $this->smtpTls,
+            'enabled' => $this->smtpEnabled,
+            'test' => $this->smtpSendTest,
+        ];
+        if ($this->smtpPassword !== '') {
+            $payload['password'] = $this->smtpPassword;
+        }
+
+        $this->smtpCall(fn (CipiApiClient $api) => $api->updateSmtp($payload), $this->smtpSendTest ? 'SMTP saved — test email sent to '.$this->smtpTo.'.' : 'SMTP saved.');
+    }
+
+    public function enableSmtp(): void
+    {
+        $this->smtpCall(fn (CipiApiClient $api) => $api->enableSmtp(), 'Email notifications enabled.');
+    }
+
+    public function disableSmtp(): void
+    {
+        $this->smtpCall(fn (CipiApiClient $api) => $api->disableSmtp(), 'Email notifications paused.');
+    }
+
+    public function testSmtp(): void
+    {
+        $this->smtpCall(fn (CipiApiClient $api) => $api->testSmtp(), 'Test email sent to '.($this->smtp['to'] ?? 'the recipient').'.');
+    }
+
+    public function deleteSmtp(): void
+    {
+        $this->smtpCall(fn (CipiApiClient $api) => $api->deleteSmtp(), 'SMTP configuration removed.');
+    }
+
+    /** @param  callable(CipiApiClient): array  $call */
+    protected function smtpCall(callable $call, string $success): void
     {
         try {
-            $response = $this->client()->restartService($name);
-            $this->dispatchJob($response, 'Restart '.$name);
+            $this->syncSmtp($call($this->client()));
+            $this->dispatch('notify', type: 'success', message: $success);
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    // ── API IP whitelist ──────────────────────────────────────────────
+
+    public function addIpWhitelistEntry(): void
+    {
+        $this->ipWhitelistEntry = trim($this->ipWhitelistEntry);
+        $this->validate(['ipWhitelistEntry' => ['required', 'string', 'max:64', function ($attribute, $value, $fail) {
+            [$ip, $mask] = array_pad(explode('/', $value, 2), 2, null);
+            if (! filter_var($ip, FILTER_VALIDATE_IP) || ($mask !== null && ! ctype_digit($mask))) {
+                $fail('Enter an IPv4/IPv6 address or a CIDR range.');
+            }
+        }]]);
+
+        $this->ipCall(fn (CipiApiClient $api) => $api->addIpWhitelistEntry($this->ipWhitelistEntry), $this->ipWhitelistEntry.' can now call the API.');
+        $this->ipWhitelistEntry = '';
+    }
+
+    public function removeIpWhitelistEntry(string $ip): void
+    {
+        $this->ipCall(fn (CipiApiClient $api) => $api->removeIpWhitelistEntry($ip), $ip.' removed from the API whitelist.');
+    }
+
+    public function allowAllIpWhitelist(): void
+    {
+        $this->ipCall(fn (CipiApiClient $api) => $api->allowAllIpWhitelist(), 'The API accepts every client IP again.');
+    }
+
+    /** @param  callable(CipiApiClient): array  $call */
+    protected function ipCall(callable $call, string $success): void
+    {
+        try {
+            $this->ipWhitelist = $call($this->client());
+            $this->dispatch('notify', type: 'success', message: $success);
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -512,26 +348,27 @@ class ServerManage extends Component
 
     protected function onJobCompleted(array $data): void
     {
-        $this->loadAll();
+        $this->loaded = [];
+        $this->loadTab($this->activeTab);
+    }
+
+    public function monitorStateClass(?string $state): string
+    {
+        return match ($state) {
+            'ok' => 'badge-green',
+            'warn', 'warning' => 'badge-amber',
+            'crit', 'critical', 'fail', 'failed' => 'badge-red',
+            default => 'badge-gray',
+        };
     }
 
     public function render()
     {
+        $server = $this->currentServer();
+
         return view('cipi-gui::livewire.server-manage', [
-            'server' => $this->currentServer(),
-            'tabs' => [
-                'php' => 'PHP',
-                'engines' => 'Database engines',
-                'node' => 'Node',
-                'ssh' => 'SSH keys',
-                'services' => 'Services',
-                'smtp' => 'Email (SMTP)',
-                'search' => 'Search',
-                'packages' => 'Packages',
-                'monitor' => 'Monitor',
-                'zt' => 'Zero Trust',
-                'ip' => 'IP whitelist',
-            ],
-        ]);
+            'server' => $server,
+            'tabs' => self::TABS,
+        ])->title($server ? 'Server · '.$server->name : 'Server');
     }
 }

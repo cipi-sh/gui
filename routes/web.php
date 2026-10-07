@@ -3,6 +3,7 @@
 use CipiGui\Http\Controllers\AssetsController;
 use CipiGui\Http\Controllers\Auth\LoginController;
 use CipiGui\Http\Controllers\Auth\TwoFactorController;
+use CipiGui\Http\Controllers\ServerSwitchController;
 use CipiGui\Livewire\AppDetail;
 use CipiGui\Livewire\Apps;
 use CipiGui\Livewire\Dashboard;
@@ -44,6 +45,7 @@ Route::middleware(['auth'])->group(function () {
 Route::middleware(['auth', 'cipi-gui.2fa'])->group(function () {
     Route::get('/', Dashboard::class)->name('cipi-gui.dashboard');
     Route::get('/servers', Servers::class)->name('cipi-gui.servers');
+    Route::post('/servers/switch', ServerSwitchController::class)->name('cipi-gui.servers.switch');
     Route::get('/server/{serverId?}', ServerManage::class)->name('cipi-gui.server-manage')
         ->whereNumber('serverId');
     Route::get('/apps', Apps::class)->name('cipi-gui.apps');

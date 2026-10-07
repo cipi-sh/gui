@@ -1,517 +1,515 @@
 <div>
-    <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-            <h2 class="text-2xl font-semibold text-white">Server</h2>
-            <p class="text-sm text-surface-400 mt-1">
-                Manage PHP, Node, packages, monitor, Zero Trust, and API access
-                @if($server)
-                    on <span class="text-surface-200">{{ $server->name }}</span>
-                @endif
-            </p>
-        </div>
-        <button type="button" wire:click="loadAll" class="btn btn-secondary btn-sm">Refresh</button>
-    </div>
+    <x-cipi::page-header :title="$server?->name ?? 'Server'">
+        <x-slot:eyebrow><x-cipi::icon name="server" class="h-3.5 w-3.5" /> Server</x-slot:eyebrow>
+        <x-slot:meta>
+            @if($server)
+                <span class="font-mono text-xs">{{ $server->host }}</span>@if($server->ip) · <span class="font-mono text-xs">{{ $server->ip }}</span>@endif
+                @if(!empty($status['system']['cipi'])) · Cipi {{ $status['system']['cipi'] }}@endif
+            @else
+                Connect a server to manage PHP, Node, services, notifications and API access.
+            @endif
+        </x-slot:meta>
+        @if($server)
+            <x-slot:actions>
+                <a href="{{ route('cipi-gui.apps') }}" class="btn btn-secondary"><x-cipi::icon name="apps" /> Apps</a>
+                <button type="button" wire:click="refresh" class="btn btn-secondary" wire:loading.attr="disabled" wire:target="refresh,setTab">
+                    <x-cipi::icon name="refresh" wire:loading.class="animate-spin" wire:target="refresh,setTab" /> Refresh
+                </button>
+            </x-slot:actions>
+        @endif
+    </x-cipi::page-header>
 
-    @if(!$server)
-        <div class="card text-surface-400">
-            Add a server first, then come back here.
-            <a href="{{ route('cipi-gui.servers') }}" class="text-link ml-1">Servers</a>
-        </div>
-    @elseif($unsupported)
-        <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
-            This server’s API is older than 1.15 / Cipi CLI &lt; 5.0.6, or the token is missing management abilities
-            (<code>php-*</code>, <code>ssh-*</code>,
-            <code>services-*</code>, <code>smtp-*</code>).
-            Newer tabs (Node, packages, monitor, Zero Trust, IP whitelist) need API 1.31+ / Cipi ≥ 5.4.1.
-            Run <code>cipi self-update</code> on the host and create a token with the updated abilities.
-        </div>
-    @elseif($loading)
-        <div class="flex items-center justify-center py-24 gap-3">
-            <div class="spinner spinner-lg"></div>
-            <span class="text-surface-400">Loading…</span>
+    @if(! $server)
+        <div class="card">
+            <x-cipi::empty icon="servers" title="No server selected">
+                <x-slot:actions><a href="{{ route('cipi-gui.servers') }}" class="btn btn-primary">Connect a server</a></x-slot:actions>
+            </x-cipi::empty>
         </div>
     @else
+        <nav class="tabs" aria-label="Server sections">
+            @foreach($tabs as $tab => $label)
+                <button type="button" wire:click="setTab('{{ $tab }}')" class="tab-btn {{ $activeTab === $tab ? 'active' : '' }}" @if($activeTab === $tab) aria-current="page" @endif>{{ $label }}</button>
+            @endforeach
+        </nav>
+
         @if($error)
-            <div class="card border-red-800 bg-red-900/20 mb-4 text-sm text-red-400">{{ $error }}</div>
+            <x-cipi::alert type="danger" class="mb-4">{{ $error }}</x-cipi::alert>
         @endif
 
-        <div class="flex flex-wrap gap-1 mb-6">
-            @foreach($tabs as $tab => $label)
-                <button type="button" wire:click="setTab('{{ $tab }}')"
-                        class="tab-btn {{ $activeTab === $tab ? 'active' : '' }}">
-                    {{ $label }}
-                </button>
-            @endforeach
-        </div>
-
-        @if($activeTab === 'php')
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        @if($unsupported[$activeTab] ?? false)
+            <x-cipi::alert type="warn" title="Not available on this server">
+                This section needs a newer Cipi API or a token with the matching abilities.
+                Run <code>cipi self-update &amp;&amp; cipi api update</code> on the server and recreate the token from
+                <a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>.
+                @if(in_array($activeTab, ['node', 'search', 'packages', 'monitor', 'zt'], true)) (API 1.31+ / Cipi 5.4.1+) @endif
+            </x-cipi::alert>
+        @elseif($activeTab === 'overview')
+            @php
+                $sys = $status['system'] ?? [];
+                $res = $status['resources'] ?? [];
+                $disk = $res['disk'] ?? [];
+                $cpu = (int) ($res['cpu']['usage_percent'] ?? 0);
+                $mem = $res['memory'] ?? [];
+                $checks = is_array($monitor['checks'] ?? null) ? $monitor['checks'] : [];
+                $alerts = array_filter($checks, fn ($c) => in_array($c['state'] ?? null, ['warn', 'crit', 'fail'], true));
+                $failingHealth = array_filter($healthChecks, fn ($h) => ($h['state'] ?? null) === 'fail');
+            @endphp
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div class="card">
-                    <h3 class="font-semibold text-white mb-4">Installed PHP</h3>
-                    @if(empty($phpData['versions']))
-                        <p class="text-sm text-surface-400">No PHP versions detected.</p>
+                    <div class="card-header"><h2 class="card-title">System</h2></div>
+                    <dl class="kv">
+                        <dt>Hostname</dt><dd class="font-mono text-xs">{{ $sys['hostname'] ?? '—' }}</dd>
+                        <dt>OS</dt><dd>{{ $sys['os'] ?? '—' }}</dd>
+                        <dt>Cipi</dt><dd>{{ $sys['cipi'] ?? '—' }}</dd>
+                        <dt>Public IP</dt><dd class="font-mono text-xs">{{ $sys['ip'] ?? ($server->ip ?? '—') }}</dd>
+                        <dt>Uptime</dt><dd>{{ isset($sys['uptime']) ? preg_replace('/^up\s+/', '', $sys['uptime']) : '—' }}</dd>
+                        <dt>Apps</dt><dd><a href="{{ route('cipi-gui.apps') }}" class="text-link">{{ $status['apps'] ?? 0 }}</a></dd>
+                    </dl>
+                </div>
+                <div class="card">
+                    <div class="card-header"><h2 class="card-title">Resources</h2></div>
+                    <div class="space-y-4">
+                        <div>
+                            <div class="metric-row"><span class="stat-label">CPU</span><span class="stat-value-sm tabular-nums">{{ $cpu }}%</span></div>
+                            <div class="progress-bar"><div class="progress-fill {{ $cpu >= 90 ? 'is-danger' : ($cpu >= 75 ? 'is-warn' : '') }}" style="width: {{ $cpu }}%"></div></div>
+                        </div>
+                        <div>
+                            @php $mp = (int) ($mem['usage_percent'] ?? 0); @endphp
+                            <div class="metric-row"><span class="stat-label">Memory</span><span class="stat-value-sm tabular-nums">{{ $mp }}%</span></div>
+                            <div class="progress-bar"><div class="progress-fill {{ $mp >= 90 ? 'is-danger' : ($mp >= 75 ? 'is-warn' : '') }}" style="width: {{ $mp }}%"></div></div>
+                            @if(isset($mem['used_mb'], $mem['total_mb']))<p class="stat-meta mt-1">{{ number_format($mem['used_mb']) }} / {{ number_format($mem['total_mb']) }} MB</p>@endif
+                        </div>
+                        <div>
+                            @php $dp = (int) ($disk['usage_percent'] ?? 0); @endphp
+                            <div class="metric-row"><span class="stat-label">Disk /</span><span class="stat-value-sm tabular-nums">{{ $dp }}%</span></div>
+                            <div class="progress-bar"><div class="progress-fill {{ $dp >= 90 ? 'is-danger' : ($dp >= 80 ? 'is-warn' : '') }}" style="width: {{ $dp }}%"></div></div>
+                            <p class="stat-meta mt-1">{{ ($disk['used'] ?? '?').' / '.($disk['total'] ?? '?') }} — per-app usage: <code>cipi disk</code></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><h2 class="card-title">Attention</h2></div>
+                    @if(! $alerts && ! $failingHealth)
+                        <div class="flex items-center gap-3 text-success"><x-cipi::icon name="check-circle" class="h-5 w-5" /><span>No monitor alerts or failing healthchecks.</span></div>
                     @else
-                        <ul class="space-y-3">
-                            @foreach($phpData['versions'] as $row)
-                                <li class="py-2 border-b border-surface-800">
-                                    <span class="text-white font-medium">PHP {{ $row['version'] }}</span>
-                                    <span class="text-xs text-surface-500 ml-2">{{ $row['status'] ?? '' }} · {{ $row['apps'] ?? 0 }} apps</span>
-                                    @if(!empty($row['default']) || ($phpData['default'] ?? null) === ($row['version'] ?? null))
-                                        <span class="badge badge-neutral ml-2">system default</span>
-                                    @endif
-                                </li>
+                        <ul class="space-y-2">
+                            @foreach($alerts as $check)
+                                <li class="flex items-center justify-between gap-2"><span class="font-mono text-xs">monitor · {{ $check['check'] }}</span><span class="badge {{ $this->monitorStateClass($check['state']) }}">{{ $check['state'] }}</span></li>
+                            @endforeach
+                            @foreach($failingHealth as $h)
+                                <li class="flex items-center justify-between gap-2"><a href="{{ route('cipi-gui.apps.show', ['name' => $h['app'], 'server' => $server->id]) }}" class="font-mono text-xs text-link">health · {{ $h['app'] }}</a><span class="badge badge-red">{{ $h['failcount'] ?? 0 }} fails</span></li>
                             @endforeach
                         </ul>
                     @endif
+                    <div class="flex flex-wrap gap-2 mt-4 pt-4 border-t">
+                        <button type="button" wire:click="setTab('monitor')" class="btn btn-secondary btn-sm">Monitor</button>
+                        <button type="button" wire:click="setTab('health')" class="btn btn-secondary btn-sm">Healthchecks</button>
+                    </div>
+                </div>
+
+                <div class="card card-flush lg:col-span-2">
+                    <div class="card-header p-5 mb-0">
+                        <h2 class="card-title">Services</h2>
+                        <button type="button" wire:click="setTab('services')" class="btn btn-ghost btn-sm">All services →</button>
+                    </div>
+                    <div class="table-scroll">
+                        <table class="table-compact">
+                            <tbody>
+                                @foreach(array_slice($services ?: array_map(fn ($n, $s) => ['name' => $n, 'status' => $s, 'since' => null], array_keys($status['services'] ?? []), $status['services'] ?? []), 0, 9) as $svc)
+                                    <tr>
+                                        <td class="font-mono text-xs text-strong"><span class="dot {{ ($svc['status'] ?? '') === 'running' ? 'dot-green' : 'dot-red' }} mr-2"></span>{{ $svc['name'] }}</td>
+                                        <td class="text-xs text-muted">{{ $svc['status'] ?? '' }}@if(!empty($svc['since'])) · since {{ $svc['since'] }}@endif</td>
+                                        <td class="text-right"><button type="button" wire:click="restartService(@js($svc['name']))" wire:confirm="Restart {{ $svc['name'] }}?" class="btn btn-ghost btn-xs" @disabled(($svc['status'] ?? '') === 'not_installed')>Restart</button></td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
                 <div class="card">
-                    <h3 class="font-semibold text-white mb-4">Install PHP</h3>
-                    <form wire:submit="installPhp" class="space-y-3">
-                        <div>
-                            <label>Version</label>
-                            <select wire:model="phpInstallVersion">
-                                @foreach(($phpData['installable'] ?? ['8.3','8.4','8.5']) as $ver)
-                                    <option value="{{ $ver }}">{{ $ver }}</option>
+                    <div class="card-header"><h2 class="card-title">PHP-FPM</h2><button type="button" wire:click="setTab('php')" class="btn btn-ghost btn-sm">Manage →</button></div>
+                    <ul>
+                        @forelse((array) ($status['php'] ?? []) as $row)
+                            <li class="list-row"><span class="font-medium">PHP {{ $row['version'] ?? '?' }}</span><span class="text-xs text-muted">{{ $row['pools'] ?? 0 }} {{ \Illuminate\Support\Str::plural('pool', $row['pools'] ?? 0) }} · {{ $row['status'] ?? '' }}</span></li>
+                        @empty
+                            <li class="text-muted">No PHP information.</li>
+                        @endforelse
+                    </ul>
+                </div>
+            </div>
+
+        @elseif($activeTab === 'php')
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div class="card card-flush lg:col-span-2">
+                    <div class="card-header p-5 mb-0"><div><h2 class="card-title">Installed PHP versions</h2><p class="card-subtitle">Each app picks its own version; switching is per app from its configuration.</p></div></div>
+                    <table>
+                        <thead><tr><th>Version</th><th>FPM</th><th>Apps</th><th></th></tr></thead>
+                        <tbody>
+                            @forelse($phpData['versions'] as $row)
+                                <tr>
+                                    <td class="font-semibold text-strong">PHP {{ $row['version'] }}</td>
+                                    <td><span class="badge {{ ($row['status'] ?? '') === 'running' ? 'badge-green' : 'badge-amber' }}">{{ $row['status'] ?? 'unknown' }}</span></td>
+                                    <td class="tabular-nums">{{ $row['apps'] ?? 0 }}</td>
+                                    <td class="text-right">@if(!empty($row['default']) || ($phpData['default'] ?? null) === $row['version'])<span class="badge badge-accent">CLI default</span>@endif</td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="4" class="text-muted">No PHP versions detected.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card">
+                    <div class="card-header"><div><h2 class="card-title">Install PHP</h2><p class="card-subtitle">FPM, CLI and the extensions Laravel needs. Takes a few minutes.</p></div></div>
+                    @if($phpInstallVersion === '')
+                        <p class="text-muted">Every installable version ({{ implode(', ', $phpData['installable'] ?: ['8.3', '8.4', '8.5']) }}) is already installed.</p>
+                    @else
+                        <form wire:submit="installPhp" class="space-y-3">
+                            <select wire:model="phpInstallVersion" aria-label="PHP version">
+                                @foreach(array_diff($phpData['installable'] ?: ['8.3', '8.4', '8.5'], array_column($phpData['versions'], 'version')) as $ver)
+                                    <option value="{{ $ver }}">PHP {{ $ver }}</option>
                                 @endforeach
                             </select>
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-sm">Install</button>
-                    </form>
-                    <p class="text-xs text-surface-500 mt-3">Installation runs as a background job and may take several minutes.</p>
+                            <button type="submit" class="btn btn-primary w-full">Install</button>
+                        </form>
+                    @endif
+                    <p class="field-hint mt-3">Removing a version and changing the CLI default stay on the host (<code>cipi php</code>).</p>
                 </div>
+            </div>
+
+        @elseif($activeTab === 'node')
+            <div class="card card-flush">
+                <div class="card-header p-5 mb-0"><div><h2 class="card-title">Node runtimes</h2><p class="card-subtitle">Read-only: install, upgrade or change the default with <code>cipi node</code> on the host.</p></div></div>
+                <table>
+                    <thead><tr><th>Major</th><th>Version</th><th>Apps</th><th></th></tr></thead>
+                    <tbody>
+                        @forelse($nodeRuntimes as $runtime)
+                            <tr>
+                                <td class="font-semibold text-strong">Node {{ $runtime['major'] }}</td>
+                                <td class="font-mono text-xs">{{ $runtime['version'] ?? '—' }}</td>
+                                <td>
+                                    <div class="flex flex-wrap gap-1">
+                                        @forelse((array) ($runtime['apps'] ?? []) as $nodeApp)
+                                            <a href="{{ route('cipi-gui.apps.show', ['name' => $nodeApp, 'server' => $server->id]) }}" class="badge badge-neutral">{{ $nodeApp }}</a>
+                                        @empty
+                                            <span class="text-subtle text-xs">—</span>
+                                        @endforelse
+                                    </div>
+                                </td>
+                                <td class="text-right">@if(!empty($runtime['default']))<span class="badge badge-accent">Server default</span>@endif</td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="4" class="text-muted">No Node runtimes installed.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
             </div>
 
         @elseif($activeTab === 'engines')
-            <div class="card">
-                <h3 class="font-semibold text-white mb-4">Database engines</h3>
-                <p class="text-sm text-surface-400 mb-4">All supported engines. Only <span class="text-surface-300">installed</span> ones appear under Databases and in create forms.</p>
-                @if(empty($enginesData['engines']))
-                    <p class="text-sm text-surface-400">Could not load engines.</p>
-                @else
-                    <ul class="space-y-3 mb-6">
-                        @foreach($enginesData['engines'] as $engine)
-                            @php
-                                $engineStatus = $engine['status'] ?? '';
-                                $engineIsReady = in_array($engineStatus, ['installed', 'running'], true);
-                            @endphp
-                            <li class="flex flex-wrap items-center justify-between gap-3 py-2 border-b border-surface-800">
-                                <div>
-                                    <span class="text-white font-medium">{{ $engine['engine'] }}</span>
-                                    @if($engineIsReady)
-                                        <span class="badge badge-green ml-2">installed</span>
-                                    @else
-                                        <span class="badge badge-neutral ml-2">not installed</span>
-                                    @endif
-                                    @if(!empty($engine['default']) || ($enginesData['default'] ?? null) === ($engine['engine'] ?? null))
-                                        <span class="badge badge-neutral ml-2">default</span>
-                                    @endif
-                                </div>
-                                <div class="flex gap-2">
-                                    @if(!$engineIsReady)
-                                        <button type="button" wire:click="installEngine('{{ $engine['engine'] }}')" class="btn btn-primary btn-sm">Install</button>
-                                    @endif
-                                </div>
-                            </li>
-                        @endforeach
-                    </ul>
-                @endif
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                @forelse($enginesData['engines'] ?? [] as $engine)
+                    @php $ready = in_array($engine['status'] ?? '', ['installed', 'running'], true); @endphp
+                    <div class="card">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <h2 class="card-title">{{ $this->engineLabel($engine['engine'] ?? null) }}</h2>
+                                <p class="card-subtitle">{{ $ready ? 'Installed'.(!empty($engine['port']) ? ' · port '.$engine['port'] : '') : 'Not installed' }}</p>
+                            </div>
+                            <div class="flex gap-1">
+                                @if(!empty($engine['default']) || ($enginesData['default'] ?? null) === ($engine['engine'] ?? null))<span class="badge badge-accent">Default</span>@endif
+                                <span class="badge {{ $ready ? 'badge-green' : 'badge-gray' }}">{{ $engine['status'] ?? '' }}</span>
+                            </div>
+                        </div>
+                        @unless($ready)
+                            <button type="button" wire:click="installEngine('{{ $engine['engine'] }}')" wire:confirm="Install {{ $this->engineLabel($engine['engine']) }} on this server?" class="btn btn-primary btn-sm mt-4">Install</button>
+                        @endunless
+                    </div>
+                @empty
+                    <div class="card text-muted">No engine information.</div>
+                @endforelse
+            </div>
+            <p class="field-hint mt-3">Per-database sizes: <code>cipi disk db</code> on the host.</p>
+
+        @elseif($activeTab === 'services')
+            <div class="card card-flush">
+                <table>
+                    <thead><tr><th>Service</th><th>State</th><th>Since</th><th></th></tr></thead>
+                    <tbody>
+                        @forelse($services as $svc)
+                            @php $state = $svc['status'] ?? 'unknown'; @endphp
+                            <tr>
+                                <td class="font-mono text-strong">{{ $svc['name'] }}</td>
+                                <td><span class="badge {{ $state === 'running' ? 'badge-green' : ($state === 'not_installed' ? 'badge-gray' : 'badge-red') }}">{{ str_replace('_', ' ', $state) }}</span></td>
+                                <td class="text-xs text-muted">{{ $svc['since'] ?? '—' }}</td>
+                                <td class="text-right"><button type="button" wire:click="restartService(@js($svc['name']))" wire:confirm="Restart {{ $svc['name'] }}?" class="btn btn-secondary btn-sm" @disabled($state === 'not_installed')><x-cipi::icon name="refresh" /> Restart</button></td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="4" class="text-muted">No services returned.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+
+        @elseif($activeTab === 'health')
+            <div class="card card-flush">
+                <div class="card-header p-5 mb-0"><div><h2 class="card-title">HTTP healthchecks</h2><p class="card-subtitle">Every 5 minutes; three failures in a row notify <code>health_fail</code>. Configure them per app.</p></div></div>
+                <table>
+                    <thead><tr><th>App</th><th>URL</th><th>Expect</th><th>State</th></tr></thead>
+                    <tbody>
+                        @forelse($healthChecks as $h)
+                            <tr>
+                                <td><a href="{{ route('cipi-gui.apps.show', ['name' => $h['app'], 'server' => $server->id]) }}" class="row-link">{{ $h['app'] }}</a></td>
+                                <td class="font-mono text-xs break-all">{{ $h['url'] ?? '' }}</td>
+                                <td class="tabular-nums">{{ $h['expect'] ?? 200 }}</td>
+                                <td>
+                                    @php $hs = $h['state'] ?? null; @endphp
+                                    <span class="badge {{ $hs === 'ok' ? 'badge-green' : ($hs === 'fail' ? 'badge-red' : 'badge-gray') }}">{{ $hs ? strtoupper($hs) : 'Pending' }}</span>
+                                    @if(($h['failcount'] ?? 0) > 0)<span class="text-xs text-danger ml-1">{{ $h['failcount'] }} fails</span>@endif
+                                </td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="4" class="text-muted">No healthchecks yet — enable one from an app's overview.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+
+        @elseif($activeTab === 'monitor')
+            <div class="card card-flush">
+                <div class="card-header p-5 mb-0">
+                    <div>
+                        <h2 class="card-title">System monitor</h2>
+                        <p class="card-subtitle">Runs every 5 minutes, alerts on state changes{{ isset($monitor['reminder_minutes']) ? ' and reminds every '.$monitor['reminder_minutes'].' min while failing' : '' }}. Tune with <code>cipi monitor set</code>.</p>
+                    </div>
+                </div>
+                <table>
+                    <thead><tr><th>Check</th><th>State</th><th>Thresholds</th><th>Last alert</th></tr></thead>
+                    <tbody>
+                        @forelse((array) ($monitor['checks'] ?? []) as $check)
+                            @php $config = is_array($check['config'] ?? null) ? $check['config'] : []; @endphp
+                            <tr class="{{ ($config['enabled'] ?? true) ? '' : 'opacity-60' }}">
+                                <td class="font-mono text-strong">{{ $check['check'] ?? '—' }}</td>
+                                <td><span class="badge {{ $this->monitorStateClass($check['state'] ?? null) }}">{{ $check['state'] ?? 'pending' }}</span>@if(! ($config['enabled'] ?? true))<span class="badge badge-gray ml-1">disabled</span>@endif</td>
+                                <td class="text-xs text-muted font-mono">
+                                    {{ collect($config)->except('enabled')->map(fn ($v, $k) => $k.'='.(is_bool($v) ? ($v ? 'on' : 'off') : $v))->implode(' · ') ?: '—' }}
+                                </td>
+                                <td class="text-xs text-muted">{{ !empty($check['last_alert']) ? \Illuminate\Support\Carbon::createFromTimestamp((int) $check['last_alert'])->diffForHumans() : '—' }}</td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="4" class="text-muted">No checks returned.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+
+        @elseif($activeTab === 'smtp')
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div class="card lg:col-span-2">
+                    <div class="card-header">
+                        <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="mail" /> Email notifications</h2><p class="card-subtitle">Deploys, healthchecks, monitor alerts, security events. The password is never sent back.</p></div>
+                        @if(!empty($smtp['configured']))
+                            <span class="badge {{ !empty($smtp['enabled']) ? 'badge-green' : 'badge-amber' }}">{{ !empty($smtp['enabled']) ? 'Enabled' : 'Paused' }}</span>
+                        @else
+                            <span class="badge badge-gray">Not configured</span>
+                        @endif
+                    </div>
+                    <form wire:submit="saveSmtp" class="space-y-4">
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div class="sm:col-span-2">
+                                <label for="smtp-host">SMTP host</label>
+                                <input id="smtp-host" type="text" wire:model="smtpHost" placeholder="smtp.example.com" autocomplete="off">
+                                @error('smtpHost') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                            <div>
+                                <label for="smtp-port">Port</label>
+                                <input id="smtp-port" type="number" wire:model="smtpPort" min="1" max="65535">
+                                @error('smtpPort') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                            <div>
+                                <label for="smtp-user">Username</label>
+                                <input id="smtp-user" type="text" wire:model="smtpUser" autocomplete="off">
+                                @error('smtpUser') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                            <div class="sm:col-span-2">
+                                <label for="smtp-pass">Password</label>
+                                <input id="smtp-pass" type="password" wire:model="smtpPassword" autocomplete="new-password" placeholder="{{ !empty($smtp['configured']) ? 'Unchanged' : '' }}">
+                                @error('smtpPassword') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                            <div class="sm:col-span-2">
+                                <label for="smtp-from">From</label>
+                                <input id="smtp-from" type="email" wire:model="smtpFrom" placeholder="cipi@example.com">
+                                @error('smtpFrom') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                            <div>
+                                <label for="smtp-to">Send alerts to</label>
+                                <input id="smtp-to" type="email" wire:model="smtpTo" placeholder="ops@example.com">
+                                @error('smtpTo') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-4">
+                            <label class="check"><input type="checkbox" wire:model="smtpTls"> STARTTLS / TLS</label>
+                            <label class="check"><input type="checkbox" wire:model="smtpEnabled"> Enabled</label>
+                            <label class="check"><input type="checkbox" wire:model="smtpSendTest"> Send a test email</label>
+                            <button type="submit" class="btn btn-primary ml-auto">Save</button>
+                        </div>
+                    </form>
+                </div>
+                <div class="card">
+                    <div class="card-header"><h2 class="card-title">Actions</h2></div>
+                    @if(!empty($smtp['configured']))
+                        <div class="space-y-2">
+                            <button type="button" wire:click="testSmtp" class="btn btn-secondary w-full">Send test email</button>
+                            @if(!empty($smtp['enabled']))
+                                <button type="button" wire:click="disableSmtp" class="btn btn-secondary w-full">Pause notifications</button>
+                            @else
+                                <button type="button" wire:click="enableSmtp" class="btn btn-primary w-full">Resume notifications</button>
+                            @endif
+                            <button type="button" wire:click="deleteSmtp" wire:confirm="Remove the SMTP configuration from this server?" class="btn btn-ghost danger w-full">Remove configuration</button>
+                        </div>
+                    @else
+                        <p class="text-muted">Save a configuration first.</p>
+                    @endif
+                    <p class="field-hint mt-4">Slack, Discord, Telegram, ntfy and webhook channels, plus per-event filters, are set on the host with <code>cipi notifications</code>.</p>
+                </div>
             </div>
 
         @elseif($activeTab === 'ssh')
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div class="card">
-                    <h3 class="font-semibold text-white mb-4">Authorized keys (cipi user)</h3>
-                    @if(empty($sshKeys))
-                        <p class="text-sm text-surface-400">No keys configured.</p>
-                    @else
-                        <ul class="space-y-3">
-                            @foreach($sshKeys as $key)
-                                <li class="py-2 border-b border-surface-800">
-                                    <div class="flex items-start justify-between gap-3">
-                                        <div>
-                                            <div class="text-white text-sm font-medium">{{ $key['comment'] }}</div>
-                                            <div class="text-xs text-surface-500 mt-1">{{ $key['type'] }} · {{ $key['fingerprint'] }}</div>
-                                            @if(!empty($key['current_session']))
-                                                <span class="badge badge-neutral mt-1">current session</span>
-                                            @endif
-                                        </div>
-                                        <button type="button"
-                                                wire:click="removeSshKey({{ (int) $key['id'] }})"
-                                                wire:confirm="Remove SSH key #{{ $key['id'] }}?"
-                                                class="btn btn-ghost btn-sm text-red-400"
-                                                @if(!empty($key['current_session'])) disabled @endif>
-                                            Remove
-                                        </button>
-                                    </div>
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div class="card card-flush lg:col-span-2">
+                    <div class="card-header p-5 mb-0"><div><h2 class="card-title">Authorized keys — cipi user</h2><p class="card-subtitle">App users have their own SSH access (<code>cipi ssh apps</code>).</p></div></div>
+                    <table>
+                        <thead><tr><th>#</th><th>Key</th><th>Fingerprint</th><th></th></tr></thead>
+                        <tbody>
+                            @forelse($sshKeys as $key)
+                                <tr>
+                                    <td class="font-mono text-xs text-subtle">{{ $key['id'] }}</td>
+                                    <td><p class="font-medium text-strong">{{ $key['comment'] ?: '—' }}</p><p class="text-2xs text-subtle font-mono">{{ $key['type'] }}</p></td>
+                                    <td class="font-mono text-2xs text-muted break-all">{{ $key['fingerprint'] }}</td>
+                                    <td class="text-right">
+                                        @if(!empty($key['current_session']))
+                                            <span class="badge badge-accent" title="Used by the current SSH session — cannot be removed from here">In use</span>
+                                        @else
+                                            <button type="button" wire:click="removeSshKey({{ (int) $key['id'] }})" wire:confirm="Remove the key {{ $key['comment'] ?: '#'.$key['id'] }}?" class="btn btn-ghost btn-sm danger">Remove</button>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="4" class="text-muted">No keys.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
                 </div>
                 <div class="card">
-                    <h3 class="font-semibold text-white mb-4">Add key</h3>
+                    <div class="card-header"><h2 class="card-title">Add a key</h2></div>
                     <form wire:submit="addSshKey" class="space-y-3">
-                        <div>
-                            <label>Public key</label>
-                            <textarea wire:model="sshKey" rows="4" placeholder="ssh-ed25519 AAAA… comment" class="font-mono text-xs"></textarea>
-                            @error('sshKey') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-sm">Add key</button>
+                        <textarea wire:model="sshKey" rows="5" placeholder="ssh-ed25519 AAAA… you@laptop" class="font-mono text-xs" aria-label="Public key"></textarea>
+                        @error('sshKey') <p class="field-error">{{ $message }}</p> @enderror
+                        <button type="submit" class="btn btn-primary w-full">Add key</button>
                     </form>
                 </div>
             </div>
 
-        @elseif($activeTab === 'services')
+        @elseif($activeTab === 'search')
             <div class="card">
-                <h3 class="font-semibold text-white mb-4">Services</h3>
-                @if(empty($services))
-                    <p class="text-sm text-surface-400">No services returned.</p>
+                <div class="card-header">
+                    <div><h2 class="card-title">Meilisearch</h2><p class="card-subtitle">Install, upgrade and key rotation stay on the host (<code>cipi search</code>); enable it per Laravel app.</p></div>
+                    <span class="badge {{ !empty($search['installed']) ? (!empty($search['running']) ? 'badge-green' : 'badge-amber') : 'badge-gray' }}">{{ !empty($search['installed']) ? (!empty($search['running']) ? 'Running' : 'Stopped') : 'Not installed' }}</span>
+                </div>
+                @if(!empty($search['installed']))
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+                        <div><p class="stat-label">Version</p><p class="stat-value-sm">{{ $search['version'] ?? '—' }}</p></div>
+                        <div><p class="stat-label">Health</p><p class="stat-value-sm">{{ $search['health'] ?? '—' }}</p></div>
+                        <div><p class="stat-label">Data</p><p class="stat-value-sm">{{ $search['data_size'] ?? '—' }}</p></div>
+                        <div><p class="stat-label">Listen</p><p class="stat-value-sm font-mono text-sm">{{ ($search['host'] ?? '127.0.0.1').':'.($search['port'] ?? 7700) }}</p></div>
+                    </div>
+                    @php $searchApps = is_array($search['apps'] ?? null) ? $search['apps'] : []; @endphp
+                    <p class="label">Apps using it</p>
+                    @forelse($searchApps as $name => $meta)
+                        <div class="list-row"><a href="{{ route('cipi-gui.apps.show', ['name' => $name, 'server' => $server->id]) }}" class="row-link">{{ $name }}</a>@if(is_array($meta) && !empty($meta['prefix']))<span class="font-mono text-xs text-muted">index prefix {{ $meta['prefix'] }}*</span>@endif</div>
+                    @empty
+                        <p class="text-muted">No app has search enabled yet.</p>
+                    @endforelse
                 @else
-                    <ul class="space-y-2">
-                        @foreach($services as $svc)
-                            <li class="flex items-center justify-between gap-3 py-2 border-b border-surface-800">
-                                <div>
-                                    <span class="text-white font-medium">{{ $svc['name'] }}</span>
-                                    <span class="text-xs text-surface-500 ml-2">{{ $svc['status'] }}</span>
-                                    @if(!empty($svc['since']))
-                                        <span class="text-xs text-surface-600 ml-2">since {{ $svc['since'] }}</span>
-                                    @endif
-                                </div>
-                                <button type="button"
-                                        wire:click="restartService('{{ $svc['name'] }}')"
-                                        wire:confirm="Restart {{ $svc['name'] }}?"
-                                        class="btn btn-secondary btn-sm"
-                                        @if(($svc['status'] ?? '') === 'not_installed') disabled @endif>
-                                    Restart
-                                </button>
-                            </li>
-                        @endforeach
-                    </ul>
+                    <p class="text-muted">Run <code>cipi search install</code> on the host, then enable it from a Laravel app's overview.</p>
                 @endif
             </div>
 
-        @elseif($activeTab === 'smtp')
-            @if($smtpUnsupported)
-                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
-                    SMTP API unavailable (needs API 1.16+ / Cipi ≥ 5.0.7 and token abilities
-                    <code>smtp-view</code>, <code>smtp-manage</code>).
-                </div>
-            @else
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="card">
-                        <h3 class="font-semibold text-white mb-2">SMTP configuration</h3>
-                        <p class="text-xs text-surface-500 mb-4">
-                            Server-wide email for Cipi notifications (deploys, healthchecks, security, …).
-                            @if(!empty($smtp['configured']))
-                                Status:
-                                @if(!empty($smtp['enabled']))
-                                    <span class="text-emerald-400">enabled</span>
-                                @else
-                                    <span class="text-amber-400">disabled</span>
-                                @endif
-                            @else
-                                <span class="text-surface-400">Not configured yet</span>
-                            @endif
-                        </p>
-                        <form wire:submit="saveSmtp" class="space-y-3">
-                            <div>
-                                <label>Host</label>
-                                <input type="text" wire:model="smtpHost" placeholder="smtp.example.com" autocomplete="off">
-                                @error('smtpHost') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
-                            </div>
-                            <div class="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label>Port</label>
-                                    <input type="number" wire:model="smtpPort" min="1" max="65535">
-                                    @error('smtpPort') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
-                                </div>
-                                <div class="flex items-end pb-2 gap-4">
-                                    <label class="flex items-center gap-2 text-sm text-surface-300">
-                                        <input type="checkbox" wire:model="smtpTls"> TLS
-                                    </label>
-                                    <label class="flex items-center gap-2 text-sm text-surface-300">
-                                        <input type="checkbox" wire:model="smtpEnabled"> Enabled
-                                    </label>
-                                </div>
-                            </div>
-                            <div>
-                                <label>Username</label>
-                                <input type="text" wire:model="smtpUser" autocomplete="off">
-                                @error('smtpUser') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
-                            </div>
-                            <div>
-                                <label>Password</label>
-                                <input type="password" wire:model="smtpPassword" autocomplete="new-password" placeholder="{{ !empty($smtp['configured']) ? 'Enter to update' : '' }}">
-                                @error('smtpPassword') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
-                            </div>
-                            <div>
-                                <label>From</label>
-                                <input type="email" wire:model="smtpFrom" placeholder="noreply@example.com">
-                                @error('smtpFrom') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
-                            </div>
-                            <div>
-                                <label>To (recipient)</label>
-                                <input type="email" wire:model="smtpTo" placeholder="ops@example.com">
-                                @error('smtpTo') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
-                            </div>
-                            <label class="flex items-center gap-2 text-sm text-surface-300">
-                                <input type="checkbox" wire:model="smtpSendTest"> Send test email after save
-                            </label>
-                            <button type="submit" class="btn btn-primary btn-sm">Save SMTP</button>
-                        </form>
-                    </div>
-                    <div class="card">
-                        <h3 class="font-semibold text-white mb-4">Actions</h3>
-                        <div class="flex flex-wrap gap-2">
-                            @if(!empty($smtp['configured']))
-                                @if(!empty($smtp['enabled']))
-                                    <button type="button" wire:click="disableSmtp" class="btn btn-secondary btn-sm">Disable</button>
-                                @else
-                                    <button type="button" wire:click="enableSmtp" class="btn btn-primary btn-sm">Enable</button>
-                                @endif
-                                <button type="button" wire:click="testSmtp" class="btn btn-secondary btn-sm">Send test</button>
-                                <button type="button" wire:click="deleteSmtp" wire:confirm="Remove SMTP configuration from this server?" class="btn btn-ghost btn-sm text-red-400">Delete config</button>
-                            @else
-                                <p class="text-sm text-surface-400">Save a configuration first, then you can enable/disable or send tests.</p>
-                            @endif
-                        </div>
-                        <p class="text-xs text-surface-500 mt-4">
-                            Per-event filters stay on the server via <code class="text-surface-300">cipi notifications</code>.
-                            Healthcheck failures use trigger <code class="text-surface-300">health_fail</code>.
-                        </p>
-                    </div>
-                </div>
-            @endif
-
-        @elseif($activeTab === 'node')
-            @if($nodeUnsupported)
-                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
-                    Node runtimes require API 1.31+ / Cipi ≥ 5.4.0 (sudoers ≥ 5.4.1) and <code>node-view</code>.
-                    Installing runtimes and changing the default stay on the host CLI (<code>cipi node</code>).
-                </div>
-            @else
-                <div class="card">
-                    <h3 class="font-semibold text-white mb-4">Installed Node runtimes</h3>
-                    @if(empty($nodeRuntimes))
-                        <p class="text-sm text-surface-400">No Node runtimes returned.</p>
-                    @else
-                        <ul class="space-y-3">
-                            @foreach($nodeRuntimes as $runtime)
-                                <li class="py-2 border-b border-surface-800">
-                                    <span class="text-white font-medium">Node {{ $runtime['major'] }}</span>
-                                    @if(!empty($runtime['version']))
-                                        <span class="text-xs text-surface-500 ml-2">{{ $runtime['version'] }}</span>
-                                    @endif
-                                    @if(!empty($runtime['default']))
-                                        <span class="badge badge-neutral ml-2">server default</span>
-                                    @endif
-                                    @if(!empty($runtime['apps']))
-                                        <p class="text-xs text-surface-500 mt-1">Apps: {{ implode(', ', $runtime['apps']) }}</p>
-                                    @endif
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
-                    <p class="text-xs text-surface-500 mt-4">Read-only. Install or switch the default with <code class="text-surface-300">cipi node</code> on the host.</p>
-                </div>
-            @endif
-
-        @elseif($activeTab === 'search')
-            @if($searchUnsupported)
-                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
-                    Search status requires API 1.31+ / Cipi ≥ 5.2.2 and <code>search-view</code>.
-                    Installing Meilisearch stays on the host CLI.
-                </div>
-            @else
-                <div class="card">
-                    <h3 class="font-semibold text-white mb-2">Meilisearch</h3>
-                    <p class="text-sm text-surface-400 mb-4">
-                        @if(!empty($search['installed']))
-                            <span class="text-emerald-400">installed</span>
-                            @if(!empty($search['running'])) · running @else · not running @endif
-                            @if(!empty($search['version'])) · {{ $search['version'] }} @endif
-                            @if(!empty($search['health'])) · {{ $search['health'] }} @endif
-                            @if(!empty($search['data_size'])) · {{ $search['data_size'] }} @endif
-                            @if(!empty($search['host']))
-                                · {{ $search['host'] }}:{{ $search['port'] ?? '' }}
-                            @endif
-                        @else
-                            Not installed. Run <code class="text-surface-300">cipi search install</code> on the host, then enable per Laravel app.
-                        @endif
-                    </p>
-                    @php $searchApps = is_array($search['apps'] ?? null) ? $search['apps'] : []; @endphp
-                    @if($searchApps === [])
-                        <p class="text-sm text-surface-400">No apps have search enabled.</p>
-                    @else
-                        <ul class="space-y-2">
-                            @foreach($searchApps as $name => $meta)
-                                <li class="py-2 border-b border-surface-800 text-sm">
-                                    <a href="{{ route('cipi-gui.apps.show', $name) }}" class="text-link font-medium">{{ $name }}</a>
-                                    @if(is_array($meta) && !empty($meta['prefix']))
-                                        <span class="text-xs text-surface-500 ml-2">index {{ $meta['prefix'] }}*</span>
-                                    @endif
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
-                </div>
-            @endif
-
         @elseif($activeTab === 'packages')
-            @if($packagesUnsupported)
-                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
-                    Package catalog requires API 1.31+ / Cipi ≥ 5.2.2 and <code>packages-view</code>. Install/remove stay on the host CLI.
-                </div>
-            @else
-                <div class="card">
-                    <h3 class="font-semibold text-white mb-4">Optional host packages</h3>
-                    @if(empty($packages))
-                        <p class="text-sm text-surface-400">No packages returned.</p>
-                    @else
-                        <ul class="space-y-3">
-                            @foreach($packages as $pkg)
-                                <li class="py-2 border-b border-surface-800">
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-white font-medium">{{ $pkg['id'] ?? '—' }}</span>
-                                        @if(!empty($pkg['installed']))
-                                            <span class="badge badge-green">installed</span>
-                                        @elseif(!empty($pkg['partial']))
-                                            <span class="badge badge-neutral">partial</span>
-                                        @else
-                                            <span class="badge badge-gray">not installed</span>
-                                        @endif
-                                    </div>
-                                    @if(!empty($pkg['description']))
-                                        <p class="text-sm text-surface-400 mt-1">{{ $pkg['description'] }}</p>
-                                    @endif
-                                    @if(!empty($pkg['packages']))
-                                        <p class="text-xs text-surface-500 mt-1 font-mono">{{ implode(', ', $pkg['packages']) }}</p>
-                                    @endif
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
-                </div>
-            @endif
-
-        @elseif($activeTab === 'monitor')
-            @if($monitorUnsupported)
-                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
-                    Monitor requires API 1.31+ / Cipi ≥ 5.3.0 and <code>monitor-view</code>. Thresholds stay on the host CLI.
-                </div>
-            @else
-                <div class="card">
-                    <h3 class="font-semibold text-white mb-2">System monitor</h3>
-                    <p class="text-xs text-surface-500 mb-4">
-                        Cron every 5 minutes, edge-triggered alerts.
-                        @if(isset($monitor['reminder_minutes']))
-                            Reminder every {{ $monitor['reminder_minutes'] }} minutes.
-                        @endif
-                    </p>
-                    @php $checks = is_array($monitor['checks'] ?? null) ? $monitor['checks'] : []; @endphp
-                    @if($checks === [])
-                        <p class="text-sm text-surface-400">No checks returned.</p>
-                    @else
-                        <ul class="space-y-3">
-                            @foreach($checks as $check)
-                                <li class="py-2 border-b border-surface-800">
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-white font-medium">{{ $check['check'] ?? '—' }}</span>
-                                        @php $state = $check['state'] ?? null; @endphp
-                                        @if($state === 'ok')
-                                            <span class="badge badge-green">ok</span>
-                                        @elseif($state)
-                                            <span class="badge badge-red">{{ $state }}</span>
-                                        @else
-                                            <span class="badge badge-gray">pending</span>
-                                        @endif
-                                    </div>
-                                    @if(!empty($check['last_alert']))
-                                        <p class="text-xs text-surface-500 mt-1">Last alert {{ date('Y-m-d H:i', (int) $check['last_alert']) }}</p>
-                                    @endif
-                                </li>
-                            @endforeach
-                        </ul>
-                    @endif
-                </div>
-            @endif
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                @forelse($packages as $pkg)
+                    <div class="card">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <h2 class="card-title font-mono">{{ $pkg['id'] ?? '—' }}</h2>
+                                <p class="card-subtitle">{{ $pkg['description'] ?? '' }}</p>
+                            </div>
+                            <span class="badge {{ !empty($pkg['installed']) ? 'badge-green' : (!empty($pkg['partial']) ? 'badge-amber' : 'badge-gray') }}">{{ !empty($pkg['installed']) ? 'Installed' : (!empty($pkg['partial']) ? 'Partial' : 'Not installed') }}</span>
+                        </div>
+                        @if(!empty($pkg['packages']))<p class="font-mono text-2xs text-subtle mt-3">apt: {{ implode(' ', $pkg['packages']) }}</p>@endif
+                    </div>
+                @empty
+                    <div class="card text-muted">No packages returned.</div>
+                @endforelse
+            </div>
+            <p class="field-hint mt-3">Read-only by design: <code>cipi package install &lt;id&gt;</code> on the host.</p>
 
         @elseif($activeTab === 'zt')
-            @if($ztUnsupported)
-                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
-                    Zero Trust status requires API 1.31+ / Cipi ≥ 5.3.0 and <code>zt-view</code>. Mutations stay on the host CLI.
-                </div>
-            @else
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div class="card">
-                    <h3 class="font-semibold text-white mb-4">Cloudflare Zero Trust</h3>
-                    <dl class="space-y-3 text-sm">
-                        <div class="flex justify-between"><dt class="text-surface-400">Enabled</dt><dd class="text-white">{{ !empty($zt['enabled']) ? 'Yes' : 'No' }}</dd></div>
-                        <div class="flex justify-between"><dt class="text-surface-400">cloudflared</dt><dd class="text-white">{{ $zt['cloudflared'] ?? '—' }}</dd></div>
-                        <div class="flex justify-between"><dt class="text-surface-400">Tunnel</dt><dd class="text-white">{{ $zt['tunnel'] ?? '—' }}</dd></div>
-                        <div class="flex justify-between"><dt class="text-surface-400">Real IP</dt><dd class="text-white">{{ $zt['real_ip'] ?? '—' }}</dd></div>
-                        <div class="flex justify-between"><dt class="text-surface-400">Lock HTTP</dt><dd class="text-white">{{ $zt['lock_http'] ?? '—' }}</dd></div>
-                        <div class="flex justify-between"><dt class="text-surface-400">Lock SSH</dt><dd class="text-white">{{ $zt['lock_ssh'] ?? '—' }}</dd></div>
-                        <div class="flex justify-between"><dt class="text-surface-400">SSH hostname</dt><dd class="text-white">{{ $zt['ssh_hostname'] ?? '—' }}</dd></div>
+                    <div class="card-header">
+                        <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="cloud" /> Cloudflare Zero Trust</h2><p class="card-subtitle">Status only — every change stays with the operator on the CLI (<code>cipi zt</code>).</p></div>
+                        <span class="badge {{ !empty($zt['enabled']) ? 'badge-green' : 'badge-gray' }}">{{ !empty($zt['enabled']) ? 'Enabled' : 'Disabled' }}</span>
+                    </div>
+                    <dl class="kv">
+                        <dt>cloudflared</dt><dd>{{ $zt['cloudflared'] ?? '—' }}</dd>
+                        <dt>Tunnel</dt><dd class="font-mono text-xs">{{ $zt['tunnel'] ?? '—' }}</dd>
+                        <dt>Real IP header</dt><dd class="font-mono text-xs">{{ $zt['real_ip'] ?? '—' }}</dd>
+                        <dt>HTTP lock</dt><dd>{{ in_array($zt['lock_http'] ?? null, ['true', true, '1'], true) ? 'On — only Cloudflare reaches 80/443' : 'Off' }}</dd>
+                        <dt>SSH lock</dt><dd>{{ in_array($zt['lock_ssh'] ?? null, ['true', true, '1'], true) ? 'On' : 'Off' }}</dd>
+                        <dt>SSH hostname</dt><dd class="font-mono text-xs">{{ $zt['ssh_hostname'] ?? '—' }}</dd>
                     </dl>
-                    @if(!empty($zt['raw']))
-                        <pre class="mt-4 p-3 rounded-lg bg-black/30 text-xs text-surface-400 overflow-x-auto whitespace-pre-wrap">{{ $zt['raw'] }}</pre>
-                    @endif
                 </div>
-            @endif
+                @if(!empty($zt['raw']))
+                    <div>@include('cipi-gui::partials.terminal', ['lines' => explode("\n", (string) $zt['raw']), 'title' => 'cipi zt status', 'autoScroll' => false])</div>
+                @endif
+            </div>
 
         @elseif($activeTab === 'ip')
-            @if($ipWhitelistUnsupported)
-                <div class="card border-amber-600/30 bg-amber-600/10 text-amber-400 text-sm">
-                    IP whitelist requires API 1.15+ / Cipi ≥ 5.0.8 and abilities <code>ip-whitelist-view</code> / <code>ip-whitelist-manage</code>.
-                </div>
-            @else
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="card">
-                        <h3 class="font-semibold text-white mb-2">API client IP whitelist</h3>
-                        <p class="text-xs text-surface-500 mb-4">
-                            Restricts <code class="text-surface-300">/api</code> and <code class="text-surface-300">/mcp</code>.
-                            @if(!empty($ipWhitelist['allow_all']))
-                                Currently <span class="text-emerald-400">allow all</span> (<code>*</code>).
-                            @else
-                                Restricted to the listed IPs/CIDRs.
-                            @endif
-                            @if(!empty($ipWhitelist['client_ip']))
-                                This GUI is calling as <code class="text-surface-300">{{ $ipWhitelist['client_ip'] }}</code>.
-                            @endif
-                        </p>
-                        @php $entries = is_array($ipWhitelist['entries'] ?? null) ? $ipWhitelist['entries'] : []; @endphp
-                        @if($entries === [])
-                            <p class="text-sm text-surface-400">No entries.</p>
-                        @else
-                            <ul class="space-y-2">
-                                @foreach($entries as $entry)
-                                    <li class="flex items-center justify-between gap-3 py-2 border-b border-surface-800">
-                                        <span class="font-mono text-sm text-white">{{ $entry }}</span>
-                                        @if($entry !== '*')
-                                            <button type="button" wire:click="removeIpWhitelistEntry(@js($entry))" wire:confirm="Remove {{ $entry }} from the API whitelist?" class="btn btn-ghost btn-sm text-red-400">Remove</button>
-                                        @endif
-                                    </li>
-                                @endforeach
-                            </ul>
-                        @endif
+            @php $entries = is_array($ipWhitelist['entries'] ?? null) ? $ipWhitelist['entries'] : []; @endphp
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <div class="card lg:col-span-2">
+                    <div class="card-header">
+                        <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="shield" /> API IP whitelist</h2><p class="card-subtitle">Who may call <code>/api</code> and <code>/mcp</code> on this server.</p></div>
+                        <span class="badge {{ !empty($ipWhitelist['allow_all']) ? 'badge-amber' : 'badge-green' }}">{{ !empty($ipWhitelist['allow_all']) ? 'Open to any IP' : 'Restricted' }}</span>
                     </div>
-                    <div class="card">
-                        <h3 class="font-semibold text-white mb-2">Add IP or CIDR</h3>
-                        <p class="text-xs text-amber-400 mb-3">Restricting without this GUI host’s IP will lock the panel out of the API.</p>
-                        <form wire:submit="addIpWhitelistEntry" class="space-y-3">
-                            <div>
-                                <label>IP / CIDR</label>
-                                <input type="text" wire:model="ipWhitelistEntry" placeholder="203.0.113.10 or 10.0.0.0/8" class="font-mono text-sm">
-                                @error('ipWhitelistEntry') <p class="text-sm text-red-400 mt-1">{{ $message }}</p> @enderror
-                            </div>
-                            <button type="submit" class="btn btn-primary btn-sm">Add</button>
-                        </form>
-                        @if(empty($ipWhitelist['allow_all']))
-                            <button type="button" wire:click="allowAllIpWhitelist" wire:confirm="Allow all client IPs to call the API?" class="btn btn-ghost btn-sm mt-4">Allow all</button>
-                        @endif
-                    </div>
+                    @if(!empty($ipWhitelist['client_ip']))
+                        <x-cipi::alert type="info" class="mb-4">This panel calls the API from <code>{{ $ipWhitelist['client_ip'] }}</code>. Cipi refuses to drop it — you cannot lock yourself out from here.</x-cipi::alert>
+                    @endif
+                    <ul>
+                        @forelse($entries as $entry)
+                            <li class="list-row">
+                                <span class="font-mono text-strong">{{ $entry }}@if(($ipWhitelist['client_ip'] ?? null) === $entry)<span class="badge badge-accent ml-2">this panel</span>@endif</span>
+                                @if($entry !== '*' && ($ipWhitelist['client_ip'] ?? null) !== $entry)
+                                    <button type="button" wire:click="removeIpWhitelistEntry(@js($entry))" wire:confirm="Remove {{ $entry }}?" class="btn btn-ghost btn-sm danger">Remove</button>
+                                @endif
+                            </li>
+                        @empty
+                            <li class="text-muted">No entries.</li>
+                        @endforelse
+                    </ul>
                 </div>
-            @endif
+                <div class="card">
+                    <div class="card-header"><h2 class="card-title">Allow an address</h2></div>
+                    <form wire:submit="addIpWhitelistEntry" class="space-y-3">
+                        <input type="text" wire:model="ipWhitelistEntry" placeholder="203.0.113.10 or 10.0.0.0/8" class="font-mono" aria-label="IP or CIDR">
+                        @error('ipWhitelistEntry') <p class="field-error">{{ $message }}</p> @enderror
+                        <button type="submit" class="btn btn-primary w-full">Add</button>
+                    </form>
+                    @if(!empty($entries) && empty($ipWhitelist['allow_all']))
+                        <button type="button" wire:click="allowAllIpWhitelist" wire:confirm="Allow every client IP to call the API?" class="btn btn-ghost w-full mt-3">Allow all IPs</button>
+                    @endif
+                    <p class="field-hint mt-3">Stored in <code>{{ $ipWhitelist['file'] ?? '/etc/cipi/api-ip-whitelist' }}</code>.</p>
+                </div>
+            </div>
         @endif
     @endif
 

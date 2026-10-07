@@ -2,13 +2,12 @@
 
 namespace CipiGui\Http\Controllers\Auth;
 
-use App\Http\Controllers\Controller;
 use CipiGui\Services\TwoFactorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
-class TwoFactorController extends Controller
+class TwoFactorController
 {
     public function show()
     {

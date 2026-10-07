@@ -1,10 +1,10 @@
 <script>
 (function () {
-    var key = 'cipi-gui-theme';
-    var stored = localStorage.getItem(key);
-    var theme = stored === 'light' || stored === 'dark'
-        ? stored
-        : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    var theme = null;
+    try { theme = localStorage.getItem('cipi-gui-theme'); } catch (e) {}
+    if (theme !== 'light' && theme !== 'dark') {
+        theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
     document.documentElement.setAttribute('data-theme', theme);
 })();
 </script>
