@@ -110,6 +110,47 @@ $app = fn (array $attrs): array => array_merge([
     'proxies' => [],
 ], $attrs);
 
+/** One app of `cipi disk`: GB of files (home) and database, optional soft limit in GB. */
+$diskApp = fn (string $name, float $filesGb, float $dbGb, ?float $limitGb = null): array => [
+    'app' => $name, 'files_gb' => $filesGb, 'database_gb' => $dbGb, 'limit_gb' => $limitGb,
+];
+
+/** Same shape as `cipi disk --json`: the filesystem /home is on, then every app largest first. */
+$diskReport = function (string $mount, float $sizeGb, float $usedGb, array $apps): array {
+    $kb = fn (float $gb): int => (int) round($gb * 1048576);
+    $gb = fn (int $kb): float => round($kb / 1048576, 2);
+    $sizeKb = $kb($sizeGb);
+    $usedKb = $kb($usedGb);
+
+    $rows = [];
+    foreach ($apps as $a) {
+        $files = $kb($a['files_gb']);
+        $db = $kb($a['database_gb']);
+        $total = $files + $db;
+        $limit = $a['limit_gb'];
+        $rows[] = [
+            'app' => $a['app'],
+            'files_gb' => $gb($files), 'database_gb' => $gb($db), 'total_gb' => $gb($total),
+            'percent' => round($total * 100 / $sizeKb, 1),
+            'files_kb' => $files, 'database_kb' => $db, 'total_kb' => $total,
+            'limit_gb' => $limit,
+            'limit_percent' => $limit ? (int) floor($total * 100 / ($limit * 1048576)) : null,
+            'over_limit' => $limit ? $total > $limit * 1048576 : false,
+        ];
+    }
+    usort($rows, fn ($x, $y) => [$y['total_kb'], $x['app']] <=> [$x['total_kb'], $y['app']]);
+
+    $appsKb = array_sum(array_column($rows, 'total_kb'));
+    $otherKb = max($usedKb - $appsKb, 0);
+
+    return [
+        'disk' => ['mount' => $mount, 'size_gb' => $gb($sizeKb), 'used_gb' => $gb($usedKb), 'free_gb' => $gb($sizeKb - $usedKb), 'used_percent' => (int) round($usedKb * 100 / $sizeKb)],
+        'apps' => $rows,
+        'apps_total_gb' => $gb($appsKb), 'apps_percent' => round($appsKb * 100 / $sizeKb, 1),
+        'other_gb' => $gb($otherKb), 'other_percent' => round($otherKb * 100 / $sizeKb, 1),
+    ];
+};
+
 return [
     'fra1' => [
         'status' => [
@@ -206,6 +247,22 @@ return [
             'enabled' => true, 'cloudflared' => 'running', 'tunnel' => 'fra1-prod', 'real_ip' => 'CF-Connecting-IP',
             'lock_http' => 'true', 'lock_ssh' => 'false', 'ssh_hostname' => 'ssh-fra1.example.com',
             'raw' => "Zero Trust: enabled\ncloudflared: running (2026.9.1)\nTunnel: fra1-prod (4 connections: FRA, AMS)\nReal IP header: CF-Connecting-IP\nHTTP lock: on — ports 80/443 accept Cloudflare ranges only\nSSH lock: off\nSSH hostname: ssh-fra1.example.com",
+        ],
+        // `cipi disk --json` / `cipi disk db --json` (API 1.33+). blog sits at 93% of its 2.5 GB
+        // limit — the monitor's app_disk check above is in `warn` for that reason.
+        'disk' => $diskReport('/', 154.0, 61.2, [
+            $diskApp('shop', 12.4, 0.82, 20),
+            $diskApp('blog', 2.25, 0.09, 2.5),
+            $diskApp('shopapi', 1.2, 0.3),
+            $diskApp('console', 0.9, 0),
+            $diskApp('launch', 0.45, 0),
+            $diskApp('docs', 0.3, 0),
+        ]),
+        'disk_dbs' => [
+            ['engine' => 'mariadb', 'databases' => [['name' => 'analytics', 'size_mb' => 1976.3], ['name' => 'blog', 'size_mb' => 96.4], ['name' => 'shop', 'size_mb' => 842.2]], 'on_disk_mb' => 3210.5, 'memory_mb' => null, 'note' => null],
+            ['engine' => 'pgsql', 'databases' => [['name' => 'shopapi', 'size_mb' => 311.5]], 'on_disk_mb' => 402.8, 'memory_mb' => null, 'note' => null],
+            ['engine' => 'valkey', 'databases' => [['name' => 'db0', 'size_mb' => null, 'keys' => 18422], ['name' => 'db1', 'size_mb' => null, 'keys' => 240]], 'on_disk_mb' => 41.2, 'memory_mb' => 96.4, 'note' => null],
+            ['engine' => 'meilisearch', 'databases' => [['name' => 'shop_products', 'size_mb' => 184.6, 'documents' => 12840]], 'on_disk_mb' => 412.0, 'memory_mb' => null, 'note' => null],
         ],
         'ip_whitelist' => [
             'allow_all' => false, 'entries' => ['203.0.113.10', '198.51.100.0/28'],
@@ -398,6 +455,16 @@ return [
             'enabled' => false, 'cloudflared' => 'not installed', 'tunnel' => null, 'real_ip' => null,
             'lock_http' => 'false', 'lock_ssh' => 'false', 'ssh_hostname' => null, 'raw' => "Zero Trust: disabled\ncloudflared: not installed",
         ],
+        'disk' => $diskReport('/', 76.0, 23.4, [
+            $diskApp('crm', 4.6, 1.12, 10),
+            $diskApp('dentalcare', 3.4, 0.2),
+            $diskApp('bakery', 1.8, 0.06),
+            $diskApp('portfolio', 0.35, 0),
+        ]),
+        'disk_dbs' => [
+            ['engine' => 'mariadb', 'databases' => [['name' => 'bakery', 'size_mb' => 58.1], ['name' => 'crm', 'size_mb' => 1146.9], ['name' => 'dentalcare', 'size_mb' => 204.9]], 'on_disk_mb' => 1620.4, 'memory_mb' => null, 'note' => null],
+            ['engine' => 'valkey', 'databases' => [['name' => 'db0', 'size_mb' => null, 'keys' => 2210]], 'on_disk_mb' => 6.2, 'memory_mb' => 18.6, 'note' => null],
+        ],
         'ip_whitelist' => ['allow_all' => true, 'entries' => ['*'], 'file' => '/etc/cipi/api-ip-whitelist', 'client_ip' => '203.0.113.10'],
         'node' => [
             ['major' => '24', 'version' => '24.9.0', 'default' => true, 'apps' => ['portfolio']],
@@ -522,6 +589,15 @@ return [
         'zt' => [
             'enabled' => false, 'cloudflared' => 'not installed', 'tunnel' => null, 'real_ip' => null,
             'lock_http' => 'false', 'lock_ssh' => 'false', 'ssh_hostname' => null, 'raw' => "Zero Trust: disabled\ncloudflared: not installed",
+        ],
+        'disk' => $diskReport('/', 38.0, 14.1, [
+            $diskApp('shopstg', 2.6, 0.12),
+            $diskApp('apistg', 0.8, 0.04),
+        ]),
+        'disk_dbs' => [
+            ['engine' => 'mariadb', 'databases' => [['name' => 'shopstg', 'size_mb' => 120.0]], 'on_disk_mb' => 180.3, 'memory_mb' => null, 'note' => null],
+            ['engine' => 'pgsql', 'databases' => [['name' => 'apistg', 'size_mb' => 38.7]], 'on_disk_mb' => 61.0, 'memory_mb' => null, 'note' => null],
+            ['engine' => 'valkey', 'databases' => [['name' => 'db0', 'size_mb' => null, 'keys' => 312]], 'on_disk_mb' => 0.3, 'memory_mb' => 4.1, 'note' => null],
         ],
         'ip_whitelist' => ['allow_all' => true, 'entries' => ['*'], 'file' => '/etc/cipi/api-ip-whitelist', 'client_ip' => '203.0.113.10'],
         'node' => [

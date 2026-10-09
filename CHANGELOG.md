@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.1.0] — 2026-10-09
+
+Aligned with Cipi API 1.33: disk usage.
+
+### Added
+
+- **Server → Disk** — who is filling the disk, the figures of `cipi disk` and `cipi disk db`: the filesystem `/home` is on, every app largest first with files, database, total, share of the disk and its soft limit (apps over the limit or past 90% of it are flagged, like the monitor's `app_disk` check), the all-apps and everything-else totals, and every database per engine — MariaDB and PostgreSQL in MB, Valkey databases with keys and memory, Meilisearch indexes with documents. Reads `GET /api/disk` and `GET /api/disk/dbs` (API 1.33+; Cipi 5.5.2+ for the API sudoers) and shows "not available" on older servers. The server measures sizes when the tab opens, so these two requests get their own timeout (`http_disk_timeout`, `CIPI_GUI_HTTP_DISK_TIMEOUT`, default 180 s).
+- The Overview resources card and the Databases tab link to the Disk tab instead of pointing at the host command.
+- `disk-view` in the token command on Connections (`token_abilities`).
+- Demo API 1.33: `/api/disk` and `/api/disk/dbs` with fixtures for the three servers (`./dev/demo.sh --reset` once to pick them up in an existing demo state).
+
+### Changed
+
+- `CipiApiClient` requests accept a per-call timeout.
+
 ## [3.0.0] — 2026-10-07
 
 A redesign of the whole panel around the Cipi "paper" design system, aligned with Cipi API 1.31.

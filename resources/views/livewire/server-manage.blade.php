@@ -41,7 +41,7 @@
                 This section needs a newer Cipi API or a token with the matching abilities.
                 Run <code>cipi self-update &amp;&amp; cipi api update</code> on the server and recreate the token from
                 <a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>.
-                @if(in_array($activeTab, ['node', 'search', 'packages', 'monitor', 'zt'], true)) (API 1.31+ / Cipi 5.4.1+) @endif
+                @if(in_array($activeTab, ['node', 'search', 'packages', 'monitor', 'zt'], true)) (API 1.31+ / Cipi 5.4.1+) @elseif($activeTab === 'disk') (API 1.33+ / Cipi 5.5.2+, whose migration lets the API run <code>cipi disk</code>) @endif
             </x-cipi::alert>
         @elseif($activeTab === 'overview')
             @php
@@ -83,7 +83,7 @@
                             @php $dp = (int) ($disk['usage_percent'] ?? 0); @endphp
                             <div class="metric-row"><span class="stat-label">Disk /</span><span class="stat-value-sm tabular-nums">{{ $dp }}%</span></div>
                             <div class="progress-bar"><div class="progress-fill {{ $dp >= 90 ? 'is-danger' : ($dp >= 80 ? 'is-warn' : '') }}" style="width: {{ $dp }}%"></div></div>
-                            <p class="stat-meta mt-1">{{ ($disk['used'] ?? '?').' / '.($disk['total'] ?? '?') }} — per-app usage: <code>cipi disk</code></p>
+                            <p class="stat-meta mt-1">{{ ($disk['used'] ?? '?').' / '.($disk['total'] ?? '?') }} — <button type="button" wire:click="setTab('disk')" class="text-link">per-app usage →</button></p>
                         </div>
                     </div>
                 </div>
@@ -136,6 +136,124 @@
                         @endforelse
                     </ul>
                 </div>
+            </div>
+
+        @elseif($activeTab === 'disk')
+            @php
+                $fs = is_array($disk['disk'] ?? null) ? $disk['disk'] : [];
+                $fsPercent = (int) ($fs['used_percent'] ?? 0);
+                $sizeGb = (float) ($fs['size_gb'] ?? 0);
+                $diskApps = is_array($disk['apps'] ?? null) ? $disk['apps'] : [];
+                $overLimit = count(array_filter($diskApps, fn ($a) => ! empty($a['over_limit'])));
+            @endphp
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+                <div class="card">
+                    <div class="metric-row"><span class="stat-label">Filesystem {{ $fs['mount'] ?? '/' }}</span><span class="stat-value-sm tabular-nums">{{ $fsPercent }}%</span></div>
+                    <div class="progress-bar"><div class="progress-fill {{ $this->diskMeterClass($fsPercent) }}" style="width: {{ min(100, $fsPercent) }}%"></div></div>
+                    <p class="stat-meta mt-1 tabular-nums">{{ number_format((float) ($fs['used_gb'] ?? 0), 2) }} / {{ number_format($sizeGb, 2) }} GB used · {{ number_format((float) ($fs['free_gb'] ?? 0), 2) }} GB free</p>
+                </div>
+                <div class="card">
+                    <p class="stat-label">All apps</p>
+                    <p class="stat-value mt-1 tabular-nums">{{ number_format((float) ($disk['apps_total_gb'] ?? 0), 2) }} GB</p>
+                    <p class="stat-meta {{ $overLimit ? 'text-danger' : '' }}">{{ $disk['apps_percent'] ?? 0 }}% of the disk · {{ count($diskApps) }} {{ \Illuminate\Support\Str::plural('app', count($diskApps)) }}{{ $overLimit ? ' · '.$overLimit.' over the limit' : '' }}</p>
+                </div>
+                <div class="card">
+                    <p class="stat-label">Everything else</p>
+                    <p class="stat-value mt-1 tabular-nums">{{ number_format((float) ($disk['other_gb'] ?? 0), 2) }} GB</p>
+                    <p class="stat-meta">{{ $disk['other_percent'] ?? 0 }}% — system, packages, logs, local backups, other databases</p>
+                </div>
+            </div>
+
+            <div class="card card-flush mb-4">
+                <div class="card-header p-5 mb-0">
+                    <div>
+                        <h2 class="card-title">Apps</h2>
+                        <p class="card-subtitle">Files are the app home (releases, shared storage, logs); the database is the one named after the app, plus <code>DB_DATABASE</code> of <code>shared/.env</code> when it points elsewhere. Largest first, as a share of the {{ number_format($sizeGb, 2) }} GB on {{ $fs['mount'] ?? '/' }}.</p>
+                    </div>
+                </div>
+                <div class="table-scroll">
+                    <table>
+                        <thead><tr><th>App</th><th class="text-right">Files</th><th class="text-right">Database</th><th class="text-right">Total</th><th>Disk</th><th>Limit</th></tr></thead>
+                        <tbody>
+                            @forelse($diskApps as $row)
+                                @php
+                                    $limit = is_numeric($row['limit_gb'] ?? null) ? $row['limit_gb'] + 0 : null;
+                                    $limitPercent = $limit !== null ? (int) ($row['limit_percent'] ?? 0) : null;
+                                    $share = (float) ($row['percent'] ?? 0);
+                                @endphp
+                                <tr wire:key="disk-app-{{ $row['app'] }}">
+                                    <td><a href="{{ route('cipi-gui.apps.show', ['name' => $row['app'], 'server' => $server->id]) }}" class="row-link font-mono">{{ $row['app'] }}</a></td>
+                                    <td class="text-right tabular-nums">{{ $this->diskSize($row['files_kb'] ?? null, $row['files_gb'] ?? 0) }}</td>
+                                    <td class="text-right tabular-nums">{{ $this->diskSize($row['database_kb'] ?? null, $row['database_gb'] ?? 0) }}</td>
+                                    <td class="text-right tabular-nums text-strong">{{ $this->diskSize($row['total_kb'] ?? null, $row['total_gb'] ?? 0) }}</td>
+                                    <td style="min-width: 8rem">
+                                        <div class="metric-row"><span class="text-xs tabular-nums">{{ number_format($share, 1) }}%</span></div>
+                                        <div class="progress-bar"><div class="progress-fill" style="width: {{ min(100, $share) }}%"></div></div>
+                                    </td>
+                                    <td>
+                                        @if($limit === null)
+                                            <span class="text-muted">—</span>
+                                        @elseif(! empty($row['over_limit']))
+                                            <span class="badge badge-red tabular-nums">{{ $limit }} GB · {{ $limitPercent }}% · over</span>
+                                        @elseif($limitPercent >= 90)
+                                            <span class="badge badge-amber tabular-nums">{{ $limit }} GB · {{ $limitPercent }}%</span>
+                                        @else
+                                            <span class="badge badge-neutral tabular-nums">{{ $limit }} GB · {{ $limitPercent }}%</span>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="6" class="text-muted">No apps yet.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card-footer">
+                    <p class="text-xs text-muted">Measured when this tab opens. Soft limit per app: <code>cipi app limits &lt;app&gt; --disk=&lt;GB&gt;</code> on the host — the monitor check <code>app_disk</code> warns at 90% and alerts when over; nothing is blocked.</p>
+                    <button type="button" wire:click="refresh" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="refresh"><x-cipi::icon name="refresh" wire:loading.class="animate-spin" wire:target="refresh" /> Measure again</button>
+                </div>
+            </div>
+
+            @if($diskDbsError)
+                <x-cipi::alert type="warning" class="mb-4">Database sizes: {{ $diskDbsError }}</x-cipi::alert>
+            @endif
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                @forelse($diskDbs as $engine)
+                    @php
+                        $kind = $engine['engine'] ?? '';
+                        $isValkey = $kind === 'valkey';
+                        $isSearch = $kind === 'meilisearch';
+                        $items = is_array($engine['databases'] ?? null) ? $engine['databases'] : [];
+                    @endphp
+                    <div class="card card-flush" wire:key="disk-engine-{{ $kind }}">
+                        <div class="card-header p-5 mb-0">
+                            <div>
+                                <h2 class="card-title">{{ $this->engineLabel($kind) }}</h2>
+                                <p class="card-subtitle">{{ count($items) }} {{ \Illuminate\Support\Str::plural($isSearch ? 'index' : 'database', count($items)) }}{{ !empty($engine['note']) ? ' · '.$engine['note'] : '' }}</p>
+                            </div>
+                            @if(isset($engine['on_disk_mb']))<span class="badge badge-neutral tabular-nums">{{ $this->diskMb($engine['on_disk_mb']) }} on disk</span>@endif
+                        </div>
+                        <table class="table-compact">
+                            <thead><tr><th>{{ $isSearch ? 'Index' : 'Database' }}</th>@if($isValkey)<th class="text-right">Keys</th>@elseif($isSearch)<th class="text-right">Documents</th>@endif<th class="text-right">Size</th></tr></thead>
+                            <tbody>
+                                @forelse($items as $db)
+                                    <tr>
+                                        <td class="font-mono text-strong">{{ $db['name'] ?? '—' }}</td>
+                                        @if($isValkey)<td class="text-right tabular-nums">{{ isset($db['keys']) ? number_format((int) $db['keys']) : '—' }}</td>@elseif($isSearch)<td class="text-right tabular-nums">{{ isset($db['documents']) ? number_format((int) $db['documents']) : '—' }}</td>@endif
+                                        <td class="text-right tabular-nums">{{ $this->diskMb($db['size_mb'] ?? null) }}</td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="3" class="text-muted">{{ $isSearch ? 'No indexes.' : ($isValkey ? 'No keys stored.' : 'No databases.') }}</td></tr>
+                                @endforelse
+                                @if($isValkey && isset($engine['memory_mb']))
+                                    <tr><td class="text-xs text-muted" colspan="2">Memory in use</td><td class="text-right tabular-nums text-xs text-muted">{{ $this->diskMb($engine['memory_mb']) }}</td></tr>
+                                @endif
+                            </tbody>
+                        </table>
+                    </div>
+                @empty
+                    @unless($diskDbsError)<div class="card text-muted">No database engine found.</div>@endunless
+                @endforelse
             </div>
 
         @elseif($activeTab === 'php')
@@ -227,7 +345,7 @@
                     <div class="card text-muted">No engine information.</div>
                 @endforelse
             </div>
-            <p class="field-hint mt-3">Per-database sizes: <code>cipi disk db</code> on the host.</p>
+            <p class="field-hint mt-3">Per-database sizes: <button type="button" wire:click="setTab('disk')" class="text-link">Disk tab</button> (API 1.33+).</p>
 
         @elseif($activeTab === 'services')
             <div class="card card-flush">

@@ -18,6 +18,7 @@ class ServerManage extends Component
 
     public const TABS = [
         'overview' => 'Overview',
+        'disk' => 'Disk',
         'php' => 'PHP',
         'node' => 'Node',
         'engines' => 'Databases',
@@ -95,6 +96,14 @@ class ServerManage extends Component
 
     public array $search = [];
 
+    /** `cipi disk --json` — API 1.33+ */
+    public array $disk = [];
+
+    /** `cipi disk db --json` — one entry per installed engine */
+    public array $diskDbs = [];
+
+    public ?string $diskDbsError = null;
+
     public function mount(?int $serverId = null): void
     {
         $this->ensureServerSelected($serverId);
@@ -141,6 +150,17 @@ class ServerManage extends Component
                 $this->guard('services', fn () => $this->services = $this->client()->listServices());
                 $this->guard('monitor', fn () => $this->monitor = $this->client()->monitorStatus());
                 $this->guard('health', fn () => $this->healthChecks = $this->client()->listHealth());
+            },
+            'disk' => function () {
+                $this->disk = $this->client()->diskUsage();
+                $this->diskDbs = [];
+                $this->diskDbsError = null;
+                try {
+                    $this->diskDbs = $this->client()->diskDatabases();
+                } catch (CipiApiException $e) {
+                    // The app report is still worth showing when an engine query fails.
+                    $this->diskDbsError = $this->friendlyApiError($e);
+                }
             },
             'php' => function () {
                 $this->phpData = $this->client()->listPhp() + ['default' => null, 'installable' => [], 'versions' => []];
@@ -350,6 +370,41 @@ class ServerManage extends Component
     {
         $this->loaded = [];
         $this->loadTab($this->activeTab);
+    }
+
+    // ── Disk report helpers (same rounding as `cipi disk`) ────────────
+
+    /** GB with two decimals, MB below 0.01 GB so a small database does not read as zero. */
+    public function diskSize(int|float|string|null $kb, int|float|string|null $gb = null): string
+    {
+        $kb = is_numeric($kb) ? (int) $kb : (is_numeric($gb) ? (int) round((float) $gb * 1048576) : 0);
+
+        return match (true) {
+            $kb >= 10486 => number_format($kb / 1048576, 2).' GB',
+            $kb >= 103 => number_format($kb / 1024, 1).' MB',
+            $kb > 0 => '<0.1 MB',
+            default => '0.00 GB',
+        };
+    }
+
+    public function diskMb(int|float|string|null $mb): string
+    {
+        if (! is_numeric($mb)) {
+            return '—';
+        }
+        $mb = (float) $mb;
+
+        return $mb > 0 && $mb < 0.1 ? '<0.1 MB' : number_format($mb, 1).' MB';
+    }
+
+    public function diskMeterClass(int|float|null $percent, int $warn = 80, int $danger = 90): string
+    {
+        return match (true) {
+            $percent === null => '',
+            $percent >= $danger => 'is-danger',
+            $percent >= $warn => 'is-warn',
+            default => '',
+        };
     }
 
     public function monitorStateClass(?string $state): string

@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Cipi GUI demo API — a stateful stand-in for `cipi api` (REST API 1.31).
+ * Cipi GUI demo API — a stateful stand-in for `cipi api` (REST API 1.33).
  *
  * It answers the same paths, payloads and status codes the GUI consumes, with
  * realistic fixtures (fixtures.php) and async jobs that move pending → running →
@@ -21,7 +21,7 @@ declare(strict_types=1);
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
-const API_VERSION = '1.31.0';
+const API_VERSION = '1.33.0';
 const JOB_PENDING_SECONDS = 0.6;
 const JOB_RUNNING_SECONDS = 2.4;
 
@@ -260,6 +260,14 @@ function handle(string $method, string $route, array $body, array $query, string
     }
     if ($method === 'GET' && $r('/zt')) {
         return [200, ['data' => $s['zt']]];
+    }
+
+    // Disk usage (API 1.33+): `cipi disk --json` and `cipi disk db --json`
+    if ($method === 'GET' && $r('/disk/dbs')) {
+        return [200, ['data' => $s['disk_dbs'] ?? []]];
+    }
+    if ($method === 'GET' && $r('/disk')) {
+        return [200, ['data' => $s['disk'] ?? []]];
     }
 
     // IP whitelist

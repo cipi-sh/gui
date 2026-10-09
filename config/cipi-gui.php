@@ -42,7 +42,7 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Token abilities (Cipi API 1.31)
+    | Token abilities (Cipi API 1.33)
     |--------------------------------------------------------------------------
     |
     | Everything the panel calls. Shown on the Connections page as a ready-made
@@ -58,7 +58,7 @@ return [
         'deploy-manage', 'ssl-manage', 'dbs-view', 'dbs-create', 'dbs-manage',
         'php-view', 'php-manage', 'ssh-view', 'ssh-manage', 'services-view', 'services-manage',
         'smtp-view', 'smtp-manage', 'health-view', 'health-manage',
-        'packages-view', 'monitor-view', 'zt-view',
+        'packages-view', 'monitor-view', 'zt-view', 'disk-view',
         'ip-whitelist-view', 'ip-whitelist-manage', 'status-view',
     ],
 
@@ -78,6 +78,8 @@ return [
     */
     'http_timeout' => (int) env('CIPI_GUI_HTTP_TIMEOUT', 30),
     'http_connect_timeout' => (int) env('CIPI_GUI_HTTP_CONNECT_TIMEOUT', 10),
+    // GET /api/disk and /api/disk/dbs measure every app home when asked (API 1.33+).
+    'http_disk_timeout' => (int) env('CIPI_GUI_HTTP_DISK_TIMEOUT', 180),
 
     /*
     |--------------------------------------------------------------------------

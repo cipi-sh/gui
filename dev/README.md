@@ -22,12 +22,12 @@
 
 Sign in with `admin@cipi.local` / `admin`.
 
-`dev/demo/api/index.php` answers the paths, payloads and status codes of `cipi api` 1.31 — it is what the panel's screenshots are taken from:
+`dev/demo/api/index.php` answers the paths, payloads and status codes of `cipi api` 1.33 — it is what the panel's screenshots are taken from:
 
 - **Three servers** in one process: `production` (fra1), `clients` (nyc1) and `staging`. The profile comes from the first label of the host (`fra1.cipi-demo.test`) or a path prefix (`http://127.0.0.1:8787/fra1`).
-- **Realistic data** (`fixtures.php`): Laravel apps on FPM and Octane, Node SPA/static/SSR apps, a custom PHP site, redirects and proxies, `.env`, deploy ledgers, healthchecks, monitor checks, Meilisearch, Zero Trust, IP whitelist. Domains use `example.com/org/net`, IPs the RFC 5737 documentation ranges.
+- **Realistic data** (`fixtures.php`): Laravel apps on FPM and Octane, Node SPA/static/SSR apps, a custom PHP site, redirects and proxies, `.env`, deploy ledgers, healthchecks, monitor checks, Meilisearch, Zero Trust, IP whitelist, disk usage per app and per database (`cipi disk`). Domains use `example.com/org/net`, IPs the RFC 5737 documentation ranges.
 - **Async jobs** move from `pending` to `running` to `completed` in about three seconds and return CLI-like output plus the parsed `result` (credentials on app create, backup file on database backup, …).
-- **State** is stored in `dev/demo/storage/state.json`; delete it, or use `--reset`, to start over.
+- **State** is stored in `dev/demo/storage/state.json`; delete it, or use `--reset`, to start over. A state saved by an older demo has no `disk` data: reset once after updating.
 
 It never runs `cipi` and never touches the machine — it only exists for development, demos and documentation.
 

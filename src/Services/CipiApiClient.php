@@ -403,6 +403,39 @@ class CipiApiClient
         return $this->get('/zt')['data'] ?? [];
     }
 
+    // ── Disk usage (read-only — API 1.33+ / Cipi ≥ 5.5.2 for the API sudoers) ──
+
+    /**
+     * `cipi disk --json`: the filesystem /home is on, then every app largest first
+     * (files, database, total, share of the disk, soft limit). Sizes are measured
+     * on request, so the call gets its own timeout.
+     *
+     * @return array{disk?: array, apps?: list<array>, apps_total_gb?: float, apps_percent?: float, other_gb?: float, other_percent?: float}
+     */
+    public function diskUsage(): array
+    {
+        $data = $this->get('/disk', timeout: $this->diskTimeout())['data'] ?? [];
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * `cipi disk db --json`: every database of every installed engine, in MB.
+     *
+     * @return list<array{engine: string, databases: list<array>, on_disk_mb: ?float, memory_mb: ?float, note: ?string}>
+     */
+    public function diskDatabases(): array
+    {
+        $data = $this->get('/disk/dbs', timeout: $this->diskTimeout())['data'] ?? [];
+
+        return is_array($data) ? array_values(array_filter($data, fn ($e) => is_array($e) && ! empty($e['engine']))) : [];
+    }
+
+    protected function diskTimeout(): int
+    {
+        return max((int) config('cipi-gui.http_disk_timeout', 180), (int) config('cipi-gui.http_timeout', 30));
+    }
+
     // ── API client IP whitelist (API 1.31+ / Cipi ≥ 5.0.8) ────────────
 
     public function getIpWhitelist(): array
@@ -714,9 +747,9 @@ class CipiApiClient
 
     // ── HTTP layer ────────────────────────────────────────────────────
 
-    protected function get(string $path, array $query = []): array
+    protected function get(string $path, array $query = [], ?int $timeout = null): array
     {
-        return $this->request('get', $path, query: $query);
+        return $this->request('get', $path, query: $query, timeout: $timeout);
     }
 
     protected function post(string $path, array $data = []): array
@@ -742,12 +775,16 @@ class CipiApiClient
         return $this->request('delete', $path, query: $query);
     }
 
-    protected function request(string $method, string $path, array $data = [], array $query = [], ?string $rawBody = null): array
+    /** @param  ?int  $timeout  Per-call override of `http_timeout` (seconds) for slow endpoints. */
+    protected function request(string $method, string $path, array $data = [], array $query = [], ?string $rawBody = null, ?int $timeout = null): array
     {
         $url = $this->server->api_url.$path;
 
         try {
             $pending = self::configure(Http::createPendingRequest(), $this->server);
+            if ($timeout !== null) {
+                $pending = $pending->timeout($timeout);
+            }
 
             /** @var Response $response */
             $response = match ($method) {

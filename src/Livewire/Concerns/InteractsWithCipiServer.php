@@ -196,6 +196,8 @@ trait InteractsWithCipiServer
         return match ($engine) {
             'pgsql' => 'PostgreSQL',
             'mariadb' => 'MariaDB',
+            'valkey' => 'Valkey',
+            'meilisearch' => 'Meilisearch',
             default => $engine ?: '—',
         };
     }
