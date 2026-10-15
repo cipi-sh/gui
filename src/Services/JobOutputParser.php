@@ -144,6 +144,44 @@ class JobOutputParser
         return $rows;
     }
 
+    /**
+     * Whether the app's deploy key can read its repository, as checked by Cipi 5.6.0+
+     * on app create and on app edit with a new repository or branch (API 1.34+).
+     * Null when the result carries no check: older servers, apps without a repository.
+     *
+     * @param  array<string, mixed>  $result
+     * @return array{status: 'ok'|'nobranch'|'denied', branch: ?string, error: ?string, hint: ?string}|null
+     */
+    public function repositoryAccess(array $result): ?array
+    {
+        $access = $result['repository_access'] ?? null;
+        if (! is_array($access) || ! in_array($access['status'] ?? null, ['ok', 'nobranch', 'denied'], true)) {
+            return null;
+        }
+
+        $text = fn (mixed $value): ?string => is_scalar($value) && trim((string) $value) !== '' ? trim((string) $value) : null;
+
+        return [
+            'status' => $access['status'],
+            'branch' => $text($access['branch'] ?? null),
+            'error' => $text($access['error'] ?? null),
+            'hint' => $text($access['hint'] ?? null),
+        ];
+    }
+
+    /**
+     * Build command reported by app create (API 1.34+): a Laravel app's asset
+     * build or a Node app's build command.
+     *
+     * @param  array<string, mixed>  $result
+     */
+    public function build(array $result): ?string
+    {
+        $build = $result['build'] ?? null;
+
+        return is_string($build) && trim($build) !== '' ? trim($build) : null;
+    }
+
     private function isDeployerUsageLine(string $line): bool
     {
         return (bool) preg_match('/^deploy \[-p\|--parallel\]/', trim($line));

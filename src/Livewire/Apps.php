@@ -6,6 +6,7 @@ use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
+use CipiGui\Support\BuildCommand;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
@@ -65,6 +66,9 @@ class Apps extends Component
     public string $engine = '';
 
     public bool $octane = false;
+
+    /** Laravel only: asset build run inside every deploy (`node_build`, API 1.34+ / Cipi 5.6.0+). */
+    public string $assetBuild = '';
 
     public string $nodeMode = 'spa';
 
@@ -143,7 +147,7 @@ class Apps extends Component
         $this->reset([
             'user', 'domain', 'repository', 'branch', 'docroot', 'engine', 'error',
             'nodeMode', 'nodeFramework', 'nodeVersion', 'nodeBuild', 'nodeStart',
-            'nodeOutput', 'nodeHealthPath', 'octane',
+            'nodeOutput', 'nodeHealthPath', 'octane', 'assetBuild',
         ]);
         $this->resetErrorBag();
         $this->appKind = 'laravel';
@@ -317,6 +321,8 @@ class Apps extends Component
                 if ($this->availableEngines !== []) {
                     $rules['engine'] = ['required', 'in:'.implode(',', array_column($this->availableEngines, 'engine'))];
                 }
+                $this->assetBuild = trim($this->assetBuild);
+                $rules['assetBuild'] = ['nullable', 'string', BuildCommand::rule()];
             } else {
                 $rules['repository'] = ['nullable', 'string', 'max:512'];
                 $rules['branch'] = ['nullable', 'string', 'max:64'];
@@ -362,6 +368,10 @@ class Apps extends Component
             }
             if (! $isCustom && $this->octane) {
                 $payload['octane'] = true;
+            }
+            // Only Laravel apps take node_build; the API answers 422 on custom and Node apps.
+            if (! $isCustom && $this->assetBuild !== '') {
+                $payload['node_build'] = $this->assetBuild;
             }
         }
 
@@ -462,6 +472,8 @@ class Apps extends Component
             'counts' => $counts,
             'phpVersions' => $this->installedPhpVersions !== [] ? $this->installedPhpVersions : config('cipi-gui.php_versions'),
             'presets' => self::NODE_PRESETS,
+            'buildPlaceholder' => BuildCommand::PLACEHOLDER,
+            'buildMaxLength' => BuildCommand::MAX_LENGTH,
         ])->title($server ? 'Apps · '.$server->name : 'Apps');
     }
 }

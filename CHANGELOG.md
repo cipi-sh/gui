@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.2.0] — 2026-10-15
+
+Aligned with Cipi API 1.34 / Cipi 5.6.0: build command at creation and the repository access check. Both need **cipi/api ≥ 1.34.0** and **Cipi ≥ 5.6.0** on the server; older servers ignore the field and send no check, and the panel shows nothing extra.
+
+### Added
+
+- **Build command when creating a Laravel app** (FPM and Octane): optional, placeholder `npm ci && npm run build`, sent as `node_build` on `POST /api/apps` only when filled in. Cipi runs it inside every deploy, after `composer install` and before the release goes live — the same setting as the asset build under Deploy → Deploy pipeline. Checked in the panel with the CLI's own rule before the request (`CipiGui\Support\BuildCommand`, mirroring `nodeBuildError()` in cipi/api): starts with npm, npx, yarn, pnpm, bun or node, `&&` and `;` allowed, no pipes, redirects, backticks or `$( )`, 200 characters at most. Not shown for custom and Node apps (Node apps keep their own build field).
+- **Repository access in the job overlay** — after app create, and after app edit when the repository or branch changed, the `repository_access` of the job result: reachable (with the branch), reachable without the branch, or refused, with the warning that the first deploy fails until it is fixed, the line Git printed and Cipi's fix (e.g. `cipi git github-token <token> && cipi git refresh myapp`) with a copy button — the API cannot save Git tokens, so the fix runs on the server over SSH. Absent on older servers and on apps without a repository.
+- The `build` of the app-create result (the Laravel asset build or the Node build command) is shown in the overlay.
+- Demo API 1.34: `node_build` on app create (same validation, 422 on custom and Node apps), `build` and `repository_access` in app-create results and in app-edit results when the repository or branch changes (a repository path containing `private` is refused, an unusual branch name is missing). New demo apps no longer get an asset build unless one is given.
+
+### Changed
+
+- The asset build under **Deploy → Deploy pipeline** is checked with the same rule before saving (it was only limited to 500 characters, and the CLI refused the rest on save).
+
 ## [3.1.0] — 2026-10-09
 
 Aligned with Cipi API 1.33: disk usage.

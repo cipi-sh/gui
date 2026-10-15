@@ -139,6 +139,23 @@ trait ManagesAsyncJobs
         return app(JobOutputParser::class)->secrets($this->activeJobResult ?? []);
     }
 
+    /**
+     * Repository access check in a finished job's result (app create, app edit with
+     * a new repository or branch — API 1.34+ / Cipi 5.6.0+); null when absent.
+     *
+     * @return array{status: string, branch: ?string, error: ?string, hint: ?string}|null
+     */
+    public function jobRepositoryAccess(): ?array
+    {
+        return app(JobOutputParser::class)->repositoryAccess($this->activeJobResult ?? []);
+    }
+
+    /** Build command in a finished app-create result (API 1.34+); null when absent. */
+    public function jobBuild(): ?string
+    {
+        return app(JobOutputParser::class)->build($this->activeJobResult ?? []);
+    }
+
     protected function onJobCompleted(array $data): void {}
 
     protected function onJobFailed(array $data): void {}

@@ -51,6 +51,10 @@
                 </x-cipi::alert>
             @endif
 
+            @if(in_array($status, ['completed', 'failed'], true))
+                @include('cipi-gui::partials.job-repository-access')
+            @endif
+
             @if($secrets !== [])
                 <div class="card p-4" style="border-color: var(--accent-line);">
                     <div class="flex items-center gap-2 mb-2">

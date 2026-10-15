@@ -326,6 +326,12 @@
                                     <span class="check-card-text">Nginx proxies to a long-lived Octane worker instead of PHP-FPM. Needs <code>laravel/octane</code> in the repo and more RAM. Cipi 5.0+.</span>
                                 </span>
                             </label>
+                            <div>
+                                <label for="app-asset-build">Build command <span class="text-subtle font-normal">(optional)</span></label>
+                                <input id="app-asset-build" type="text" wire:model="assetBuild" class="font-mono" placeholder="{{ $buildPlaceholder }}" maxlength="{{ $buildMaxLength }}" autocomplete="off" spellcheck="false">
+                                <p class="field-hint">Front-end assets: runs on every deploy after <code>composer install</code>, before the release goes live. Starts with npm, npx, yarn, pnpm, bun or node; <code>&amp;&amp;</code> and <code>;</code> are allowed, pipes and redirects are not. Empty to skip. Cipi 5.6+ (older servers ignore it: set it later under Deploy → Deploy pipeline).</p>
+                                @error('assetBuild') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
                         @endif
                     @endif
                 </div>

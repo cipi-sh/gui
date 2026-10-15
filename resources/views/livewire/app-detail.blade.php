@@ -672,7 +672,8 @@
                                     </div>
                                     <div class="md:col-span-2">
                                         <label for="dc-node">Asset build</label>
-                                        <input id="dc-node" type="text" wire:model="dcNodeBuild" placeholder="npm ci && npm run build — empty to skip" class="font-mono">
+                                        <input id="dc-node" type="text" wire:model="dcNodeBuild" placeholder="npm ci && npm run build — empty to skip" class="font-mono" maxlength="{{ \CipiGui\Support\BuildCommand::MAX_LENGTH }}">
+                                        @error('dcNodeBuild') <p class="field-error">{{ $message }}</p> @enderror
                                     </div>
                                 </div>
                                 <div>

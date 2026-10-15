@@ -6,6 +6,7 @@ use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
+use CipiGui\Support\BuildCommand;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -829,9 +830,10 @@ class AppDetail extends Component
 
     public function saveDeployConfig(): void
     {
+        $this->dcNodeBuild = trim($this->dcNodeBuild);
         $this->validate([
             'dcKeepReleases' => ['required', 'integer', 'min:1', 'max:20'],
-            'dcNodeBuild' => ['nullable', 'string', 'max:500'],
+            'dcNodeBuild' => ['nullable', 'string', BuildCommand::rule()],
         ]);
 
         try {

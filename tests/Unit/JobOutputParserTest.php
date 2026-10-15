@@ -42,6 +42,32 @@ class JobOutputParserTest extends TestCase
     }
 
     #[Test]
+    public function it_reads_the_repository_access_check_and_the_build(): void
+    {
+        $parser = new JobOutputParser;
+
+        $denied = $parser->repositoryAccess(['app' => 'shop', 'repository_access' => [
+            'status' => 'denied', 'error' => ' ERROR: Repository not found. ', 'hint' => 'cipi git github-token <token> && cipi git refresh shop',
+        ]]);
+        $this->assertSame(['status' => 'denied', 'branch' => null, 'error' => 'ERROR: Repository not found.', 'hint' => 'cipi git github-token <token> && cipi git refresh shop'], $denied);
+
+        $ok = $parser->repositoryAccess(['repository_access' => ['status' => 'ok', 'branch' => 'main']]);
+        $this->assertSame(['status' => 'ok', 'branch' => 'main', 'error' => null, 'hint' => null], $ok);
+
+        // Older servers, apps without a repository, or a shape the panel does not know.
+        $this->assertNull($parser->repositoryAccess(['app' => 'shop']));
+        $this->assertNull($parser->repositoryAccess(['repository_access' => ['status' => 'maybe']]));
+        $this->assertNull($parser->repositoryAccess(['repository_access' => 'ok']));
+
+        $this->assertSame('npm ci && npm run build', $parser->build(['build' => 'npm ci && npm run build']));
+        $this->assertNull($parser->build(['build' => '  ']));
+        $this->assertNull($parser->build([]));
+
+        // Neither is a credential.
+        $this->assertSame([], $parser->secrets(['build' => 'npm run build', 'repository_access' => ['status' => 'ok']]));
+    }
+
+    #[Test]
     public function it_extracts_the_cli_error_and_drops_deployer_usage_noise(): void
     {
         $parser = new JobOutputParser;

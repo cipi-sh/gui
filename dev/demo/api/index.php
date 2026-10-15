@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Cipi GUI demo API — a stateful stand-in for `cipi api` (REST API 1.33).
+ * Cipi GUI demo API — a stateful stand-in for `cipi api` (REST API 1.34).
  *
  * It answers the same paths, payloads and status codes the GUI consumes, with
  * realistic fixtures (fixtures.php) and async jobs that move pending → running →
@@ -21,7 +21,7 @@ declare(strict_types=1);
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
-const API_VERSION = '1.33.0';
+const API_VERSION = '1.34.0';
 const JOB_PENDING_SECONDS = 0.6;
 const JOB_RUNNING_SECONDS = 2.4;
 
@@ -739,9 +739,12 @@ function runJob(array &$s, string $type, array $p): array
                 $out[] = '→ Database...';
                 $out[] = "  ✓ {$app} on ".engineLabel($info['engine'] ?? 'mariadb');
             }
+            $build = $kind === 'node' ? ($info['build'] ?? null) : ($p['record']['deploy_config']['node_build'] ?: null);
+            $access = ! empty($info['repository']) ? repositoryAccess($app, (string) $info['repository'], (string) ($info['branch'] ?? 'main')) : null;
             $out = array_merge($out, [
                 '→ PHP-FPM pool...', '  ✓ php'.($info['php'] ?? '8.5').'-fpm',
                 '→ Deploy key...', '  ✓ ed25519',
+            ], $access ? repositoryAccessLines($app, $access) : [], [
                 '→ Nginx vhost...', "  ✓ Nginx → {$info['domain']}",
                 '→ Queue worker...', $kind === 'laravel' ? '  ✓ Worker (default)' : '  – not needed',
                 '', '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
@@ -751,6 +754,7 @@ function runJob(array &$s, string $type, array $p): array
                 "  IP:         {$s['status']['system']['ip']}",
                 '  PHP:        '.($info['php'] ?? '8.5'),
                 "  Runtime:    {$runtime}",
+            ], $build !== null ? ["  Build:      {$build}".($kind === 'laravel' ? '  (every deploy, before the release goes live)' : '')] : [], [
                 "  Home:       /home/{$app}",
                 '',
                 "  SSH         {$app} / {$sshPass}",
@@ -760,6 +764,11 @@ function runJob(array &$s, string $type, array $p): array
             }
             if (! empty($info['repository'])) {
                 $out[] = '';
+                $out[] = '  '.match ($access['status'] ?? null) {
+                    'ok' => "Repository  reachable ✓ (branch {$access['branch']})",
+                    'nobranch' => "Repository  reachable, but it has no branch '{$access['branch']}' — cipi app edit {$app} --branch=<name>",
+                    default => "Repository  not readable with the deploy key — the first deploy fails until it is; check with: cipi git check {$app}",
+                };
                 $out[] = '  Deploy Key  add it to the repository before the first deploy — the deploy fails without it';
                 $out[] = "  {$key}";
                 $out[] = '';
@@ -777,6 +786,8 @@ function runJob(array &$s, string $type, array $p): array
                 'deploy_key' => ! empty($info['repository']) ? $key : null,
                 'webhook' => ! empty($info['repository']) ? "https://{$info['domain']}/cipi/webhook" : null,
                 'webhook_token' => ! empty($info['repository']) ? $token : null,
+                'build' => $build,
+                'repository_access' => $access,
             ], fn ($v) => $v !== null)];
 
         case 'app-edit':
@@ -797,8 +808,15 @@ function runJob(array &$s, string $type, array $p): array
                 $lines[] = '  ✓ Repository updated';
                 $lines[] = '  ✓ Deploy key + webhook recreated';
             }
+            $editedInfo = $s['apps'][$app]['info'];
+            $access = (isset($p['changes']['repository']) || isset($p['changes']['branch'])) && ! empty($editedInfo['repository'])
+                ? repositoryAccess($app, (string) $editedInfo['repository'], (string) ($editedInfo['branch'] ?: 'main'))
+                : null;
+            if ($access) {
+                $lines = array_merge($lines, repositoryAccessLines($app, $access));
+            }
 
-            return [true, "→ Editing app '{$app}'...\n".implode("\n", $lines)."\n\n✓ App '{$app}' updated", ['changes' => $changes]];
+            return [true, "→ Editing app '{$app}'...\n".implode("\n", $lines)."\n\n✓ App '{$app}' updated", ['changes' => $changes] + ($access ? ['repository_access' => $access] : [])];
 
         case 'app-delete':
             unset($s['apps'][$app]);
@@ -1033,6 +1051,16 @@ function createApp(array &$s, array &$state, string $profile, array $body): arra
         throw new DemoHttpError(422, "PHP {$php} is not installed on this server");
     }
 
+    $nodeBuild = trim((string) ($body['node_build'] ?? ''));
+    if ($nodeBuild !== '') {
+        if ($node || $custom) {
+            throw new DemoHttpError(422, "'node_build' is for Laravel apps (Node apps take 'build'; custom apps have no build step)");
+        }
+        if ($err = nodeBuildError($nodeBuild)) {
+            throw new DemoHttpError(422, $err);
+        }
+    }
+
     $framework = $body['framework'] ?? null;
     $info = [
         'app' => $user, 'domain' => $domain, 'php' => $php, 'branch' => $body['branch'] ?? 'main',
@@ -1065,7 +1093,7 @@ function createApp(array &$s, array &$state, string $profile, array $body): arra
             'DB_PASSWORD' => randomSecret(24), 'QUEUE_CONNECTION' => 'redis', 'CIPI_WEBHOOK_TOKEN' => bin2hex(random_bytes(20)),
         ] : null,
         'auth' => null,
-        'deploy_config' => ['keep_releases' => 5, 'migrate' => true, 'optimize' => true, 'storage_link' => true, 'queue_restart' => true, 'horizon_terminate' => false, 'predeploy_snapshot' => false, 'node_build' => 'npm ci && npm run build', 'extra_artisan' => []],
+        'deploy_config' => ['keep_releases' => 5, 'migrate' => true, 'optimize' => true, 'storage_link' => true, 'queue_restart' => true, 'horizon_terminate' => false, 'predeploy_snapshot' => false, 'node_build' => $nodeBuild, 'extra_artisan' => []],
         'audit' => [],
         'basic_auth' => ['enabled' => false, 'users' => []],
         'health' => ['enabled' => false, 'url' => null, 'expect' => null, 'state' => null, 'failcount' => 0],
@@ -1219,6 +1247,76 @@ function nodeLine(string $app, array $info, int $i): string
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
+
+/** Same rule as CipiValidationService::nodeBuildError() in cipi/api 1.34. */
+function nodeBuildError(string $command): ?string
+{
+    if (strlen($command) > 200) {
+        return 'Invalid build command. At most 200 characters';
+    }
+    if (preg_match('/[|<>`]|\$\(/', $command)) {
+        return 'Invalid build command. Pipes, redirects, backticks and $( ) are not allowed';
+    }
+    if (! preg_match('/^[a-zA-Z0-9_.\/= :&;\'"-]+$/', $command)) {
+        return 'Invalid build command. Use npm/npx/yarn/pnpm/bun/node and safe characters only';
+    }
+    if (! preg_match('/^(npm|npx|yarn|pnpm|bun|node)( |$)/', $command)) {
+        return 'Invalid build command. It must start with npm, npx, yarn, pnpm, bun or node';
+    }
+
+    return null;
+}
+
+/**
+ * The deploy key check of Cipi 5.6.0 (git ls-remote as the app user), faked:
+ * a repository path with "private" in it is refused, a branch outside the usual
+ * names is missing, everything else is reachable.
+ *
+ * @return array{status: string, branch?: string, error?: string, hint?: string}
+ */
+function repositoryAccess(string $app, string $repository, string $branch): array
+{
+    if (str_contains(strtolower($repository), 'private')) {
+        $host = preg_match('/^(?:ssh:\/\/)?(?:[^@\/]+@)?([^:\/]+)/', $repository, $m) ? strtolower($m[1]) : '';
+        $provider = match (true) {
+            str_contains($host, 'github') => 'github',
+            str_contains($host, 'gitlab') => 'gitlab',
+            str_contains($host, 'bitbucket') => 'bitbucket',
+            default => null,
+        };
+
+        return [
+            'status' => 'denied',
+            'error' => 'ERROR: Repository not found.',
+            'hint' => $provider ? "cipi git {$provider}-token <token> && cipi git refresh {$app}" : "cipi deploy {$app} --trust-host=<host[:port]>",
+        ];
+    }
+    if (! in_array($branch, ['main', 'master', 'develop', 'staging', 'production'], true)) {
+        return ['status' => 'nobranch', 'branch' => $branch, 'hint' => "cipi app edit {$app} --branch=<name>"];
+    }
+
+    return ['status' => 'ok', 'branch' => $branch];
+}
+
+/** @return list<string> CLI lines of git_verify_repo_access for a non-interactive run. */
+function repositoryAccessLines(string $app, array $access): array
+{
+    return match ($access['status']) {
+        'ok' => ['→ Repository access...', "  ✓ Repository reachable — branch '{$access['branch']}' found"],
+        'nobranch' => [
+            '→ Repository access...',
+            "  ! Repository reachable, but it has no branch '{$access['branch']}'",
+            "  Pick an existing one: cipi app edit {$app} --branch=<name>",
+        ],
+        default => [
+            '→ Repository access...',
+            '  ! Cannot read the repository with the deploy key: '.$access['error'],
+            str_starts_with($access['hint'], 'cipi git ') ? '  Save a token and Cipi adds the deploy key for you:' : '  Add the deploy key to the repository (cipi deploy '.$app.' --key shows it)',
+            '    '.$access['hint'],
+            "  Check again at any time: cipi git check {$app}",
+        ],
+    };
+}
 
 function engineLabel(?string $engine): string
 {
