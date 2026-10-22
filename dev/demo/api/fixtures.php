@@ -110,6 +110,16 @@ $app = fn (array $attrs): array => array_merge([
     'proxies' => [],
 ], $attrs);
 
+/**
+ * The cipi.yml of an app's live release, as `cipi yml plan <app> --json` reports it
+ * (API 1.35+). `in_sync` is derived by the demo API; a change with `fails` set fails
+ * on apply, so the demo can show a partial outcome.
+ */
+$ymlPlan = fn (string $name, array $attrs = []): array => array_merge([
+    'file' => "/home/{$name}/current/cipi.yml", 'auto' => false, 'valid' => true,
+    'errors' => [], 'warnings' => [], 'changes' => [], 'blockers' => [], 'notes' => [],
+], $attrs);
+
 /** One app of `cipi disk`: GB of files (home) and database, optional soft limit in GB. */
 $diskApp = fn (string $name, float $filesGb, float $dbGb, ?float $limitGb = null): array => [
     'app' => $name, 'files_gb' => $filesGb, 'database_gb' => $dbGb, 'limit_gb' => $limitGb,
@@ -304,6 +314,21 @@ return [
                 ]),
                 'basic_auth' => ['enabled' => false, 'users' => []],
                 'health' => ['enabled' => true, 'url' => 'https://shop.example.com/up', 'expect' => 200, 'state' => 'ok', 'failcount' => 0],
+                // Three changes waiting: the repository raised memory_limit, the queue workers and the crons.
+                'yml' => $ymlPlan('shop', [
+                    'auto' => true,
+                    'changes' => [
+                        ['kind' => 'ini', 'summary' => 'php.ini memory_limit = 512M (was 256M)'],
+                        ['kind' => 'worker-sync', 'summary' => 'update queue worker default (3 process(es))'],
+                        ['kind' => 'worker-add', 'summary' => 'add queue worker emails (1 process(es))'],
+                        ['kind' => 'crons', 'summary' => 'scheduled commands — 2 managed cron entries'],
+                    ],
+                    'notes' => [
+                        '2 post-deploy step(s) will run after every successful deploy (post_on_failure: false)',
+                        '  → artisan scout:sync-index-settings',
+                        '  → artisan octane:reload',
+                    ],
+                ]),
             ],
             'shopapi' => [
                 'info' => $app([
@@ -320,6 +345,7 @@ return [
                 ]),
                 'basic_auth' => ['enabled' => false, 'users' => []],
                 'health' => ['enabled' => true, 'url' => 'https://api.example.com/up', 'expect' => 200, 'state' => 'ok', 'failcount' => 0],
+                'yml' => $ymlPlan('shopapi', ['notes' => ['env.required: all 4 variable(s) are set']]),
             ],
             'console' => [
                 'info' => $app([
@@ -333,6 +359,13 @@ return [
                 ]),
                 'basic_auth' => ['enabled' => false, 'users' => []],
                 'health' => ['enabled' => true, 'url' => 'https://app.example.com/api/health', 'expect' => 200, 'state' => 'ok', 'failcount' => 0],
+                // Blocked: the repository moved to a Node major the server does not have.
+                'yml' => $ymlPlan('console', [
+                    'auto' => true,
+                    'changes' => [['kind' => 'alias-add', 'summary' => 'add domain alias console.example.com']],
+                    'blockers' => ['node.version 26 is not installed — run: cipi node install 26'],
+                    'notes' => ['node settings change on the next deploy, before the build:', '  → version 24 → 26'],
+                ]),
             ],
             'docs' => [
                 'info' => $app([
@@ -358,6 +391,13 @@ return [
                 ]),
                 'basic_auth' => ['enabled' => true, 'users' => ['preview']],
                 'health' => ['enabled' => false, 'url' => null, 'expect' => null, 'state' => null, 'failcount' => 0],
+                'yml' => $ymlPlan('launch', [
+                    'valid' => false,
+                    'errors' => [
+                        'app.basic_auth.users[0].password: unknown key (allowed: password_hash, user)',
+                        'limits.memory: expected a size like 512M or 1G',
+                    ],
+                ]),
             ],
             'blog' => [
                 'info' => $app([
@@ -481,6 +521,14 @@ return [
                 'audit' => $audit('bakery', [['at' => $now - 8 * $day, 'release' => '22', 'commit' => '2a4c6e8b0d1f3a5c7e9b2d4f6a8c0e1b3d5f7a9c']]),
                 'basic_auth' => ['enabled' => false, 'users' => []],
                 'health' => ['enabled' => true, 'url' => 'https://bakery.example.org/up', 'expect' => 200, 'state' => 'ok', 'failcount' => 0],
+                // The backup profile targets an S3 destination whose keys were rotated: apply ends partial.
+                'yml' => $ymlPlan('bakery', [
+                    'changes' => [
+                        ['kind' => 'ini', 'summary' => 'php.ini upload_max_filesize = 64M (was 2M)'],
+                        ['kind' => 'deploy-cfg', 'summary' => 'deploy config: keep_releases=3 (deploy.php regenerated)'],
+                        ['kind' => 'backup-profile', 'summary' => 'create backup profile bakery-nightly (offsite)', 'fails' => true],
+                    ],
+                ]),
             ],
             'dentalcare' => [
                 'info' => $app([
@@ -615,6 +663,13 @@ return [
                 'audit' => $audit('shopstg', [['at' => $now - 40 * 60, 'release' => '18', 'commit' => '6a8c0e2b4d1f3a5c7e9b2d4f6a8c1e3b5d7f9a2c', 'operator' => 'github', 'ip' => '140.82.115.14']]),
                 'basic_auth' => ['enabled' => true, 'users' => ['qa']],
                 'health' => ['enabled' => false, 'url' => null, 'expect' => null, 'state' => null, 'failcount' => 0],
+                'yml' => $ymlPlan('shopstg', [
+                    'auto' => true,
+                    'changes' => [
+                        ['kind' => 'alias-add', 'summary' => 'add domain alias pr.staging.example.com'],
+                        ['kind' => 'limits', 'summary' => 'app limits: memory=1G, disk=10'],
+                    ],
+                ]),
             ],
             'apistg' => [
                 'info' => $app([

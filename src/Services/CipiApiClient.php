@@ -262,6 +262,72 @@ class CipiApiClient
         return $this->put("/apps/{$app}/deploy-config", $payload)['data'] ?? [];
     }
 
+    // ── cipi.yml (API 1.35+ / Cipi ≥ 5.6.4) ───────────────────────────
+
+    /**
+     * `cipi yml plan <app> --json`: the cipi.yml of the live release, whether it is
+     * valid, what `apply` would change, what blocks it, and the auto-apply flag.
+     * `file` is null when the release has none; `valid` and `in_sync` are null when
+     * there is nothing to compare.
+     *
+     * @return array{app: string, file: ?string, auto: bool, valid: ?bool, in_sync: ?bool, errors: list<string>, warnings: list<string>, changes: list<array{kind: string, summary: string}>, blockers: list<string>, notes: list<string>}
+     */
+    public function ymlStatus(string $app): array
+    {
+        $data = $this->get("/apps/{$app}/yml")['data'] ?? [];
+        $data = is_array($data) ? $data : [];
+
+        $lines = fn (mixed $list): array => is_array($list)
+            ? array_values(array_map('strval', array_filter($list, fn ($l) => is_scalar($l) && (string) $l !== '')))
+            : [];
+        $flag = fn (mixed $value): ?bool => is_bool($value) ? $value : null;
+
+        $changes = [];
+        foreach (is_array($data['changes'] ?? null) ? $data['changes'] : [] as $change) {
+            if (is_array($change) && is_scalar($change['summary'] ?? null) && (string) $change['summary'] !== '') {
+                $changes[] = ['kind' => is_scalar($change['kind'] ?? null) ? (string) $change['kind'] : '', 'summary' => (string) $change['summary']];
+            }
+        }
+
+        return [
+            'app' => is_string($data['app'] ?? null) ? $data['app'] : $app,
+            'file' => is_string($data['file'] ?? null) && $data['file'] !== '' ? $data['file'] : null,
+            'auto' => ($data['auto'] ?? false) === true,
+            'valid' => $flag($data['valid'] ?? null),
+            'in_sync' => $flag($data['in_sync'] ?? null),
+            'errors' => $lines($data['errors'] ?? null),
+            'warnings' => $lines($data['warnings'] ?? null),
+            'changes' => $changes,
+            'blockers' => $lines($data['blockers'] ?? null),
+            'notes' => $lines($data['notes'] ?? null),
+        ];
+    }
+
+    /**
+     * Apply the release's cipi.yml (async job `app-yml-apply`). The finished job's
+     * `result` carries `outcome`, `applied`, `failed`, `failures`, `blockers`, `errors`.
+     */
+    public function ymlApply(string $app): array
+    {
+        return $this->post("/apps/{$app}/yml/apply");
+    }
+
+    /**
+     * Apply cipi.yml after every successful deploy — CLI, panel and Git webhook.
+     *
+     * @return array{app?: string, auto?: bool, sudoers?: bool, file?: ?string}
+     */
+    public function ymlAutoEnable(string $app): array
+    {
+        return $this->post("/apps/{$app}/yml/auto/enable")['data'] ?? [];
+    }
+
+    /** @return array{app?: string, auto?: bool, sudoers?: bool, file?: ?string} */
+    public function ymlAutoDisable(string $app): array
+    {
+        return $this->post("/apps/{$app}/yml/auto/disable")['data'] ?? [];
+    }
+
     // ── App / path redirects (API 1.31+ / Cipi ≥ 5.3.1, sudoers ≥ 5.4.1) ──
 
     public function listRedirects(string $app): array

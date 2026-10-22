@@ -216,6 +216,22 @@ class AppDetail extends Component
 
     public string $auditDays = '90';
 
+    // cipi.yml (API 1.35+ / Cipi ≥ 5.6.4)
+    /** @var array{app: string, file: ?string, auto: bool, valid: ?bool, in_sync: ?bool, errors: list<string>, warnings: list<string>, changes: list<array{kind: string, summary: string}>, blockers: list<string>, notes: list<string>}|null */
+    public ?array $yml = null;
+
+    /** null, or why the tab cannot be shown: `ability` (token lacks yml-view) or `server` (API or Cipi too old) */
+    public ?string $ymlUnsupported = null;
+
+    /** The server's own message when it answered 503 (Cipi too old, or the command failed). */
+    public ?string $ymlUnsupportedDetail = null;
+
+    /** Whether the sudo rule for webhook deploys is in place, as reported by the last auto-apply toggle. */
+    public ?bool $ymlSudoers = null;
+
+    /** @var array{outcome: string, applied: int, failed: int, failures: list<string>, blockers: list<string>, errors: list<string>}|null */
+    public ?array $ymlLastApply = null;
+
     // Meilisearch / Laravel Scout (API 1.31+ / Cipi ≥ 5.2.2)
     public ?array $searchStatus = null;
 
@@ -281,6 +297,7 @@ class AppDetail extends Component
             'domains' => 'Domains & SSL',
             'routing' => 'Routing',
             'deploy' => 'Deploy',
+            'yml' => 'cipi.yml',
         ];
         if ($isLaravel) {
             $tabs['env'] = 'Environment';
@@ -314,6 +331,7 @@ class AppDetail extends Component
             'domains' => $this->loadWwwStatus(),
             'routing' => $this->loadRouting(),
             'deploy' => $this->loadDeployTab(),
+            'yml' => $this->loadYml(),
             'env' => $this->loadEnv(),
             'authjson' => $this->loadAuthJson(),
             'run' => $this->loadRunCommands(),
@@ -883,6 +901,101 @@ class AppDetail extends Component
         }
     }
 
+    // ── cipi.yml: plan, apply, auto-apply ─────────────────────────────
+
+    public function loadYml(): void
+    {
+        $this->ymlUnsupported = null;
+        $this->ymlUnsupportedDetail = null;
+
+        try {
+            $this->yml = $this->client()->ymlStatus($this->appName);
+        } catch (CipiApiException $e) {
+            if ($reason = $this->ymlUnsupportedReason($e)) {
+                $this->yml = null;
+                $this->ymlUnsupported = $reason;
+                $this->ymlUnsupportedDetail = $reason === 'server' && $e->getStatusCode() === 503 ? $e->getMessage() : null;
+
+                return;
+            }
+
+            $this->handleApiError($e);
+        }
+    }
+
+    /** Apply is pointless without a valid file, when nothing differs, or while something blocks it. */
+    public function ymlCanApply(): bool
+    {
+        return $this->yml !== null
+            && $this->yml['file'] !== null
+            && $this->yml['valid'] === true
+            && $this->yml['in_sync'] !== true
+            && $this->yml['blockers'] === [];
+    }
+
+    public function applyYml(): void
+    {
+        if (! $this->ymlCanApply()) {
+            $this->dispatch('notify', type: 'info', message: 'Nothing to apply.');
+
+            return;
+        }
+
+        try {
+            $this->dispatchJob($this->client()->ymlApply($this->appName), 'Apply cipi.yml');
+        } catch (CipiApiException $e) {
+            $this->handleYmlManageError($e);
+        }
+    }
+
+    public function enableYmlAuto(): void
+    {
+        $this->setYmlAuto(true);
+    }
+
+    public function disableYmlAuto(): void
+    {
+        $this->setYmlAuto(false);
+    }
+
+    protected function setYmlAuto(bool $enabled): void
+    {
+        try {
+            $data = $enabled ? $this->client()->ymlAutoEnable($this->appName) : $this->client()->ymlAutoDisable($this->appName);
+            $this->ymlSudoers = is_bool($data['sudoers'] ?? null) ? $data['sudoers'] : null;
+            $this->dispatch('notify', type: 'success', message: $enabled
+                ? 'Auto-apply on — cipi.yml is applied after every successful deploy.'
+                : 'Auto-apply off — deploys no longer apply cipi.yml.');
+            $this->loadYml();
+        } catch (CipiApiException $e) {
+            $this->handleYmlManageError($e);
+        }
+    }
+
+    /** `ability` when the token lacks the ability, `server` when the API or Cipi is too old; null otherwise. */
+    protected function ymlUnsupportedReason(CipiApiException $e): ?string
+    {
+        return match (true) {
+            $e->getStatusCode() === 403 && ! str_contains($e->getMessage(), 'IP not allowed') => 'ability',
+            in_array($e->getStatusCode(), [404, 405, 501], true) => 'server',
+            // 503 is also what the client raises when the server cannot be reached.
+            $e->getStatusCode() === 503 && ! isset($e->getDetails()['connection']) => 'server',
+            default => null,
+        };
+    }
+
+    protected function handleYmlManageError(CipiApiException $e): void
+    {
+        $message = match ($this->ymlUnsupportedReason($e)) {
+            'ability' => 'This token lacks the yml-manage ability (403). Recreate it from Connections with yml-manage to apply cipi.yml and turn auto-apply on or off.',
+            'server' => rtrim($e->getStatusCode() === 503 ? $e->getMessage() : 'Not available on this server', '.').' — cipi.yml from the panel requires Cipi 5.6.4+ and cipi/api 1.35+ (cipi self-update && cipi api update).',
+            default => $this->friendlyApiError($e),
+        };
+
+        $this->error = $message;
+        $this->dispatch('notify', type: 'error', message: $message);
+    }
+
     // ── Search (Meilisearch / Scout) ──────────────────────────────────
 
     public function loadSearchStatus(): void
@@ -1296,6 +1409,7 @@ class AppDetail extends Component
             return;
         }
 
+        $this->rememberYmlApply($data);
         $this->loadApp();
 
         match ($this->activeTab) {
@@ -1305,8 +1419,30 @@ class AppDetail extends Component
                 $this->auditLoaded = false;
                 $this->loadDeployTab();
             })(),
+            'yml' => $this->loadYml(),
             default => null,
         };
+    }
+
+    protected function onJobFailed(array $data): void
+    {
+        // A partial, blocked or invalid apply still fails the job: keep its result
+        // and show the plan as it is now (a partial apply changed part of it).
+        if ($this->rememberYmlApply($data)) {
+            $this->loadApp();
+            $this->loadYml();
+        }
+    }
+
+    protected function rememberYmlApply(array $data): bool
+    {
+        if (($data['type'] ?? null) !== 'app-yml-apply') {
+            return false;
+        }
+
+        $this->ymlLastApply = $this->jobYmlApply();
+
+        return true;
     }
 
     public function siteUrl(): string

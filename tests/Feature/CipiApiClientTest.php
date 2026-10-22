@@ -69,6 +69,26 @@ class CipiApiClientTest extends TestCase
     }
 
     #[Test]
+    public function the_yml_plan_is_normalized(): void
+    {
+        Http::fake(['*' => Http::response(['data' => [
+            'app' => 'shop', 'file' => '', 'auto' => 'yes', 'valid' => null, 'in_sync' => null,
+            'changes' => [['kind' => 'php', 'summary' => 'PHP 8.3 → 8.4'], ['kind' => 'noise'], 'junk'],
+            'blockers' => ['', 'PHP 8.4 is not installed — run: cipi php install 8.4'],
+        ]])]);
+
+        $plan = CipiApiClient::for($this->server())->ymlStatus('shop');
+
+        $this->assertNull($plan['file']);
+        $this->assertFalse($plan['auto']);
+        $this->assertNull($plan['valid']);
+        $this->assertSame([['kind' => 'php', 'summary' => 'PHP 8.3 → 8.4']], $plan['changes']);
+        $this->assertSame(['PHP 8.4 is not installed — run: cipi php install 8.4'], $plan['blockers']);
+        $this->assertSame([], $plan['errors']);
+        $this->assertSame([], $plan['notes']);
+    }
+
+    #[Test]
     public function status_for_many_queries_servers_concurrently_and_isolates_failures(): void
     {
         $ok = $this->server();

@@ -68,6 +68,31 @@ class JobOutputParserTest extends TestCase
     }
 
     #[Test]
+    public function it_reads_a_cipi_yml_apply_result(): void
+    {
+        $parser = new JobOutputParser;
+
+        $partial = $parser->ymlApply([
+            'app' => 'shop', 'outcome' => 'partial', 'applied' => '2', 'failed' => 1,
+            'failures' => ['add queue worker emails (1 process(es))', ''], 'blockers' => [], 'errors' => null,
+        ]);
+        $this->assertSame([
+            'outcome' => 'partial', 'applied' => 2, 'failed' => 1,
+            'failures' => ['add queue worker emails (1 process(es))'], 'blockers' => [], 'errors' => [],
+        ], $partial);
+
+        $this->assertSame('cipi.yml applied in part: 1 change failed, 2 applied.', $parser->extractError('[ERROR] Applied 2 change(s), 1 failed', ['outcome' => 'partial', 'applied' => 2, 'failed' => 1]));
+        $this->assertSame('cipi.yml not applied: 2 blockers to resolve first.', $parser->extractError('', ['outcome' => 'blocked', 'blockers' => ['a', 'b']]));
+        $this->assertSame('cipi.yml is not valid — nothing was applied.', $parser->extractError('', ['outcome' => 'invalid', 'errors' => ['line 4: …']]));
+        $this->assertSame('There is no cipi.yml in the current release.', $parser->extractError('', ['outcome' => 'no-file']));
+
+        // Other jobs and unknown outcomes are not a cipi.yml result.
+        $this->assertNull($parser->ymlApply(['app' => 'shop', 'deployed' => true]));
+        $this->assertNull($parser->ymlApply(['outcome' => 'maybe']));
+        $this->assertSame([], $parser->secrets(['app' => 'shop', 'outcome' => 'applied', 'applied' => 3]));
+    }
+
+    #[Test]
     public function it_extracts_the_cli_error_and_drops_deployer_usage_noise(): void
     {
         $parser = new JobOutputParser;

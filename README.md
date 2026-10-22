@@ -9,12 +9,12 @@ The optional web control panel for [Cipi](https://cipi.sh): manage one or many C
 
 Cipi stays CLI-first. The panel is a thin Laravel + Livewire client of the API: everything it does can still be done with `cipi` over SSH, it keeps no state about your servers besides an encrypted API token, and removing it leaves every server untouched.
 
-> Screenshots in this README come from the bundled demo environment (`./dev/demo.sh`) — a stand-in for `cipi api` 1.34 with three fictional servers. See [Local development & demo](#local-development--demo).
+> Screenshots in this README come from the bundled demo environment (`./dev/demo.sh`) — a stand-in for `cipi api` 1.35 with three fictional servers. See [Local development & demo](#local-development--demo).
 
 ## Requirements
 
 - A Cipi server to host the panel — `cipi gui <domain>` provisions everything
-- **Cipi API** on every server you manage (`cipi api`), ideally API **1.34+** with Cipi **5.6.0+** (build command at creation, repository access check); 1.33 / 5.5.2 for disk usage; 1.31 / 5.4.1 for everything else
+- **Cipi API** on every server you manage (`cipi api`), ideally API **1.35+** with Cipi **5.6.4+** (cipi.yml plan, apply and auto-apply); 1.34 / 5.6.0 for the build command at creation and the repository access check; 1.33 / 5.5.2 for disk usage; 1.31 / 5.4.1 for everything else
 - PHP 8.3+, Laravel 12 or 13, Livewire 3.6+ or 4 (only relevant for manual installs)
 
 ## Installation
@@ -43,7 +43,7 @@ php artisan cipi:seed-gui-user --email=admin@example.com --password='a-long-pass
 2. Create a token with every ability the panel uses (the **Connections** page shows the same command with a copy button):
 
 ```bash
-cipi api token create --name=gui --abilities=apps-view,apps-create,apps-edit,apps-delete,apps-suspend,apps-basicauth,apps-env,apps-auth,apps-artisan,apps-run,apps-deploy-config,aliases-view,aliases-create,aliases-delete,www-manage,redirects-view,redirects-manage,proxies-view,proxies-manage,node-view,node-manage,search-view,search-manage,deploy-manage,ssl-manage,dbs-view,dbs-create,dbs-manage,php-view,php-manage,ssh-view,ssh-manage,services-view,services-manage,smtp-view,smtp-manage,health-view,health-manage,packages-view,monitor-view,zt-view,disk-view,ip-whitelist-view,ip-whitelist-manage,status-view
+cipi api token create --name=gui --abilities=apps-view,apps-create,apps-edit,apps-delete,apps-suspend,apps-basicauth,apps-env,apps-auth,apps-artisan,apps-run,apps-deploy-config,aliases-view,aliases-create,aliases-delete,www-manage,redirects-view,redirects-manage,proxies-view,proxies-manage,node-view,node-manage,search-view,search-manage,deploy-manage,ssl-manage,dbs-view,dbs-create,dbs-manage,php-view,php-manage,ssh-view,ssh-manage,services-view,services-manage,smtp-view,smtp-manage,health-view,health-manage,packages-view,monitor-view,zt-view,disk-view,yml-view,yml-manage,ip-whitelist-view,ip-whitelist-manage,status-view
 ```
 
 3. In the panel open **Connections → Add server** and enter a name, the API URL (`https://vps.example.com`) and the token. The connection is tested right away; tokens are encrypted at rest with Laravel's `Crypt`.
@@ -58,7 +58,7 @@ Sections a server's API or token does not support are shown as "not available" o
 | ![Create app](docs/screenshots/create-app.webp) | **Create** apps with a type picker; Node framework presets use the same defaults as `cipi app create --node`. Laravel apps take an optional **build command** (`npm ci && npm run build`) run on every deploy before the release goes live. Wildcard primary domains (`*.example.com`) are accepted. |
 | ![Credentials](docs/screenshots/job-credentials.webp) | **Async jobs** run in an overlay with live status, elapsed time and the CLI output. One-time secrets — SSH and database passwords, deploy key, webhook URL and token — are listed with copy buttons. After app create, and after a repository or branch change, the overlay says whether the deploy key can read the repository and, when it cannot, shows Git's error and the command to fix it on the server. |
 | ![App overview](docs/screenshots/app-overview.webp) | **App overview** — details, configuration (PHP version, Node pin, repository, branch, domain), HTTP healthcheck and Meilisearch/Scout. Tabs are part of the URL, so every view can be bookmarked. |
-| ![Deploy](docs/screenshots/app-deploy.webp) | **Deploy** — deploy, roll back, unlock, recreate or rotate the Git webhook, the hash-chained **deploy audit** (who, from where, which commit) and the structured `deploy.php` pipeline. |
+| ![Deploy](docs/screenshots/app-deploy.webp) | **Deploy** — deploy, roll back, unlock, recreate or rotate the Git webhook, the hash-chained **deploy audit** (who, from where, which commit) and the structured `deploy.php` pipeline. The **cipi.yml** tab shows the repository's `cipi.yml` against the server — validity, the plan, blockers, in sync — applies it, and turns auto-apply after every deploy on or off. |
 | ![Routing](docs/screenshots/app-routing.webp) | **Routing** — whole-app redirect (set, toggle, remove), path redirects and prefix reverse proxies, with the same validation as `cipi redirect` / `cipi proxy`. |
 | ![Domains](docs/screenshots/app-domains.webp) | **Domains & SSL** — aliases, Let's Encrypt, forced HTTPS and www ↔ apex canonical redirects. |
 | ![Environment](docs/screenshots/app-env.webp) | **Environment** — edit `shared/.env` with sensitive values masked, a filter, and changed rows highlighted before saving. Also Composer `auth.json`, Artisan, whitelisted commands and HTTP basic auth. |
@@ -78,7 +78,7 @@ Light and dark themes follow the system preference (toggle in the header), and t
 
 ## API coverage
 
-The panel targets **Cipi API 1.34** and degrades per section on older APIs or narrower tokens.
+The panel targets **Cipi API 1.35** and degrades per section on older APIs or narrower tokens.
 
 | Area | Endpoints |
 |------|-----------|
@@ -87,6 +87,7 @@ The panel targets **Cipi API 1.34** and degrades per section on older APIs or na
 | Env / auth.json | `GET/PUT /api/apps/{name}/env`, `GET/POST/PUT/DELETE /api/apps/{name}/auth` |
 | Artisan / commands | `POST /api/apps/{name}/artisan`, `GET /api/run-commands`, `POST /api/apps/{name}/run` |
 | Deploy | deploy, rollback, unlock, `GET /api/apps/{name}/deploy/audit`, `GET/PUT /api/apps/{name}/deploy-config` |
+| cipi.yml | `GET /api/apps/{name}/yml`, `POST /api/apps/{name}/yml/apply` (job `app-yml-apply`), `POST /api/apps/{name}/yml/auto/enable` and `…/disable` — abilities `yml-view` / `yml-manage` (API 1.35+, Cipi 5.6.4+) |
 | Domains | aliases, `www` status/add/force-to-root/force-from-root/clear, `ssl`, `ssl/force` |
 | Routing | `/redirects`, `/redirect` (set, enable, disable, unset), `/proxies` |
 | Node | `GET /api/node`, `GET /api/apps/{name}/node`, `POST /api/apps/{name}/node/restart` |
@@ -96,7 +97,7 @@ The panel targets **Cipi API 1.34** and degrades per section on older APIs or na
 | Server | PHP list/install, SSH keys, services + restart, SMTP (configure, enable, disable, test, delete), packages, monitor, Zero Trust, IP whitelist |
 | Disk | `GET /api/disk`, `GET /api/disk/dbs` — the figures of `cipi disk` / `cipi disk db` (API 1.33+, Cipi 5.5.2+ for the API sudoers); measured on request, so these two calls use `http_disk_timeout` |
 | Logs | `GET /api/apps/{name}/logs` |
-| Jobs | `GET /api/jobs/{id}`; reads `repository_access` and `build` from app create / app edit results (API 1.34+, Cipi 5.6.0+) |
+| Jobs | `GET /api/jobs/{id}`; reads `repository_access` and `build` from app create / app edit results (API 1.34+, Cipi 5.6.0+) and the outcome of a cipi.yml apply (API 1.35+, Cipi 5.6.4+) |
 
 `cipi disk` is in the panel since API 1.33 (**Server → Disk**). What is not in the panel yet — per-app disk limits and Cloudflare DNS accounts (API 1.32), `cipi ssh apps` and `cipi firewall attempts` (CLI only) — is pointed to with the command where it matters.
 
@@ -112,7 +113,7 @@ The panel targets **Cipi API 1.34** and degrades per section on older APIs or na
 | `http_timeout` / `http_connect_timeout` | API request timeouts (seconds) | `30` / `10` |
 | `http_disk_timeout` | Timeout for `GET /api/disk*`, which measure every app home on request (seconds) | `180` |
 | `php_versions` | Fallback PHP hints when a server cannot list its versions | `['8.4', '8.5']` |
-| `token_abilities` | Abilities shown in the token command on Connections | API 1.33 list |
+| `token_abilities` | Abilities shown in the token command on Connections | API 1.35 list |
 
 Environment variables: `CIPI_GUI_PREFIX`, `CIPI_GUI_JOB_POLL_MS`, `CIPI_GUI_JOB_POLL_MAX`, `CIPI_GUI_HTTP_TIMEOUT`, `CIPI_GUI_HTTP_CONNECT_TIMEOUT`, `CIPI_GUI_HTTP_DISK_TIMEOUT`, `CIPI_GUI_ADMIN_EMAIL`, `CIPI_GUI_ADMIN_NAME`.
 
@@ -125,7 +126,7 @@ Artisan commands: `cipi:seed-gui-user` (create or `--reset` the admin), `cipi:gu
 ./dev/demo.sh       # demo API + panel on http://127.0.0.1:8000 (admin@cipi.local / admin)
 ```
 
-`dev/demo/api` is a stateful stand-in for `cipi api` 1.34: three fictional servers (production, client hosting, staging) with Laravel, Node and custom apps, databases, monitor checks, a deploy ledger and logs. Async jobs go from pending to completed with CLI-like output, and changes persist until `./dev/demo.sh --reset`. Domains and IPs are reserved documentation ranges. Details in [`dev/README.md`](dev/README.md).
+`dev/demo/api` is a stateful stand-in for `cipi api` 1.35: three fictional servers (production, client hosting, staging) with Laravel, Node and custom apps, databases, monitor checks, a deploy ledger and logs. Async jobs go from pending to completed with CLI-like output, and changes persist until `./dev/demo.sh --reset`. Domains and IPs are reserved documentation ranges. Details in [`dev/README.md`](dev/README.md).
 
 Tests (Orchestra Testbench + PHPUnit) and the CI matrix (PHP 8.3–8.5 × Laravel 12/13 × Livewire 3/4):
 

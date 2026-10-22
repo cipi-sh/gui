@@ -53,6 +53,9 @@
 
             @if(in_array($status, ['completed', 'failed'], true))
                 @include('cipi-gui::partials.job-repository-access')
+                @if($ymlResult = $this->jobYmlApply())
+                    @include('cipi-gui::partials.yml-apply-result', ['ymlResult' => $ymlResult])
+                @endif
             @endif
 
             @if($secrets !== [])

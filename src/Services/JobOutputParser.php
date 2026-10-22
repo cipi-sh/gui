@@ -9,6 +9,9 @@ class JobOutputParser
      */
     private const DEPLOYER_USAGE_PATTERN = '/\n\s*deploy \[-p\|--parallel\].*$/s';
 
+    /** Outcomes of `cipi yml apply` in an `app-yml-apply` job result. */
+    public const YML_OUTCOMES = ['applied', 'unchanged', 'partial', 'blocked', 'invalid', 'no-file'];
+
     public function stripAnsi(string $text): string
     {
         return preg_replace('/\x1b\[[0-9;]*m/', '', $text) ?? $text;
@@ -29,6 +32,10 @@ class JobOutputParser
     {
         if (! empty($result['error']) && ! $this->isDeployerUsageLine($result['error'])) {
             return (string) $result['error'];
+        }
+
+        if ($yml = $this->ymlApplyError($result)) {
+            return $yml;
         }
 
         $text = $this->cleanOutput($output);
@@ -180,6 +187,54 @@ class JobOutputParser
         $build = $result['build'] ?? null;
 
         return is_string($build) && trim($build) !== '' ? trim($build) : null;
+    }
+
+    /**
+     * Result of a cipi.yml apply (job `app-yml-apply`, API 1.35+ / Cipi 5.6.4+).
+     * `partial`, `blocked`, `invalid` and `no-file` end as failed jobs but still
+     * carry the result. Null when the result is not one.
+     *
+     * @param  array<string, mixed>  $result
+     * @return array{outcome: string, applied: int, failed: int, failures: list<string>, blockers: list<string>, errors: list<string>}|null
+     */
+    public function ymlApply(array $result): ?array
+    {
+        $outcome = $result['outcome'] ?? null;
+        if (! in_array($outcome, self::YML_OUTCOMES, true)) {
+            return null;
+        }
+
+        $lines = fn (mixed $list): array => is_array($list)
+            ? array_values(array_map('strval', array_filter($list, fn ($l) => is_scalar($l) && trim((string) $l) !== '')))
+            : [];
+
+        return [
+            'outcome' => $outcome,
+            'applied' => is_numeric($result['applied'] ?? null) ? (int) $result['applied'] : 0,
+            'failed' => is_numeric($result['failed'] ?? null) ? (int) $result['failed'] : 0,
+            'failures' => $lines($result['failures'] ?? null),
+            'blockers' => $lines($result['blockers'] ?? null),
+            'errors' => $lines($result['errors'] ?? null),
+        ];
+    }
+
+    /** One line for a cipi.yml apply that did not (fully) apply; null otherwise. */
+    private function ymlApplyError(?array $result): ?string
+    {
+        $yml = $this->ymlApply($result ?? []);
+        if ($yml === null) {
+            return null;
+        }
+
+        $count = fn (int $n, string $word): string => $n.' '.$word.($n === 1 ? '' : 's');
+
+        return match ($yml['outcome']) {
+            'partial' => 'cipi.yml applied in part: '.$count($yml['failed'], 'change').' failed, '.$yml['applied'].' applied.',
+            'blocked' => 'cipi.yml not applied: '.$count(count($yml['blockers']), 'blocker').' to resolve first.',
+            'invalid' => 'cipi.yml is not valid — nothing was applied.',
+            'no-file' => 'There is no cipi.yml in the current release.',
+            default => null,
+        };
     }
 
     private function isDeployerUsageLine(string $line): bool

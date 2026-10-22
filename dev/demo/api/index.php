@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Cipi GUI demo API — a stateful stand-in for `cipi api` (REST API 1.34).
+ * Cipi GUI demo API — a stateful stand-in for `cipi api` (REST API 1.35).
  *
  * It answers the same paths, payloads and status codes the GUI consumes, with
  * realistic fixtures (fixtures.php) and async jobs that move pending → running →
@@ -21,7 +21,7 @@ declare(strict_types=1);
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
-const API_VERSION = '1.34.0';
+const API_VERSION = '1.35.0';
 const JOB_PENDING_SECONDS = 0.6;
 const JOB_RUNNING_SECONDS = 2.4;
 
@@ -525,6 +525,21 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
 
             return [200, ['data' => ['app' => $name, 'records' => $records]]];
 
+        // cipi.yml (API 1.35+): `cipi yml plan --json`, apply, auto on/off
+        case $sub === '/yml' && $method === 'GET':
+            return [200, ['data' => ymlView($name, $a['yml'] ?? null)]];
+        case $sub === '/yml/apply' && $method === 'POST':
+            return $job('app-yml-apply');
+        case in_array($sub, ['/yml/auto/enable', '/yml/auto/disable'], true) && $method === 'POST':
+            $on = $sub === '/yml/auto/enable';
+            if (isset($a['yml'])) {
+                $a['yml']['auto'] = $on;
+            } elseif ($on) {
+                $a['yml'] = ['file' => null, 'auto' => true];
+            }
+
+            return [200, ['data' => ['app' => $name, 'auto' => $on, 'sudoers' => $on, 'file' => $a['yml']['file'] ?? null]]];
+
         // SSL
         case $sub === '/ssl' && $method === 'POST':
             return $job('ssl-install');
@@ -937,6 +952,9 @@ function runJob(array &$s, string $type, array $p): array
 
             return [true, $mode ? "→ Canonical host for '{$app}'...\n  ✓ 301 ".($mode === 'to-root' ? 'www → apex' : 'apex → www')."\n  ✓ nginx -t OK, reloaded" : "→ Clearing www redirect...\n  ✓ Both hosts served directly", ['app' => $app, 'redirect' => $mode]];
 
+        case 'app-yml-apply':
+            return ymlApply($s['apps'][$app], $app);
+
         case 'ssl-install':
             $hosts = array_merge([$domain], $a['info']['aliases']);
             $s['apps'][$app]['info']['force_https'] = true;
@@ -1138,6 +1156,76 @@ function wwwStatus(string $name, array $info): array
 function redirectsView(string $name, array $info): array
 {
     return ['app' => $name, 'redirect' => $info['redirect'], 'redirects' => $info['redirects']];
+}
+
+/** `cipi yml plan <app> --json`; a release without the file has only the auto flag. */
+function ymlView(string $name, ?array $yml): array
+{
+    $file = $yml['file'] ?? null;
+    $valid = $file === null ? null : (bool) ($yml['valid'] ?? true);
+    $changes = array_map(fn ($c) => ['kind' => $c['kind'], 'summary' => $c['summary']], $file !== null && $valid ? $yml['changes'] : []);
+    $blockers = $file !== null && $valid ? $yml['blockers'] : [];
+
+    return [
+        'app' => $name, 'file' => $file, 'auto' => (bool) ($yml['auto'] ?? false), 'valid' => $valid,
+        'in_sync' => $valid ? $changes === [] && $blockers === [] : null,
+        'errors' => $file !== null ? $yml['errors'] : [], 'warnings' => $file !== null ? $yml['warnings'] : [],
+        'changes' => $changes, 'blockers' => $blockers, 'notes' => $file !== null && $valid ? $yml['notes'] : [],
+    ];
+}
+
+/** `cipi yml apply <app> --yes`: [ok, output, result] like the API job; applied changes leave the plan. */
+function ymlApply(array &$a, string $app): array
+{
+    $yml = $a['yml'] ?? null;
+    $result = fn (string $outcome, array $extra = []): array => array_merge(
+        ['app' => $app, 'outcome' => $outcome, 'applied' => 0, 'failed' => 0, 'failures' => [], 'blockers' => [], 'errors' => []],
+        $extra,
+    );
+
+    if (($yml['file'] ?? null) === null) {
+        return [false, "[ERROR] No cipi.yml found for '{$app}'.\n  Looked in: /home/{$app}/current/cipi.yml, current/cipi.yaml, htdocs/cipi.yml, shared/cipi.yml", $result('no-file', ['errors' => ["No cipi.yml found for '{$app}'"]])];
+    }
+    if (! $yml['valid']) {
+        return [false, "→ Validating {$yml['file']}...\n".implode("\n", array_map(fn ($e) => "  ✗ {$e}", $yml['errors']))."\n[ERROR] cipi.yml is not valid — nothing was applied", $result('invalid', ['errors' => $yml['errors']])];
+    }
+    if ($yml['blockers'] !== []) {
+        return [false, "Blocking:\n".implode("\n", array_map(fn ($b) => "  ✗ {$b}", $yml['blockers']))."\n[ERROR] Nothing was applied — resolve the blocking items above first.", $result('blocked', ['blockers' => $yml['blockers']])];
+    }
+    if ($yml['changes'] === []) {
+        return [true, '✓ Nothing to do — the server already matches cipi.yml', $result('unchanged')];
+    }
+
+    $lines = ["→ Applying {$yml['file']} to '{$app}'..."];
+    $failures = [];
+    $kept = [];
+    foreach ($yml['changes'] as $change) {
+        if (! empty($change['fails'])) {
+            $failures[] = $change['summary'];
+            $kept[] = $change;
+            $lines[] = "[ERROR]   failed: {$change['summary']}";
+        } else {
+            $lines[] = "  ✓ {$change['summary']}";
+        }
+    }
+    $applied = count($yml['changes']) - count($failures);
+    $a['yml']['changes'] = $kept;
+    $lines[] = '';
+
+    if ($failures === []) {
+        $lines[] = "✓ Applied {$applied} change(s) from cipi.yml";
+
+        return [true, implode("\n", $lines), $result('applied', ['applied' => $applied])];
+    }
+
+    // The demo lets a failed change through on the next apply.
+    foreach ($a['yml']['changes'] as &$change) {
+        unset($change['fails']);
+    }
+    unset($change);
+    $lines[] = '[ERROR] Applied '.$applied.' change(s), '.count($failures).' failed';
+
+    return [false, implode("\n", $lines), $result('partial', ['applied' => $applied, 'failed' => count($failures), 'failures' => $failures])];
 }
 
 function appLogs(string $name, array $info, array $query): array

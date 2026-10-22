@@ -156,6 +156,17 @@ trait ManagesAsyncJobs
         return app(JobOutputParser::class)->build($this->activeJobResult ?? []);
     }
 
+    /**
+     * Outcome of a finished cipi.yml apply (API 1.35+ / Cipi 5.6.4+); null for
+     * every other job.
+     *
+     * @return array{outcome: string, applied: int, failed: int, failures: list<string>, blockers: list<string>, errors: list<string>}|null
+     */
+    public function jobYmlApply(): ?array
+    {
+        return app(JobOutputParser::class)->ymlApply($this->activeJobResult ?? []);
+    }
+
     protected function onJobCompleted(array $data): void {}
 
     protected function onJobFailed(array $data): void {}

@@ -42,7 +42,7 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Token abilities (Cipi API 1.33)
+    | Token abilities (Cipi API 1.35)
     |--------------------------------------------------------------------------
     |
     | Everything the panel calls. Shown on the Connections page as a ready-made
@@ -58,7 +58,7 @@ return [
         'deploy-manage', 'ssl-manage', 'dbs-view', 'dbs-create', 'dbs-manage',
         'php-view', 'php-manage', 'ssh-view', 'ssh-manage', 'services-view', 'services-manage',
         'smtp-view', 'smtp-manage', 'health-view', 'health-manage',
-        'packages-view', 'monitor-view', 'zt-view', 'disk-view',
+        'packages-view', 'monitor-view', 'zt-view', 'disk-view', 'yml-view', 'yml-manage',
         'ip-whitelist-view', 'ip-whitelist-manage', 'status-view',
     ],
 

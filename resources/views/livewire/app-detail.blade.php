@@ -687,6 +687,173 @@
                 @endif
             </div>
 
+        {{-- ═══ cipi.yml ═══ --}}
+        @elseif($activeTab === 'yml')
+            @if($ymlUnsupported === 'ability')
+                <x-cipi::alert type="warn" title="This token cannot read cipi.yml">
+                    The tab needs the <code>yml-view</code> ability, and <code>yml-manage</code> to apply the file and turn auto-apply on or off.
+                    Existing tokens do not get them automatically: recreate the token from <a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>.
+                </x-cipi::alert>
+            @elseif($ymlUnsupported === 'server')
+                <x-cipi::alert type="warn" title="cipi.yml needs a newer server">
+                    Requires Cipi 5.6.4+ and cipi/api 1.35+ — run <code>cipi self-update &amp;&amp; cipi api update</code> on the server, then give the token
+                    <code>yml-view</code> and <code>yml-manage</code>. Until then: <code>cipi yml plan {{ $app['app'] }}</code> and <code>cipi yml apply {{ $app['app'] }}</code> over SSH.
+                    @if($ymlUnsupportedDetail)
+                        <p class="mt-2">The server said: <code>{{ $ymlUnsupportedDetail }}</code></p>
+                    @endif
+                </x-cipi::alert>
+            @elseif($yml === null)
+                <div class="card"><div class="skeleton h-24 w-full"></div></div>
+            @else
+                @php
+                    $ymlFile = $yml['file'];
+                    $ymlChanges = count($yml['changes']);
+                    [$ymlBadge, $ymlState] = match (true) {
+                        $ymlFile === null => ['badge-gray', 'No file'],
+                        $yml['valid'] === false => ['badge-red', 'Invalid'],
+                        $yml['blockers'] !== [] => ['badge-red', 'Blocked'],
+                        $yml['in_sync'] === true => ['badge-green', 'In sync'],
+                        default => ['badge-amber', $ymlChanges.' '.\Illuminate\Support\Str::plural('change', $ymlChanges).' to apply'],
+                    };
+                    $ymlCanApply = $this->ymlCanApply();
+                    $nodeExtra = $isNode ? ', and Node mode, version, build and start command' : '';
+                @endphp
+
+                @if($ymlLastApply)
+                    <div class="space-y-3 mb-4" data-yml-last-apply>
+                        @include('cipi-gui::partials.yml-apply-result', ['ymlResult' => $ymlLastApply])
+                    </div>
+                @endif
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div class="card lg:col-span-2">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="document" /> cipi.yml</h2>
+                                <p class="card-subtitle">The server settings the repository asks for — aliases, PHP, limits, workers, deploy recipe, crons, backups — compared with what this server has now.</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="badge {{ $ymlBadge }}" data-yml-state>{{ $ymlState }}</span>
+                                <button type="button" wire:click="loadYml" class="btn btn-ghost btn-icon btn-sm" aria-label="Refresh plan"><x-cipi::icon name="refresh" /></button>
+                            </div>
+                        </div>
+
+                        <dl class="kv mb-4">
+                            <dt>File</dt>
+                            <dd>
+                                @if($ymlFile !== null)
+                                    <span class="font-mono text-xs">{{ $ymlFile }}</span>
+                                @else
+                                    <span class="text-muted">No cipi.yml in the current release</span>
+                                @endif
+                            </dd>
+                            @if($ymlFile !== null)
+                                <dt>Valid</dt><dd>{{ $yml['valid'] === false ? 'No — see the errors below' : 'Yes' }}</dd>
+                            @endif
+                        </dl>
+
+                        @if($ymlFile === null)
+                            <p class="text-sm text-muted">
+                                Commit a <code>cipi.yml</code> at the root of the repository and deploy. To start from what this server already has, run
+                                <code>cipi yml generate {{ $app['app'] }} &gt; cipi.yml</code> on the server.
+                            </p>
+                        @else
+                            <div class="space-y-3">
+                                @if($yml['valid'] === false)
+                                    <x-cipi::alert type="danger" title="cipi.yml is not valid — fix it in the repository and deploy" data-yml-errors>
+                                        <ul class="mt-1 space-y-1 font-mono text-xs" style="list-style:disc;padding-left:1.1rem;">
+                                            @foreach($yml['errors'] as $message)<li>{{ $message }}</li>@endforeach
+                                        </ul>
+                                    </x-cipi::alert>
+                                @endif
+
+                                @if($yml['blockers'])
+                                    <x-cipi::alert type="danger" title="Apply is blocked until these are resolved" data-yml-blockers>
+                                        <ul class="mt-1 space-y-1" style="list-style:disc;padding-left:1.1rem;">
+                                            @foreach($yml['blockers'] as $blocker)<li>{{ $blocker }}</li>@endforeach
+                                        </ul>
+                                    </x-cipi::alert>
+                                @endif
+
+                                @if($yml['warnings'])
+                                    <x-cipi::alert type="warn" title="Warnings">
+                                        <ul class="mt-1 space-y-1" style="list-style:disc;padding-left:1.1rem;">
+                                            @foreach($yml['warnings'] as $warning)<li>{{ $warning }}</li>@endforeach
+                                        </ul>
+                                    </x-cipi::alert>
+                                @endif
+                            </div>
+
+                            @if($yml['valid'] !== false)
+                                <div class="mt-4">
+                                    <p class="stat-label mb-2">Plan</p>
+                                    @if($yml['in_sync'] === true)
+                                        <p class="text-sm text-success flex items-center gap-2" data-yml-in-sync><x-cipi::icon name="check-circle" /> In sync — the server already matches cipi.yml.</p>
+                                    @elseif($yml['changes'] === [])
+                                        <p class="text-sm text-muted">No changes to list.</p>
+                                    @else
+                                        <ul data-yml-changes>
+                                            @foreach($yml['changes'] as $change)
+                                                <li class="list-row" wire:key="yml-change-{{ $loop->index }}">
+                                                    <span class="text-sm min-w-0 flex-1 break-words">{{ $change['summary'] }}</span>
+                                                    @if($change['kind'] !== '')<span class="badge badge-mono">{{ $change['kind'] }}</span>@endif
+                                                </li>
+                                            @endforeach
+                                        </ul>
+                                    @endif
+                                </div>
+                            @endif
+
+                            @if($yml['notes'])
+                                <ul class="mt-4 space-y-1 text-xs text-muted" data-yml-notes>
+                                    @foreach($yml['notes'] as $note)<li class="whitespace-pre-wrap">{{ $note }}</li>@endforeach
+                                </ul>
+                            @endif
+                        @endif
+
+                        <div class="flex flex-wrap items-center justify-between gap-3 mt-5 pt-4 border-t">
+                            <p class="text-xs text-subtle">
+                                @if($ymlCanApply)
+                                    Runs <code>cipi yml apply {{ $app['app'] }}</code> on the server.
+                                @elseif($ymlFile === null)
+                                    Nothing to apply without a cipi.yml.
+                                @elseif($yml['valid'] === false)
+                                    Fix the errors before applying.
+                                @elseif($yml['blockers'])
+                                    Resolve the blockers before applying.
+                                @else
+                                    Nothing to apply.
+                                @endif
+                            </p>
+                            <button type="button" wire:click="applyYml" class="btn btn-primary" @disabled(! $ymlCanApply) wire:loading.attr="disabled" wire:target="applyYml"><x-cipi::icon name="play" /> Apply now</button>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title">Auto-apply</h2>
+                                <p class="card-subtitle">Apply cipi.yml after every successful deploy — from the CLI, the panel or the Git webhook.</p>
+                            </div>
+                            <span class="badge {{ $yml['auto'] ? 'badge-green' : 'badge-gray' }}" data-yml-auto>{{ $yml['auto'] ? 'On' : 'Off' }}</span>
+                        </div>
+                        <p class="text-sm text-muted mb-4">
+                            While it is on, anyone who can commit to the repository can change this app's aliases, PHP settings, limits, workers, deploy recipe, scheduled commands, databases and backup schedule{{ $nodeExtra }}.
+                        </p>
+                        @if($yml['auto'] && $ymlSudoers === false)
+                            <x-cipi::alert type="warn" class="mb-4">
+                                The sudo rule that lets webhook deploys apply the file is missing — run <code>cipi yml auto {{ $app['app'] }} on</code> on the server.
+                            </x-cipi::alert>
+                        @endif
+                        @if($yml['auto'])
+                            <button type="button" wire:click="disableYmlAuto" wire:confirm="Turn off auto-apply for {{ $app['app'] }}? Deploys keep the server settings as they are; cipi.yml is applied only when you apply it." class="btn btn-secondary">Turn off</button>
+                        @else
+                            <button type="button" wire:click="enableYmlAuto" wire:confirm="Turn on auto-apply for {{ $app['app'] }}? cipi.yml will be applied after every successful deploy (CLI, panel and Git webhook): anyone who can commit to the repository can then change this app's aliases, PHP settings, limits, workers, deploy recipe, scheduled commands, databases and backup schedule{{ $nodeExtra }}." class="btn btn-primary">Turn on</button>
+                        @endif
+                    </div>
+                </div>
+            @endif
+
         {{-- ═══ Environment ═══ --}}
         @elseif($activeTab === 'env')
             <div class="card" x-data="{ filter: '' }">

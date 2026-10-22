@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.3.0] — 2026-10-22
+
+Aligned with Cipi API 1.35 / Cipi 5.6.4: cipi.yml from the panel. Needs **cipi/api ≥ 1.35.0** and **Cipi ≥ 5.6.4** on the server (5.6.4 adds the `--json` outputs the API reads, and is also the release where auto-apply works on Git webhook deploys), plus the new token abilities `yml-view` and `yml-manage`, which existing tokens do not get automatically. Older servers and narrower tokens get an explanation on the tab instead.
+
+### Added
+
+- **App → cipi.yml** — the `cipi.yml` of the live release next to what this server has now, from `GET /api/apps/{name}/yml` (`cipi yml plan --json`): the file path (or that the release has none, with the `cipi yml generate` command to start one), whether it is valid with the parser's errors and warnings, the plan — every change `apply` would make by its summary, the blockers that stop it, the after-deploy notes — and the in-sync state.
+- **Apply now** (`POST /api/apps/{name}/yml/apply`, job `app-yml-apply`) runs in the job overlay like a deploy; the result shows the outcome — applied, unchanged, partial with the changes that failed, blocked with what blocks it, invalid with the errors, no file — stays on the tab after the overlay closes, and the plan is reloaded. A partial, blocked or invalid apply fails the job but still shows its result. The button is disabled without a file, with an invalid file, while blockers remain and when everything is in sync.
+- **Auto-apply** on and off (`POST /api/apps/{name}/yml/auto/enable` and `…/disable`): apply cipi.yml after every successful deploy — CLI, panel and Git webhook. Turning it on asks for confirmation and says what it means: anyone who can commit to the repository can then change the app's aliases, PHP settings, limits, workers, deploy recipe, scheduled commands, databases and backup schedule (for Node apps also mode, version, build and start). A missing sudo rule for webhook deploys is flagged.
+- `yml-view` and `yml-manage` in the token command on Connections (`token_abilities`). A 403 on the tab names the missing ability; a 404 or 503 says the server needs Cipi 5.6.4+ and cipi/api 1.35+, with the server's own message when there is one.
+- Demo API 1.35: `GET /api/apps/{name}/yml`, apply and auto on/off, with plans for six apps — pending changes (shop, shopstg), in sync (shopapi), blocked by a missing Node major (console), invalid (launch), and a change that fails so the apply ends partial (bakery); the other apps have no file. `./dev/demo.sh --reset` once to pick them up in an existing demo state.
+
 ## [3.2.0] — 2026-10-15
 
 Aligned with Cipi API 1.34 / Cipi 5.6.0: build command at creation and the repository access check. Both need **cipi/api ≥ 1.34.0** and **Cipi ≥ 5.6.0** on the server; older servers ignore the field and send no check, and the panel shows nothing extra.
