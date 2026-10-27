@@ -1,43 +1,83 @@
-<div>
+<div wire:init="loadApps">
     <x-cipi::page-header title="Apps">
         <x-slot:meta>
-            @if($server)
-                Laravel, Node and custom PHP apps on <strong class="text-strong">{{ $server->name }}</strong>.
+            @if($scopeServer)
+                Laravel, Node and custom PHP apps on <strong class="text-strong">{{ $scopeServer->name }}</strong>.
+                @if($multiServer)<button type="button" wire:click="setScope(0)" class="text-link">Show every server</button>@endif
+                @if(! $fleet && $servers->count() === 1 && \CipiGui\Services\Access::visibleServers(auth()->user())->count() > 1) <span class="text-subtle">Switch server from the header.</span>@endif
+            @elseif($multiServer)
+                Laravel, Node and custom PHP apps on every connected server.
+            @elseif($servers->isNotEmpty())
+                Laravel, Node and custom PHP apps on <strong class="text-strong">{{ $servers->first()->name }}</strong>.
             @endif
         </x-slot:meta>
-        @if($server)
+        @if($servers->isNotEmpty())
             <x-slot:actions>
                 <button type="button" wire:click="loadApps" class="btn btn-secondary" wire:loading.attr="disabled" wire:target="loadApps">
                     <x-cipi::icon name="refresh" wire:loading.class="animate-spin" wire:target="loadApps" /> Refresh
                 </button>
-                <button type="button" wire:click="openCreate" class="btn btn-primary"><x-cipi::icon name="plus" /> New app</button>
+                @if($canCreate)
+                    <button type="button" wire:click="openCreate" class="btn btn-primary"><x-cipi::icon name="plus" /> New app</button>
+                @endif
             </x-slot:actions>
         @endif
     </x-cipi::page-header>
 
-    @if(! $server)
+    @if($servers->isEmpty())
         <div class="card">
-            <x-cipi::empty icon="servers" title="No server selected">
-                Connect a Cipi server first; its apps will show up here.
-                <x-slot:actions><a href="{{ route('cipi-gui.servers') }}" class="btn btn-primary">Connect a server</a></x-slot:actions>
-            </x-cipi::empty>
+            @if(\CipiGui\Services\Access::isAdmin(auth()->user()))
+                <x-cipi::empty icon="servers" title="No server connected">
+                    Connect a Cipi server first; its apps will show up here.
+                    <x-slot:actions><a href="{{ route('cipi-gui.servers') }}" class="btn btn-primary">Connect a server</a></x-slot:actions>
+                </x-cipi::empty>
+            @else
+                <x-cipi::empty icon="lock" title="No access yet">An admin of this panel has not given you a server or an app yet.</x-cipi::empty>
+            @endif
         </div>
     @else
         @if($error)
             <x-cipi::alert type="danger" class="mb-4">{{ $error }}</x-cipi::alert>
         @endif
 
+        @if(! $loading && $serverErrors !== [])
+            <x-cipi::alert type="danger" class="mb-4" :title="count($serverErrors) === 1 ? 'One server did not answer' : count($serverErrors).' servers did not answer'">
+                <ul class="space-y-0.5">
+                    @foreach($serverErrors as $id => $message)
+                        <li><strong class="text-strong">{{ $servers->firstWhere('id', $id)?->name ?? 'Server '.$id }}</strong> — {{ $message }}</li>
+                    @endforeach
+                </ul>
+                <div class="flex flex-wrap gap-2 mt-2">
+                    <button type="button" wire:click="loadApps" class="btn btn-secondary btn-sm">Retry</button>
+                    <a href="{{ route('cipi-gui.servers') }}" class="btn btn-ghost btn-sm">Check connections</a>
+                </div>
+            </x-cipi::alert>
+        @endif
+
         <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-            <div class="segmented" role="tablist" aria-label="Filter by type">
-                @foreach(['all' => 'All', 'laravel' => 'Laravel', 'node' => 'Node', 'custom' => 'Custom'] as $kind => $label)
-                    <button type="button" role="tab" aria-selected="{{ $kindFilter === $kind ? 'true' : 'false' }}" wire:click="setKindFilter('{{ $kind }}')" class="segmented-item {{ $kindFilter === $kind ? 'active' : '' }}">
-                        {{ $label }}<span class="count">{{ $counts[$kind] }}</span>
-                    </button>
-                @endforeach
+            <div class="flex flex-wrap items-center gap-2">
+                @if($multiServer)
+                    <div class="segmented" role="tablist" aria-label="Filter by server">
+                        <button type="button" role="tab" aria-selected="{{ $scopeId === 0 ? 'true' : 'false' }}" wire:click="setScope(0)" class="segmented-item {{ $scopeId === 0 ? 'active' : '' }}">
+                            All servers<span class="count">{{ count($apps) }}</span>
+                        </button>
+                        @foreach($servers as $s)
+                            <button type="button" role="tab" aria-selected="{{ $scopeId === $s->id ? 'true' : 'false' }}" wire:click="setScope({{ $s->id }})" class="segmented-item {{ $scopeId === $s->id ? 'active' : '' }}" title="{{ $s->host }}">
+                                <span class="dot {{ isset($this->serverErrors[$s->id]) ? 'dot-red' : 'dot-green' }}" style="width:.4rem;height:.4rem;box-shadow:none;margin-right:.4rem;vertical-align:middle"></span>{{ $s->name }}<span class="count">{{ $serverCounts[$s->id] ?? 0 }}</span>
+                            </button>
+                        @endforeach
+                    </div>
+                @endif
+                <div class="segmented" role="tablist" aria-label="Filter by type">
+                    @foreach(['all' => 'All', 'laravel' => 'Laravel', 'node' => 'Node', 'custom' => 'Custom'] as $kind => $label)
+                        <button type="button" role="tab" aria-selected="{{ $kindFilter === $kind ? 'true' : 'false' }}" wire:click="setKindFilter('{{ $kind }}')" class="segmented-item {{ $kindFilter === $kind ? 'active' : '' }}">
+                            {{ $label }}<span class="count">{{ $counts[$kind] }}</span>
+                        </button>
+                    @endforeach
+                </div>
             </div>
             <div class="search-input w-full sm:w-auto" style="min-width: 16rem;">
                 <x-cipi::icon name="search" />
-                <input type="search" wire:model.live.debounce.250ms="search" placeholder="Search name, domain, alias…" aria-label="Search apps">
+                <input type="search" wire:model.live.debounce.250ms="search" placeholder="{{ $multiServer && $scopeId === 0 ? 'Search name, domain, alias, server…' : 'Search name, domain, alias…' }}" aria-label="Search apps">
             </div>
         </div>
 
@@ -49,18 +89,29 @@
                     </div>
                 @endforeach
             </div>
-        @elseif(empty($apps))
+        @elseif($scopedCount === 0 && ($scopeId !== 0 ? isset($serverErrors[$scopeId]) : ($apps === [] && $serverErrors !== [])))
             <div class="card">
-                <x-cipi::empty icon="apps" title="No apps on {{ $server->name }} yet">
-                    Create a Laravel app (FPM or Octane), a Node app (SPA, static or SSR) or a custom PHP site.
-                    Cipi provisions the user, vhost, database, workers and deploy key.
-                    <x-slot:actions><button type="button" wire:click="openCreate" class="btn btn-primary"><x-cipi::icon name="plus" /> Create the first app</button></x-slot:actions>
+                <x-cipi::empty icon="warning" :title="$scopeServer ? 'Apps on '.$scopeServer->name.' could not be loaded' : 'Apps could not be loaded'">
+                    The server did not answer — the reason is above.
+                    <x-slot:actions><button type="button" wire:click="loadApps" class="btn btn-primary">Try again</button></x-slot:actions>
+                </x-cipi::empty>
+            </div>
+        @elseif($scopedCount === 0)
+            <div class="card">
+                <x-cipi::empty icon="apps" :title="$scopeServer ? 'No apps on '.$scopeServer->name.' yet' : 'No apps yet'">
+                    @if($canCreate)
+                        Create a Laravel app (FPM or Octane), a Node app (SPA, static or SSR) or a custom PHP site.
+                        Cipi provisions the user, vhost, database, workers and deploy key.
+                        <x-slot:actions><button type="button" wire:click="openCreate" class="btn btn-primary"><x-cipi::icon name="plus" /> Create the first app</button></x-slot:actions>
+                    @else
+                        Nothing to show for your access on {{ $scopeServer?->name ?? 'these servers' }}.
+                    @endif
                 </x-cipi::empty>
             </div>
         @elseif(empty($visibleApps))
             <div class="card">
                 <x-cipi::empty icon="search" title="No apps match">
-                    Nothing matches “{{ $search }}”{{ $kindFilter !== 'all' ? ' in '.ucfirst($kindFilter).' apps' : '' }}.
+                    Nothing matches{{ $search !== '' ? ' “'.$search.'”' : '' }}{{ $kindFilter !== 'all' ? ' in '.ucfirst($kindFilter).' apps' : '' }}{{ $scopeServer ? ' on '.$scopeServer->name : '' }}.
                     <x-slot:actions><button type="button" class="btn btn-secondary" wire:click="clearFilters">Clear filters</button></x-slot:actions>
                 </x-cipi::empty>
             </div>
@@ -69,11 +120,14 @@
             <div class="space-y-2 md:hidden">
                 @foreach($visibleApps as $app)
                     @php $kind = $this->appKind($app); @endphp
-                    <a href="{{ route('cipi-gui.apps.show', ['name' => $app['app'], 'server' => $server->id]) }}" class="card card-hover p-4" wire:key="app-card-{{ $app['app'] }}">
+                    <a href="{{ route('cipi-gui.apps.show', ['name' => $app['app'], 'server' => $app['server_id']]) }}" class="card card-hover p-4" wire:key="app-card-{{ $app['server_id'] }}-{{ $app['app'] }}">
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
                                 <p class="font-semibold text-strong">{{ $app['app'] }}</p>
                                 <p class="text-xs text-muted truncate">{{ $app['domain'] }}</p>
+                                @if($multiServer && $scopeId === 0)
+                                    <p class="text-xs text-subtle truncate mt-0.5 flex items-center gap-1"><x-cipi::icon name="server" class="h-3 w-3" /> {{ $app['server_name'] }}</p>
+                                @endif
                             </div>
                             <span class="badge {{ ($app['suspended'] ?? false) ? 'badge-amber' : 'badge-green' }}">{{ ($app['suspended'] ?? false) ? 'Suspended' : 'Live' }}</span>
                         </div>
@@ -92,6 +146,7 @@
                         <thead>
                             <tr>
                                 <th>App</th>
+                                @if($multiServer && $scopeId === 0)<th>Server</th>@endif
                                 <th>Type</th>
                                 <th>Runtime</th>
                                 <th>Database</th>
@@ -104,10 +159,10 @@
                             @foreach($visibleApps as $app)
                                 @php
                                     $kind = $this->appKind($app);
-                                    $url = route('cipi-gui.apps.show', ['name' => $app['app'], 'server' => $server->id]);
+                                    $url = route('cipi-gui.apps.show', ['name' => $app['app'], 'server' => $app['server_id']]);
                                     $siteUrl = (($app['force_https'] ?? false) ? 'https://' : 'http://').ltrim(str_replace('*.', '', $app['domain']), '.');
                                 @endphp
-                                <tr wire:key="app-{{ $app['app'] }}">
+                                <tr wire:key="app-{{ $app['server_id'] }}-{{ $app['app'] }}">
                                     <td>
                                         <a href="{{ $url }}" class="row-link">{{ $app['app'] }}</a>
                                         <p class="text-xs text-muted flex items-center gap-1 mt-0.5">
@@ -117,6 +172,11 @@
                                             @endif
                                         </p>
                                     </td>
+                                    @if($multiServer && $scopeId === 0)
+                                        <td class="whitespace-nowrap">
+                                            <button type="button" wire:click="setScope({{ $app['server_id'] }})" class="badge badge-neutral" title="Only the apps on {{ $app['server_name'] }}"><x-cipi::icon name="server" class="h-3 w-3" /> {{ $app['server_name'] }}</button>
+                                        </td>
+                                    @endif
                                     <td>
                                         <span class="badge {{ $kind === 'laravel' ? 'badge-accent' : ($kind === 'node' ? 'badge-blue' : 'badge-neutral') }}">{{ $this->appKindLabel($app) }}</span>
                                     </td>
@@ -152,22 +212,29 @@
                                     </td>
                                     <td>
                                         <div class="btn-actions">
-                                            @if($kind !== 'custom' || $app['repository'] !== '')
-                                                <button type="button" wire:click="deploy('{{ $app['app'] }}')" class="btn btn-ghost btn-sm" title="Deploy {{ $app['app'] }}"><x-cipi::icon name="rocket" /> Deploy</button>
+                                            @php $can = $app['can'] ?? []; @endphp
+                                            @if(($kind !== 'custom' || $app['repository'] !== '') && ($can['deploy'] ?? false))
+                                                <button type="button" wire:click="deploy('{{ $app['app'] }}', {{ $app['server_id'] }})" class="btn btn-ghost btn-sm" title="Deploy {{ $app['app'] }}{{ $multiServer ? ' on '.$app['server_name'] : '' }}"><x-cipi::icon name="rocket" /> Deploy</button>
                                             @endif
-                                            <a href="{{ $url }}" class="btn btn-secondary btn-sm">Manage</a>
+                                            <a href="{{ $url }}" class="btn btn-secondary btn-sm">{{ ($can['edit'] ?? false) ? 'Manage' : 'Open' }}</a>
                                             <div class="dropdown" x-data="{ open: false }" x-on:click.outside="open = false">
                                                 <button type="button" class="btn btn-ghost btn-icon btn-sm" x-on:click="open = !open" aria-label="More actions for {{ $app['app'] }}"><x-cipi::icon name="more" /></button>
                                                 <div class="dropdown-menu" x-show="open" x-cloak x-transition.opacity.duration.150ms>
                                                     <a href="{{ $siteUrl }}" target="_blank" rel="noopener" class="dropdown-item"><x-cipi::icon name="external" /> Open site</a>
-                                                    <a href="{{ $url }}&tab=logs" class="dropdown-item"><x-cipi::icon name="document" /> Logs</a>
-                                                    <button type="button" class="dropdown-item" x-on:click="open = false"
-                                                            wire:click="toggleSuspend('{{ $app['app'] }}', {{ ($app['suspended'] ?? false) ? 'true' : 'false' }})"
-                                                            wire:confirm="{{ ($app['suspended'] ?? false) ? 'Bring '.$app['app'].' back online?' : 'Take '.$app['app'].' offline with an HTTP 503 maintenance page?' }}">
-                                                        <x-cipi::icon :name="($app['suspended'] ?? false) ? 'play' : 'pause'" /> {{ ($app['suspended'] ?? false) ? 'Unsuspend' : 'Suspend' }}
-                                                    </button>
-                                                    <div class="dropdown-divider"></div>
-                                                    <button type="button" class="dropdown-item danger" wire:click="confirmDeleteApp('{{ $app['app'] }}')" x-on:click="open = false"><x-cipi::icon name="trash" /> Delete app</button>
+                                                    @if($can['logs'] ?? false)
+                                                        <a href="{{ $url }}&tab=logs" class="dropdown-item"><x-cipi::icon name="document" /> Logs</a>
+                                                    @endif
+                                                    @if($can['edit'] ?? false)
+                                                        <button type="button" class="dropdown-item" x-on:click="open = false"
+                                                                wire:click="toggleSuspend('{{ $app['app'] }}', {{ ($app['suspended'] ?? false) ? 'true' : 'false' }}, {{ $app['server_id'] }})"
+                                                                wire:confirm="{{ ($app['suspended'] ?? false) ? 'Bring '.$app['app'].' back online?' : 'Take '.$app['app'].' offline with an HTTP 503 maintenance page?' }}">
+                                                            <x-cipi::icon :name="($app['suspended'] ?? false) ? 'play' : 'pause'" /> {{ ($app['suspended'] ?? false) ? 'Unsuspend' : 'Suspend' }}
+                                                        </button>
+                                                    @endif
+                                                    @if($can['delete'] ?? false)
+                                                        <div class="dropdown-divider"></div>
+                                                        <button type="button" class="dropdown-item danger" wire:click="confirmDeleteApp('{{ $app['app'] }}', {{ $app['server_id'] }})" x-on:click="open = false"><x-cipi::icon name="trash" /> Delete app</button>
+                                                    @endif
                                                 </div>
                                             </div>
                                         </div>
@@ -178,16 +245,38 @@
                     </table>
                 </div>
             </div>
-            <p class="text-xs text-subtle mt-3">{{ count($visibleApps) }} of {{ count($apps) }} apps</p>
+            <p class="text-xs text-subtle mt-3">
+                {{ count($visibleApps) }} of {{ $scopedCount }} apps
+                @if($scopeServer) on {{ $scopeServer->name }} @elseif($multiServer) on {{ $servers->count() }} servers @endif
+            </p>
         @endif
     @endif
 
     {{-- Create modal --}}
     @if($showCreateModal)
         @php $preset = $this->nodePreset(); @endphp
-        <x-cipi::modal title="Create app" close="closeCreate" size="lg" :subtitle="'On '.($server?->name ?? 'this server').' — Cipi provisions the Linux user, vhost, PHP pool or Node runtime, and deploy key.'">
+        <x-cipi::modal title="Create app" close="closeCreate" size="lg" persistent :subtitle="'On '.($createServer?->name ?? 'this server').' — Cipi provisions the Linux user, vhost, PHP pool or Node runtime, and deploy key.'">
             <form wire:submit="createApp">
                 <div class="modal-body space-y-5">
+                    @if($createDraft)
+                        <x-cipi::alert type="info">
+                            Picked up where you left off — nothing typed here is lost when the dialog closes.
+                            <button type="button" wire:click="clearCreateForm" class="text-link ml-1">Clear the form</button>
+                        </x-cipi::alert>
+                    @endif
+
+                    @if($createServers->count() > 1)
+                        <div>
+                            <label for="app-server">Server</label>
+                            <select id="app-server" wire:model.live="createServerId">
+                                @foreach($createServers as $s)
+                                    <option value="{{ $s->id }}">{{ $s->name }} — {{ $s->host }}</option>
+                                @endforeach
+                            </select>
+                            <p class="field-hint">PHP versions, database engines and Node runtimes below are the ones installed there.</p>
+                        </div>
+                    @endif
+
                     <div>
                         <span class="label">App type</span>
                         <div class="type-picker" role="radiogroup">
@@ -297,7 +386,7 @@
                                         <option value="{{ $ver }}">PHP {{ $ver }}{{ $ver === $defaultPhpVersion ? ' · default' : '' }}</option>
                                     @endforeach
                                 </select>
-                                <p class="field-hint">Versions installed on this server · <a href="{{ route('cipi-gui.server-manage') }}?tab=php" class="text-link">install another</a></p>
+                                <p class="field-hint">Versions installed on {{ $createServer?->name ?? 'this server' }} · <a href="{{ route('cipi-gui.server-manage', ['serverId' => $createServerId ?: null]) }}?tab=php" class="text-link">install another</a></p>
                                 @error('php') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
                             @if($appKind === 'laravel' && count($availableEngines) > 0)
@@ -350,7 +439,7 @@
             <form wire:submit="deleteApp">
                 <div class="modal-body space-y-4">
                     <x-cipi::alert type="danger" title="This cannot be undone">
-                        Deleting <strong>{{ $deleteAppName }}</strong> removes its Linux user and home, vhost, PHP pool or Node process, workers, and its database.
+                        Deleting <strong>{{ $deleteAppName }}</strong>@if($deleteServerName !== '' && $multiServer) on <strong>{{ $deleteServerName }}</strong>@endif removes its Linux user and home, vhost, PHP pool or Node process, workers, and its database.
                     </x-cipi::alert>
                     <div>
                         <label for="delete-confirm">Type <code>{{ $deleteAppName }}</code> to confirm</label>

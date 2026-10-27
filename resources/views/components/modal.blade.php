@@ -1,6 +1,7 @@
-@props(['title', 'close', 'size' => null, 'subtitle' => null])
-{{-- Livewire-driven modal: render it inside @if($show…) and pass the close action (e.g. "closeCreate"). --}}
-<div class="modal-overlay" wire:click.self="{{ $close }}" x-data x-on:keydown.escape.window="$wire.{{ $close }}()" role="dialog" aria-modal="true">
+@props(['title', 'close', 'size' => null, 'subtitle' => null, 'persistent' => false])
+{{-- Livewire-driven modal: render it inside @if($show…) and pass the close action (e.g. "closeCreate").
+     `persistent` keeps a dialog with a form open on a click outside it — only Cancel, the X and Escape close it. --}}
+<div class="modal-overlay" @unless($persistent) wire:click.self="{{ $close }}" @endunless x-data x-on:keydown.escape.window="$wire.{{ $close }}()" role="dialog" aria-modal="true">
     <div {{ $attributes->merge(['class' => 'modal-content'.($size === 'lg' ? ' modal-lg' : '')]) }}>
         <div class="modal-header">
             <div class="min-w-0">

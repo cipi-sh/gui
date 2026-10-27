@@ -23,9 +23,8 @@ class ServerSwitchController
             'server_id' => ['required', 'integer'],
         ]);
 
-        $server = CipiServer::query()
-            ->where('is_active', true)
-            ->findOrFail($validated['server_id']);
+        $server = \CipiGui\Services\Access::visibleServers($request->user())->firstWhere('id', (int) $validated['server_id']);
+        abort_unless($server, 404);
 
         $request->session()->put('cipi_gui_server_id', $server->id);
         $request->session()->flash('cipi_gui_flash', [
@@ -47,10 +46,26 @@ class ServerSwitchController
         }
 
         return match ($route->getName()) {
-            'cipi-gui.apps.show' => route('cipi-gui.apps'),
+            'cipi-gui.apps.show' => route('cipi-gui.apps', ['server' => $server->id]),
             'cipi-gui.server-manage' => route('cipi-gui.server-manage', ['serverId' => $server->id]),
-            'cipi-gui.apps', 'cipi-gui.databases', 'cipi-gui.dashboard', 'cipi-gui.servers', 'cipi-gui.settings' => $previous,
+            // The apps list is fleet-wide; when it was narrowed to the old server, narrow it to the new one.
+            'cipi-gui.apps' => $this->withServerParam($previous, $server),
+            'cipi-gui.databases', 'cipi-gui.dashboard', 'cipi-gui.servers', 'cipi-gui.settings' => $previous,
             default => route('cipi-gui.dashboard'),
         };
+    }
+
+    private function withServerParam(string $url, CipiServer $server): string
+    {
+        $query = [];
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+        if (! array_key_exists('server', $query)) {
+            return $url;
+        }
+
+        $query['server'] = $server->id;
+
+        return strtok($url, '?').'?'.http_build_query($query);
     }
 }

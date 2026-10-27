@@ -3,6 +3,7 @@
 namespace CipiGui\Livewire;
 
 use CipiGui\Models\CipiServer;
+use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -22,7 +23,7 @@ class Dashboard extends Component
     /** Called by wire:init so the page paints before the servers answer. */
     public function loadStatuses(): void
     {
-        $servers = CipiServer::where('is_active', true)->orderBy('name')->get();
+        $servers = Access::serversWithLevel(auth()->user());
 
         $this->serverStatuses = CipiApiClient::statusForMany($servers);
 
@@ -44,10 +45,14 @@ class Dashboard extends Component
 
     public function open(int $id, string $target = 'server'): void
     {
+        if (! Access::serversWithLevel(auth()->user())->contains('id', $id)) {
+            return;
+        }
+
         session(['cipi_gui_server_id' => $id]);
 
         $this->redirect(match ($target) {
-            'apps' => route('cipi-gui.apps'),
+            'apps' => route('cipi-gui.apps', ['server' => $id]),
             'databases' => route('cipi-gui.databases'),
             default => route('cipi-gui.server-manage', ['serverId' => $id]),
         });
@@ -100,8 +105,9 @@ class Dashboard extends Component
 
     public function render()
     {
-        $servers = CipiServer::orderBy('name')->get();
-        $active = $servers->where('is_active', true);
+        $user = auth()->user();
+        $active = Access::serversWithLevel($user);
+        $servers = Access::isAdmin($user) ? CipiServer::orderBy('name')->get() : $active;
 
         $summary = ['online' => 0, 'apps' => 0, 'services' => 0, 'services_up' => 0, 'versions' => []];
         foreach ($active as $server) {
@@ -125,6 +131,8 @@ class Dashboard extends Component
         return view('cipi-gui::livewire.dashboard', [
             'servers' => $active,
             'hasServers' => $servers->isNotEmpty(),
+            'isAdmin' => Access::isAdmin($user),
+            'appsOnly' => $servers->isEmpty() && Access::visibleServers($user)->isNotEmpty(),
             'summary' => $summary,
         ]);
     }

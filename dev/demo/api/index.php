@@ -320,7 +320,7 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
 
         // Logs
         case $sub === '/logs' && $method === 'GET':
-            return [200, ['data' => appLogs($name, $info, $query)]];
+            return [200, ['data' => appLogs($name, $info, $query, $a['audit'] ?? [])]];
 
         // Basic auth
         case $sub === '/basicauth' && $method === 'GET':
@@ -1228,7 +1228,7 @@ function ymlApply(array &$a, string $app): array
     return [false, implode("\n", $lines), $result('partial', ['applied' => $applied, 'failed' => count($failures), 'failures' => $failures])];
 }
 
-function appLogs(string $name, array $info, array $query): array
+function appLogs(string $name, array $info, array $query, array $audit = []): array
 {
     $type = $query['type'] ?? 'all';
     $page = max(1, (int) ($query['page'] ?? 1));
@@ -1248,6 +1248,13 @@ function appLogs(string $name, array $info, array $query): array
         'worker' => $isSsr ? ["/home/{$name}/logs/node-ssr.log", 'nodeLine', 640] : ["/home/{$name}/logs/worker-default.log", 'workerLine', 2210],
         'deploy' => ["/home/{$name}/logs/deploy.log", 'deployLine', 388],
     ];
+
+    // The deploy log follows the ledger: one block per record, closed by the
+    // banner Cipi 5.6 writes ("===== deploy OK  app=x release=N duration=54s exit=0").
+    if ($audit !== []) {
+        $deployLog = deployLogLines($name, $info, $audit);
+        $sources['deploy'] = ["/home/{$name}/logs/deploy.log", fn (string $n, array $i, int $index): string => $deployLog[count($deployLog) - 1 - $index], count($deployLog)];
+    }
 
     $files = [];
     foreach ($sources as $kind => [$file, $gen, $total]) {
@@ -1318,6 +1325,80 @@ function workerLine(string $app, array $info, int $i): string
     $job = seededPick($jobs, $i);
 
     return $i % 2 === 0 ? "  {$time} {$job} ............ ".(40 + ($i * 37) % 900).'ms DONE' : "  {$time} {$job} ............ RUNNING";
+}
+
+/**
+ * The whole deploy log of an app, oldest line first, from its audit ledger: the
+ * start banner, Deployer's tasks and the end banner with how long it took. A
+ * failed deploy's banner names the release that stayed current, as on a real
+ * server; a rollback's the release it went back to.
+ *
+ * @return list<string>
+ */
+function deployLogLines(string $app, array $info, array $audit): array
+{
+    $lines = [];
+    $current = null;
+    $branch = $info['branch'] ?? 'main';
+    $isNode = ! empty($info['node']);
+
+    foreach ($audit as $record) {
+        $event = $record['event'] ?? 'published';
+        $release = (string) ($record['release'] ?? '?');
+        $at = strtotime((string) ($record['ts'] ?? 'now')) ?: time();
+        $seed = abs(crc32($app.$release.$event));
+        $seconds = match ($event) {
+            'failed' => 18 + $seed % 40,
+            'rollback' => 2 + $seed % 5,
+            default => 34 + $seed % 80,
+        };
+        $t = fn (int $offset): string => '['.gmdate('Y-m-d H:i:s', $at - $seconds + $offset).']';
+        $trigger = match ($record['origin'] ?? 'webhook') { 'webhook' => 'webhook', 'cli' => 'cli', default => 'panel' };
+
+        if ($event === 'rollback') {
+            $lines[] = "{$t(0)} ===== deploy start  app={$app} trigger=rollback branch={$branch} from-release=".($current ?? '?').' =====';
+            $lines[] = "{$t(1)} task rollback";
+            $lines[] = "{$t($seconds)} [{$app}] info rolled back to release {$release}";
+            $lines[] = "{$t($seconds)} ===== deploy ROLLBACK OK  app={$app} release={$release} duration={$seconds}s exit=0 =====";
+            $lines[] = '';
+            $current = $release;
+
+            continue;
+        }
+
+        $lines[] = "{$t(0)} ===== deploy start  app={$app} trigger={$trigger} branch={$branch} from-release=".($current ?? 'none').' =====';
+        $lines[] = "{$t(1)} task deploy:info";
+        $lines[] = "{$t(1)} [{$app}] info deploying {$branch} (release {$release})";
+        $steps = $isNode
+            ? ['deploy:setup', 'deploy:lock', 'deploy:release', 'deploy:update_code', 'node:install', 'node:build', 'deploy:symlink', 'deploy:unlock', 'deploy:cleanup']
+            : ['deploy:setup', 'deploy:lock', 'deploy:release', 'deploy:update_code', 'deploy:shared', 'deploy:writable', 'deploy:vendors', 'artisan:storage:link', 'artisan:optimize', 'artisan:migrate', 'deploy:symlink', 'artisan:queue:restart', 'deploy:unlock', 'deploy:cleanup'];
+        $failAt = $event === 'failed' ? ($isNode ? 'node:build' : 'deploy:vendors') : null;
+        $n = count($steps);
+        foreach ($steps as $i => $step) {
+            $offset = (int) round($seconds * ($i + 1) / ($n + 1));
+            $lines[] = "{$t($offset)} task {$step}";
+            if ($step === $failAt) {
+                $lines[] = $isNode
+                    ? "{$t($offset)} [{$app}] error Command failed with exit code 1: npm run build"
+                    : "{$t($offset)} [{$app}] error Your requirements could not be resolved to an installable set of packages.";
+                $lines[] = "{$t($seconds)} task deploy:failed";
+                $lines[] = "{$t($seconds)} task deploy:unlock";
+
+                break;
+            }
+        }
+
+        if ($event === 'failed') {
+            $lines[] = "{$t($seconds)} ===== deploy FAILED  app={$app} release=".($current ?? '?')." duration={$seconds}s exit=1 =====";
+        } else {
+            $lines[] = "{$t($seconds)} [{$app}] info successfully deployed!";
+            $lines[] = "{$t($seconds)} ===== deploy OK  app={$app} release={$release} duration={$seconds}s exit=0 =====";
+            $current = $release;
+        }
+        $lines[] = '';
+    }
+
+    return $lines;
 }
 
 function deployLine(string $app, array $info, int $i): string

@@ -3,8 +3,36 @@
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div class="lg:col-span-2 space-y-4">
+            @if($isAdmin)
+                <div class="card">
+                    <div class="card-header"><div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="dashboard" /> Panel</h2><p class="card-subtitle">For everyone who signs in. Admins decide.</p></div></div>
+                    <form wire:submit="savePanel" class="space-y-4">
+                        <label class="check-card">
+                            <input type="checkbox" wire:model="fleetView">
+                            <span>
+                                <span class="check-card-title">Fleet view</span>
+                                <span class="check-card-text">Apps and databases of every connected server in one list, with a server column and filter; no server switcher in the header. Off: one server at a time, picked from the header, as in older versions.</span>
+                            </span>
+                        </label>
+                        <div>
+                            <label for="panel-server-nav">Server page, in fleet view</label>
+                            <select id="panel-server-nav" wire:model="serverNav" @disabled(! $fleetView)>
+                                <option value="sidebar">One entry per server in the sidebar</option>
+                                <option value="picker">One “Server” entry, with a picker on the page</option>
+                            </select>
+                            <p class="field-hint">The sidebar list suits a handful of servers; the picker scales to many.</p>
+                            @error('serverNav') <p class="field-error">{{ $message }}</p> @enderror
+                        </div>
+                        <div class="flex items-center justify-between gap-3">
+                            <a href="{{ route('cipi-gui.team') }}" class="text-link text-sm">Team: users, roles and invites →</a>
+                            <button type="submit" class="btn btn-primary">Save panel settings</button>
+                        </div>
+                    </form>
+                </div>
+            @endif
+
             <div class="card">
-                <div class="card-header"><div><h2 class="card-title">Profile</h2><p class="card-subtitle">Used to sign in and shown in the header.</p></div></div>
+                <div class="card-header"><div><h2 class="card-title">Profile</h2><p class="card-subtitle">Used to sign in and shown in the header.</p></div><span class="badge {{ $role === 'admin' ? 'badge-accent' : 'badge-neutral' }}">{{ $role === 'admin' ? 'Admin' : 'User' }}</span></div>
                 <form wire:submit="saveProfile" class="space-y-4">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>

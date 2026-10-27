@@ -1,5 +1,31 @@
 # Changelog
 
+## [4.0.0] — 2026-10-27
+
+Two things change for everyone who signs in, hence the major version: the panel has **roles** (admins and users with granted access) and a **fleet view** across every server, both set from Settings. Existing accounts become admins when the migration runs (`cipi gui update` runs it); nothing else is needed. No new API requirement — everything works with cipi/api 1.31+; deploy times need **Cipi 5.6.0+** on the server.
+
+### Added
+
+- **Roles and granted access** — every account is an *admin* (sees and does everything: connections, API tokens, the team, the panel settings) or a *user* with what an admin granted: a level on whole servers — **View** (the server page read-only, its apps and databases listed, apps opened read-only) or **Manage** (everything on that server, apps included) — and abilities on single apps: **View, Deploy, Edit, Environment** (.env and Composer auth.json), **Logs, Commands** (Artisan and whitelisted commands) and **Delete**. Pages, tabs, buttons and actions follow the grants; a refused action says so. Tables `cipi_server_grants`, `cipi_app_grants`; column `users.role` (`CipiGui\Services\Access`).
+- **Team** (admins): the accounts with role, 2FA and a summary of their access; edit anyone's role and grants; remove accounts. An admin cannot take the admin role from themselves or remove their own account, so a panel always keeps one.
+- **Invite links** — Team → Invite picks the role and the grants and gives a link to copy (`/invite/{token}`): whoever opens it creates the account with that access. One account per link, links expire after 7 days, pending ones can be revoked. Nothing is emailed.
+- **Settings → Panel** (admins, for everyone): **Fleet view** on by default — Apps and Databases list every connected server in one place, with a server column, a server filter and search by server; no server switcher in the header. Off, the panel works as before: one server at a time, picked from the header. And how the **Server page** is reached in fleet view: one sidebar entry per server (default) or a single entry with a picker on the page. Table `cipi_settings` (`CipiGui\Support\Panel`).
+- Apps and Databases in fleet view fetch every server concurrently (`CipiApiClient::getForMany`, like the dashboard). A server that does not answer is reported above the list, with the reason, without hiding the others. `?server=` narrows a list to one server — the Dashboard cards, the Server page and the app pages' breadcrumb link there. The pages paint first and load after (`wire:init`).
+- Row actions run on the row's server, and job titles say which one ("Deploy shop on fra1") when more than one is in view. The create dialogs (app, database) have a server picker among the servers the user manages; PHP versions, database engines and Node runtimes are the chosen server's.
+- **Deploy time** on App → Deploy: the audit table has a **Took** column, and the Deploy card says how long the last deploy took and the average over the loaded ledger. Cipi 5.6+ ends every deploy in the deploy log with `===== deploy OK  app=x release=N duration=54s exit=0`; the panel reads the most recent 1000 lines of `GET /api/apps/{name}/logs?type=deploy` with the ledger and joins them by release (`CipiGui\Support\DeployLog`). A failed deploy's banner names the release that stayed live, so it is matched to the release the ledger shows as live just before it; every banner is used once, newest first. Deploys older than the log, and servers before 5.6, show "—" with a note on what is needed.
+- **Click to copy an IP** on the Dashboard cards, the Connections table, and the Server page header and System card (`x-cipi::copyable`).
+- Demo API: the deploy log of every app is derived from its ledger, with the Cipi 5.6 banners, so Took and the deploy times show on the demo (no reset needed).
+- `dev/screenshots.mjs` takes the README screenshots on the demo (headless Chrome over the DevTools protocol, no dependencies).
+
+### Changed
+
+- Dialogs with a form — create app, create or restore a database, add or edit a connection, invite, edit access — no longer close on a click outside them; Cancel, the X and Escape do. The create-app form keeps what was typed when it is closed, until the app is created or the form is cleared from the dialog; after a failed create job the draft stays too, so a refused name or domain can be fixed and resent.
+- Sidebar in fleet view: Dashboard, Apps and Databases under **Fleet**, the servers under **Servers**, then Connections and Team (admins) and Settings. With fleet view off: the sections of 3.x.
+- Switching server from the header (fleet view off) on an app page opens that server's apps (`/apps?server=`); on a list, a fleet-wide list stays fleet-wide and one narrowed to the old server is narrowed to the new one.
+- App changes remembered in the session between the app page and the list are keyed by server as well as name, so the same app name on two servers no longer shares them.
+- An app the API answers without a body is reported as not found instead of a broken page.
+- `cipi:seed-gui-user` creates and resets the admin with the admin role.
+
 ## [3.3.0] — 2026-10-22
 
 Aligned with Cipi API 1.35 / Cipi 5.6.4: cipi.yml from the panel. Needs **cipi/api ≥ 1.35.0** and **Cipi ≥ 5.6.4** on the server (5.6.4 adds the `--json` outputs the API reads, and is also the release where auto-apply works on Git webhook deploys), plus the new token abilities `yml-view` and `yml-manage`, which existing tokens do not get automatically. Older servers and narrower tokens get an explanation on the tab instead.

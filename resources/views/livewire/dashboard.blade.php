@@ -15,14 +15,25 @@
 
     @if(! $hasServers)
         <div class="card">
-            <x-cipi::empty icon="servers" title="No servers connected yet">
-                The panel manages your servers through the Cipi REST API. Enable it on a server with
-                cipi api, create a token, then add the connection here.
-                <x-slot:actions>
-                    <a href="{{ route('cipi-gui.servers') }}" class="btn btn-primary"><x-cipi::icon name="plus" /> Connect a server</a>
-                    <a href="https://cipi.sh/docs/gui#gui-requirements" target="_blank" rel="noopener" class="btn btn-secondary">Read the setup guide</a>
-                </x-slot:actions>
-            </x-cipi::empty>
+            @if($isAdmin)
+                <x-cipi::empty icon="servers" title="No servers connected yet">
+                    The panel manages your servers through the Cipi REST API. Enable it on a server with
+                    cipi api, create a token, then add the connection here.
+                    <x-slot:actions>
+                        <a href="{{ route('cipi-gui.servers') }}" class="btn btn-primary"><x-cipi::icon name="plus" /> Connect a server</a>
+                        <a href="https://cipi.sh/docs/gui#gui-requirements" target="_blank" rel="noopener" class="btn btn-secondary">Read the setup guide</a>
+                    </x-slot:actions>
+                </x-cipi::empty>
+            @elseif($appsOnly)
+                <x-cipi::empty icon="apps" title="Your access is on single apps">
+                    The servers themselves are not part of it, so there is nothing to show here. Your apps are under Apps.
+                    <x-slot:actions><a href="{{ route('cipi-gui.apps') }}" class="btn btn-primary"><x-cipi::icon name="apps" /> Open Apps</a></x-slot:actions>
+                </x-cipi::empty>
+            @else
+                <x-cipi::empty icon="lock" title="No access yet">
+                    An admin of this panel has not given you a server or an app yet.
+                </x-cipi::empty>
+            @endif
         </div>
     @else
         {{-- Fleet summary --}}
@@ -40,7 +51,7 @@
                 <p class="stat-label">Apps</p>
                 @if($loaded)
                     <p class="stat-value mt-1">{{ $summary['apps'] }}</p>
-                    <p class="stat-meta">across {{ $summary['online'] }} {{ \Illuminate\Support\Str::plural('server', $summary['online']) }}</p>
+                    <p class="stat-meta"><a href="{{ route('cipi-gui.apps') }}" class="text-link">across {{ $summary['online'] }} {{ \Illuminate\Support\Str::plural('server', $summary['online']) }}</a></p>
                 @else
                     <div class="skeleton h-8 w-24 mt-2"></div>
                 @endif
@@ -87,7 +98,7 @@
                                 <h2 class="text-lg font-semibold truncate">{{ $server->name }}</h2>
                             </div>
                             <p class="text-xs text-muted mt-0.5 truncate">
-                                {{ $server->host }}@if($ip) · <span class="font-mono">{{ $ip }}</span>@endif
+                                {{ $server->host }}@if($ip) · <x-cipi::copyable :value="$ip" label="Copy IP" class="font-mono" />@endif
                             </p>
                         </div>
                         @if(! $loaded)

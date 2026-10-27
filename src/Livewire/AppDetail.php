@@ -4,9 +4,11 @@ namespace CipiGui\Livewire;
 
 use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
+use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
 use CipiGui\Support\BuildCommand;
+use CipiGui\Support\DeployLog;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -38,6 +40,9 @@ class AppDetail extends Component
 
     #[Url(as: 'tab', except: 'overview')]
     public string $activeTab = 'overview';
+
+    /** @var array<string, bool> what the signed-in user may do on this app (view, deploy, edit, env, logs, run, delete) */
+    public array $can = [];
 
     // Edit form
     public string $editPhp = '';
@@ -216,6 +221,9 @@ class AppDetail extends Component
 
     public string $auditDays = '90';
 
+    /** @var array<int, int> index in $auditRecords → seconds that deploy took, from the deploy log banners (Cipi 5.6+) */
+    public array $auditTook = [];
+
     // cipi.yml (API 1.35+ / Cipi ≥ 5.6.4)
     /** @var array{app: string, file: ?string, auto: bool, valid: ?bool, in_sync: ?bool, errors: list<string>, warnings: list<string>, changes: list<array{kind: string, summary: string}>, blockers: list<string>, notes: list<string>}|null */
     public ?array $yml = null;
@@ -246,6 +254,12 @@ class AppDetail extends Component
         }
 
         $this->ensureServerSelected();
+        $this->can = Access::appAbilityMap($this->panelUser(), (int) ($this->serverId ?? 0), $this->appName);
+
+        if (! ($this->can['view'] ?? false)) {
+            abort(403, 'Your access does not include this app.');
+        }
+
         $this->loadApp();
 
         if ($this->app !== null && ! array_key_exists($this->activeTab, $this->tabs())) {
@@ -263,7 +277,11 @@ class AppDetail extends Component
         $this->error = null;
 
         try {
-            $this->app = $this->normalizeApp($this->client()->showApp($this->appName));
+            $data = $this->client()->showApp($this->appName);
+            if (! isset($data['app'])) {
+                throw new CipiApiException("App '{$this->appName}' was not found on this server.", 404);
+            }
+            $this->app = $this->normalizeApp($data);
             $this->aliases = $this->app['aliases'];
             $this->editPhp = $this->app['php'] !== '' ? $this->app['php'] : '8.5';
             $this->editBranch = $this->app['branch'];
@@ -292,6 +310,8 @@ class AppDetail extends Component
         $isLaravel = $this->isLaravelApp($app);
         $isNode = $this->isNodeApp($app);
 
+        $can = fn (string $ability) => $this->can[$ability] ?? false;
+
         $tabs = [
             'overview' => 'Overview',
             'domains' => 'Domains & SSL',
@@ -299,18 +319,24 @@ class AppDetail extends Component
             'deploy' => 'Deploy',
             'yml' => 'cipi.yml',
         ];
-        if ($isLaravel) {
+        if ($isLaravel && $can('env')) {
             $tabs['env'] = 'Environment';
         }
-        if (! $isNode) {
+        if (! $isNode && $can('env')) {
             $tabs['authjson'] = 'Composer auth';
         }
-        if ($isLaravel) {
+        if ($isLaravel && $can('run')) {
             $tabs['artisan'] = 'Artisan';
         }
-        $tabs['run'] = 'Commands';
-        $tabs['access'] = 'Access';
-        $tabs['logs'] = 'Logs';
+        if ($can('run')) {
+            $tabs['run'] = 'Commands';
+        }
+        if ($can('edit')) {
+            $tabs['access'] = 'Access';
+        }
+        if ($can('logs')) {
+            $tabs['logs'] = 'Logs';
+        }
 
         return $tabs;
     }
@@ -438,6 +464,10 @@ class AppDetail extends Component
 
     public function saveHealth(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->validate([
             'healthUrl' => ['nullable', 'string', 'max:512', 'regex:/^https?:\/\/.+/i'],
             'healthExpect' => ['required', 'integer', 'min:100', 'max:599'],
@@ -456,6 +486,10 @@ class AppDetail extends Component
 
     public function disableHealth(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         try {
             $this->health = $this->client()->unsetAppHealth($this->appName);
             $this->healthEnabled = false;
@@ -468,6 +502,10 @@ class AppDetail extends Component
 
     public function runHealthCheck(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         try {
             $this->healthCheckResult = $this->client()->checkAppHealth($this->appName);
             $ok = (bool) ($this->healthCheckResult['ok'] ?? false);
@@ -484,6 +522,10 @@ class AppDetail extends Component
 
     public function saveApp(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $isNode = $this->isNodeApp($this->app ?? []);
 
         $rules = [
@@ -566,26 +608,46 @@ class AppDetail extends Component
 
     public function suspendApp(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->startJob('Suspend '.$this->appName, fn (CipiApiClient $api) => $api->suspendApp($this->appName));
     }
 
     public function unsuspendApp(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->startJob('Unsuspend '.$this->appName, fn (CipiApiClient $api) => $api->unsuspendApp($this->appName));
     }
 
     public function fixPermissions(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->startJob('Fix permissions', fn (CipiApiClient $api) => $api->fixPermissions($this->appName));
     }
 
     public function restartNode(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->startJob('Restart Node (blue/green)', fn (CipiApiClient $api) => $api->nodeRestart($this->appName));
     }
 
     public function recreateWebhook(bool $rotateSecret = false): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->startJob(
             $rotateSecret ? 'Recreate webhook + rotate secret' : 'Recreate webhook',
             fn (CipiApiClient $api) => $api->recreateWebhook($this->appName, $rotateSecret),
@@ -594,26 +656,46 @@ class AppDetail extends Component
 
     public function deploy(): void
     {
+        if (! $this->allowed('deploy')) {
+            return;
+        }
+
         $this->startJob('Deploy '.$this->appName, fn (CipiApiClient $api) => $api->deploy($this->appName));
     }
 
     public function rollback(): void
     {
+        if (! $this->allowed('deploy')) {
+            return;
+        }
+
         $this->startJob('Roll back '.$this->appName, fn (CipiApiClient $api) => $api->deployRollback($this->appName));
     }
 
     public function unlockDeploy(): void
     {
+        if (! $this->allowed('deploy')) {
+            return;
+        }
+
         $this->startJob('Unlock deploy', fn (CipiApiClient $api) => $api->deployUnlock($this->appName));
     }
 
     public function installSsl(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->startJob("Let's Encrypt certificate", fn (CipiApiClient $api) => $api->installSsl($this->appName));
     }
 
     public function forceSsl(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->startJob('Force HTTPS', fn (CipiApiClient $api) => $api->forceSsl($this->appName));
     }
 
@@ -639,26 +721,46 @@ class AppDetail extends Component
 
     public function wwwAdd(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->startJob('Add www/apex alias', fn (CipiApiClient $api) => $api->wwwAdd($this->appName));
     }
 
     public function wwwForceToRoot(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->startJob('Redirect www → apex', fn (CipiApiClient $api) => $api->wwwForceToRoot($this->appName));
     }
 
     public function wwwForceFromRoot(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->startJob('Redirect apex → www', fn (CipiApiClient $api) => $api->wwwForceFromRoot($this->appName));
     }
 
     public function wwwClear(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->startJob('Clear www redirect', fn (CipiApiClient $api) => $api->wwwClear($this->appName));
     }
 
     public function addAlias(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->newAlias = strtolower(trim($this->newAlias));
         $this->validate(['newAlias' => ['required', 'string', 'max:255', 'regex:/^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/']], [
             'newAlias.regex' => 'Enter a hostname such as www.example.com.',
@@ -672,6 +774,10 @@ class AppDetail extends Component
 
     public function removeAlias(string $alias): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->startJob("Remove alias {$alias}", fn (CipiApiClient $api) => $api->removeAlias($this->appName, $alias));
     }
 
@@ -717,6 +823,10 @@ class AppDetail extends Component
 
     public function saveAppRedirect(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->validate([
             'redirectTo' => ['required', 'string', 'max:2048', 'regex:/^https?:\/\//i'],
             'redirectCode' => ['required', 'in:301,302,307,308'],
@@ -730,6 +840,10 @@ class AppDetail extends Component
 
     public function toggleAppRedirect(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $enabled = (bool) ($this->appRedirect['enabled'] ?? false);
 
         $this->routingCall(
@@ -740,6 +854,10 @@ class AppDetail extends Component
 
     public function removeAppRedirect(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->routingCall(function (CipiApiClient $api) {
             $this->syncRedirects($api->unsetAppRedirect($this->appName));
             $this->redirectTo = '';
@@ -750,6 +868,10 @@ class AppDetail extends Component
 
     public function addPathRedirect(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->validate([
             'pathRedirectFrom' => ['required', 'string', 'max:512', 'regex:/^\//'],
             'pathRedirectTo' => ['required', 'string', 'max:2048'],
@@ -764,11 +886,19 @@ class AppDetail extends Component
 
     public function removePathRedirect(string $from): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->routingCall(fn (CipiApiClient $api) => $this->syncRedirects($api->removePathRedirect($this->appName, $from)), 'Path redirect removed.');
     }
 
     public function addProxy(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->validate([
             'proxyPrefix' => ['required', 'string', 'max:512', 'regex:/^\//'],
             'proxyUpstream' => ['required', 'string', 'max:2048', 'regex:/^https?:\/\//i'],
@@ -790,6 +920,10 @@ class AppDetail extends Component
 
     public function removeProxy(string $prefix): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->routingCall(fn (CipiApiClient $api) => $this->syncProxies($api->removeProxy($this->appName, $prefix)), 'Proxy removed.');
     }
 
@@ -848,6 +982,10 @@ class AppDetail extends Component
 
     public function saveDeployConfig(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->dcNodeBuild = trim($this->dcNodeBuild);
         $this->validate([
             'dcKeepReleases' => ['required', 'integer', 'min:1', 'max:20'],
@@ -889,6 +1027,7 @@ class AppDetail extends Component
             $data = $this->client()->deployAudit($this->appName, $days);
             $records = is_array($data['records'] ?? null) ? $data['records'] : [];
             $this->auditRecords = array_reverse(array_values($records)); // newest first
+            $this->auditTook = $this->auditRecords === [] ? [] : DeployLog::match($this->auditRecords, $this->deployLogBanners());
             $this->auditLoaded = true;
         } catch (CipiApiException $e) {
             if ($this->isUnsupported($e) || $e->getStatusCode() === 503) {
@@ -899,6 +1038,54 @@ class AppDetail extends Component
 
             $this->handleApiError($e);
         }
+    }
+
+    /**
+     * The end banners of the deploy log — how long each deploy took. The ledger has
+     * no duration of its own; Cipi 5.6+ writes one per deploy to the log. The most
+     * recent 1000 lines cover the last deploys; older records show no time.
+     *
+     * @return list<array{event: string, release: string, seconds: int}>
+     */
+    protected function deployLogBanners(): array
+    {
+        try {
+            $data = $this->client()->appLogs($this->appName, ['type' => 'deploy', 'per_page' => 1000]);
+        } catch (CipiApiException) {
+            return [];
+        }
+
+        $lines = [];
+        foreach ((array) ($data['files'] ?? []) as $file) {
+            if (is_array($file) && is_array($file['lines'] ?? null)) {
+                foreach ($file['lines'] as $line) {
+                    $lines[] = $line;
+                }
+            }
+        }
+
+        return DeployLog::banners($lines);
+    }
+
+    /**
+     * The last published deploy's time and the average over the loaded ledger.
+     *
+     * @return array{last: int, average: int, count: int}|null
+     */
+    public function deployTimes(): ?array
+    {
+        $seconds = [];
+        foreach ($this->auditRecords as $index => $record) {
+            if (($record['event'] ?? '') === 'published' && isset($this->auditTook[$index])) {
+                $seconds[] = $this->auditTook[$index];
+            }
+        }
+
+        if ($seconds === []) {
+            return null;
+        }
+
+        return ['last' => $seconds[0], 'average' => (int) round(array_sum($seconds) / count($seconds)), 'count' => count($seconds)];
     }
 
     // ── cipi.yml: plan, apply, auto-apply ─────────────────────────────
@@ -935,6 +1122,10 @@ class AppDetail extends Component
 
     public function applyYml(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         if (! $this->ymlCanApply()) {
             $this->dispatch('notify', type: 'info', message: 'Nothing to apply.');
 
@@ -950,11 +1141,19 @@ class AppDetail extends Component
 
     public function enableYmlAuto(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->setYmlAuto(true);
     }
 
     public function disableYmlAuto(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->setYmlAuto(false);
     }
 
@@ -1017,6 +1216,10 @@ class AppDetail extends Component
 
     public function enableSearch(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         try {
             $this->client()->enableSearch($this->appName);
             $this->dispatch('notify', type: 'success', message: 'Search enabled — SCOUT_DRIVER=meilisearch with a scoped key.');
@@ -1028,6 +1231,10 @@ class AppDetail extends Component
 
     public function disableSearch(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         try {
             $this->client()->disableSearch($this->appName);
             $this->dispatch('notify', type: 'success', message: 'Search disabled — previous SCOUT_DRIVER restored.');
@@ -1058,6 +1265,10 @@ class AppDetail extends Component
 
     public function enableBasicAuth(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         $this->validate([
             'basicAuthUser' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9._-]+$/'],
             'basicAuthPassword' => ['nullable', 'string', 'min:8', 'max:128'],
@@ -1081,6 +1292,10 @@ class AppDetail extends Component
 
     public function disableBasicAuth(): void
     {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
         try {
             $this->client()->basicAuthDisable($this->appName);
             $this->basicAuth = ['enabled' => false, 'users' => []];
@@ -1096,6 +1311,10 @@ class AppDetail extends Component
 
     public function loadEnv(): void
     {
+        if (! $this->allowed('env')) {
+            return;
+        }
+
         $this->envUnsupported = false;
         $this->envLoaded = false;
 
@@ -1122,6 +1341,10 @@ class AppDetail extends Component
 
     public function addEnvRow(): void
     {
+        if (! $this->allowed('env')) {
+            return;
+        }
+
         $key = strtoupper(trim($this->envNewKey));
         if (! preg_match('/^[A-Z][A-Z0-9_]*$/', $key)) {
             $this->addError('envNewKey', 'Keys use A–Z, 0–9 and _ and start with a letter.');
@@ -1145,6 +1368,10 @@ class AppDetail extends Component
 
     public function removeEnvRow(int $index): void
     {
+        if (! $this->allowed('env')) {
+            return;
+        }
+
         if (isset($this->envRows[$index])) {
             unset($this->envRows[$index]);
             $this->envRows = array_values($this->envRows);
@@ -1153,6 +1380,10 @@ class AppDetail extends Component
 
     public function resetEnv(): void
     {
+        if (! $this->allowed('env')) {
+            return;
+        }
+
         $this->syncEnvRowsFromVars($this->envOriginal);
     }
 
@@ -1188,6 +1419,10 @@ class AppDetail extends Component
 
     public function saveEnv(): void
     {
+        if (! $this->allowed('env')) {
+            return;
+        }
+
         ['set' => $set, 'unset' => $unset] = $this->envDiff();
 
         if ($set === [] && $unset === []) {
@@ -1231,6 +1466,10 @@ class AppDetail extends Component
 
     public function loadAuthJson(): void
     {
+        if (! $this->allowed('env')) {
+            return;
+        }
+
         $this->authJsonUnsupported = false;
         $this->authJsonLoaded = false;
         $this->authJsonExists = false;
@@ -1269,6 +1508,10 @@ class AppDetail extends Component
 
     public function saveAuthJson(): void
     {
+        if (! $this->allowed('env')) {
+            return;
+        }
+
         $raw = trim($this->authJsonContent ?? '');
         $decoded = json_decode($raw, true);
 
@@ -1294,6 +1537,10 @@ class AppDetail extends Component
 
     public function deleteAuthJson(): void
     {
+        if (! $this->allowed('env')) {
+            return;
+        }
+
         try {
             $this->client()->deleteAuthJson($this->appName);
             $this->authJsonExists = false;
@@ -1313,6 +1560,10 @@ class AppDetail extends Component
 
     public function runArtisan(): void
     {
+        if (! $this->allowed('run')) {
+            return;
+        }
+
         $command = trim(preg_replace('/^(php\s+)?artisan\s+/', '', $this->artisanCommand) ?? '');
         if ($command === '') {
             $this->addError('artisanCommand', 'Enter an Artisan command.');
@@ -1354,6 +1605,10 @@ class AppDetail extends Component
 
     public function runAppCommand(): void
     {
+        if (! $this->allowed('run')) {
+            return;
+        }
+
         $command = trim($this->runCommand);
         if ($command === '') {
             $this->addError('runCommand', 'Enter a command.');
@@ -1368,6 +1623,10 @@ class AppDetail extends Component
 
     public function confirmDeleteApp(): void
     {
+        if (! $this->allowed('delete')) {
+            return;
+        }
+
         $this->deleteConfirmation = '';
         $this->resetErrorBag('deleteConfirmation');
         $this->showDeleteModal = true;
@@ -1380,6 +1639,10 @@ class AppDetail extends Component
 
     public function deleteApp(): void
     {
+        if (! $this->allowed('delete')) {
+            return;
+        }
+
         if ($this->deleteConfirmation !== $this->appName) {
             $this->addError('deleteConfirmation', 'Type the app name to confirm.');
 
@@ -1443,6 +1706,18 @@ class AppDetail extends Component
         $this->ymlLastApply = $this->jobYmlApply();
 
         return true;
+    }
+
+    /** The signed-in user has this ability on the app; a refusal is reported in the page. */
+    protected function allowed(string $ability): bool
+    {
+        if ($this->can[$ability] ?? false) {
+            return true;
+        }
+
+        $this->denied();
+
+        return false;
     }
 
     public function siteUrl(): string

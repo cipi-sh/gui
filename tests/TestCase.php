@@ -31,12 +31,32 @@ abstract class TestCase extends Orchestra
         $this->loadMigrationsFrom(__DIR__.'/Fixtures/migrations');
     }
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        \CipiGui\Support\Panel::flush();
+        \CipiGui\Services\Access::flush();
+    }
+
     protected function admin(array $attributes = []): User
     {
         return User::create($attributes + [
             'name' => 'Admin',
             'email' => 'admin@cipi.local',
             'password' => 'secret-password',
+            'role' => 'admin',
+        ]);
+    }
+
+    /** A non-admin account; give it access with Access::replaceGrants(). */
+    protected function member(array $attributes = []): User
+    {
+        return User::create($attributes + [
+            'name' => 'Mario',
+            'email' => 'mario@cipi.local',
+            'password' => 'secret-password',
+            'role' => 'user',
         ]);
     }
 

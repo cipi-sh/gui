@@ -3,6 +3,7 @@
 namespace CipiGui\Livewire\Concerns;
 
 use CipiGui\Models\CipiServer;
+use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
 
@@ -16,11 +17,92 @@ trait InteractsWithCipiServer
     {
         $id = $this->serverId ?? session('cipi_gui_server_id');
 
-        if (! $id) {
+        if (! $id || ! $this->serverVisible((int) $id)) {
             return null;
         }
 
         return CipiServer::where('is_active', true)->find($id);
+    }
+
+    protected function panelUser(): ?object
+    {
+        return auth()->user();
+    }
+
+    /** The signed-in user may open this server (a level on it, or an app on it). */
+    protected function serverVisible(int $id): bool
+    {
+        $ids = Access::visibleServerIds($this->panelUser());
+
+        return $ids === null || in_array($id, $ids, true);
+    }
+
+    /** Every active server the signed-in user may open, by name. */
+    protected function activeServers(): \Illuminate\Database\Eloquent\Collection
+    {
+        return Access::visibleServers($this->panelUser());
+    }
+
+    /** Active servers where the user may create apps and databases and manage the server. */
+    protected function manageableServers(): \Illuminate\Database\Eloquent\Collection
+    {
+        $ids = Access::manageableServerIds($this->panelUser());
+
+        return $ids === null ? $this->activeServers() : $this->activeServers()->whereIn('id', $ids)->values();
+    }
+
+    /** Ability on an app for the signed-in user; a refusal is reported in the page. */
+    protected function appAllowed(string $ability, int $serverId, string $app): bool
+    {
+        if (Access::can($this->panelUser(), $ability, $serverId, $app)) {
+            return true;
+        }
+
+        $this->denied();
+
+        return false;
+    }
+
+    protected function serverAllowed(string $level, int $serverId): bool
+    {
+        $ok = $level === Access::MANAGE
+            ? Access::canManageServer($this->panelUser(), $serverId)
+            : Access::canViewServer($this->panelUser(), $serverId);
+
+        if (! $ok) {
+            $this->denied();
+        }
+
+        return $ok;
+    }
+
+    protected function denied(): void
+    {
+        $this->error = 'Your access does not include this action. Ask an admin of the panel.';
+        $this->dispatch('notify', type: 'error', message: $this->error);
+    }
+
+    /**
+     * Point this component's API calls at another connected server (a row action
+     * in the fleet-wide apps list). 0 keeps the current one. The global "current
+     * server" in the session is left alone.
+     */
+    protected function useServer(int $id): bool
+    {
+        if ($id === 0) {
+            return true;
+        }
+
+        if (! $this->serverVisible($id) || ! CipiServer::where('is_active', true)->whereKey($id)->exists()) {
+            $this->error = 'That server is no longer connected to the panel.';
+            $this->dispatch('notify', type: 'error', message: $this->error);
+
+            return false;
+        }
+
+        $this->serverId = $id;
+
+        return true;
     }
 
     protected function client(): CipiApiClient
@@ -225,14 +307,21 @@ trait InteractsWithCipiServer
         };
     }
 
+    /** Session key of an app's pending patch — the same name can exist on two servers. */
+    protected function appPatchKey(string $appName, ?int $serverId = null): string
+    {
+        return ($serverId ?? $this->serverId ?? 0).':'.$appName;
+    }
+
     /** @param  array<string, mixed>  $patch */
     protected function rememberAppPatch(string $appName, array $patch): void
     {
+        $key = $this->appPatchKey($appName);
         $patches = session('cipi_gui_app_patches', []);
-        $patches[$appName] = array_merge($patches[$appName] ?? [], $patch);
+        $patches[$key] = array_merge($patches[$key] ?? [], $patch);
         session(['cipi_gui_app_patches' => $patches]);
 
-        $this->dispatch('app-changed', name: $appName, patch: $patch);
+        $this->dispatch('app-changed', name: $appName, patch: $patch, serverId: $this->serverId);
     }
 
     /** @param  array<int, array<string, mixed>>  $apps */
@@ -247,11 +336,12 @@ trait InteractsWithCipiServer
 
         foreach ($apps as $i => $app) {
             $name = $app['app'] ?? '';
-            if ($name === '' || ! isset($patches[$name])) {
+            $key = $this->appPatchKey($name, isset($app['server_id']) ? (int) $app['server_id'] : null);
+            if ($name === '' || ! isset($patches[$key])) {
                 continue;
             }
 
-            $patch = $patches[$name];
+            $patch = $patches[$key];
             $stillNeeded = false;
 
             foreach ($patch as $key => $value) {
@@ -264,7 +354,7 @@ trait InteractsWithCipiServer
 
             if ($stillNeeded) {
                 $apps[$i] = array_merge($app, $patch);
-                $remaining[$name] = $patch;
+                $remaining[$key] = $patch;
             }
         }
 
@@ -281,25 +371,25 @@ trait InteractsWithCipiServer
     {
         $requested ??= is_numeric(request()->query('server')) ? (int) request()->query('server') : null;
 
-        if ($requested && CipiServer::where('is_active', true)->whereKey($requested)->exists()) {
+        if ($requested && $this->serverVisible($requested) && CipiServer::where('is_active', true)->whereKey($requested)->exists()) {
             $this->serverId = $requested;
             session(['cipi_gui_server_id' => $requested]);
 
             return;
         }
 
-        if ($this->serverId) {
+        if ($this->serverId && $this->serverVisible($this->serverId)) {
             return;
         }
 
         $fromSession = session('cipi_gui_server_id');
-        if ($fromSession && CipiServer::where('is_active', true)->whereKey($fromSession)->exists()) {
+        if ($fromSession && $this->serverVisible((int) $fromSession) && CipiServer::where('is_active', true)->whereKey($fromSession)->exists()) {
             $this->serverId = (int) $fromSession;
 
             return;
         }
 
-        $first = CipiServer::where('is_active', true)->orderBy('name')->first();
+        $first = $this->activeServers()->first();
         if ($first) {
             $this->serverId = $first->id;
             session(['cipi_gui_server_id' => $first->id]);

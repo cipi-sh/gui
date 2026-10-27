@@ -1,6 +1,7 @@
 <?php
 
 use CipiGui\Http\Controllers\AssetsController;
+use CipiGui\Http\Controllers\Auth\InviteController;
 use CipiGui\Http\Controllers\Auth\LoginController;
 use CipiGui\Http\Controllers\Auth\TwoFactorController;
 use CipiGui\Http\Controllers\ServerSwitchController;
@@ -11,6 +12,7 @@ use CipiGui\Livewire\Databases;
 use CipiGui\Livewire\ServerManage;
 use CipiGui\Livewire\Settings;
 use CipiGui\Livewire\Servers;
+use CipiGui\Livewire\Team;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/robots.txt', function () {
@@ -31,6 +33,8 @@ Route::redirect('/favicon.ico', '/favicon.svg', 301);
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'show'])->name('cipi-gui.login');
     Route::post('/login', [LoginController::class, 'login'])->name('cipi-gui.login.submit');
+    Route::get('/invite/{token}', [InviteController::class, 'show'])->name('cipi-gui.invite');
+    Route::post('/invite/{token}', [InviteController::class, 'accept'])->name('cipi-gui.invite.accept');
 });
 
 Route::post('/logout', [LoginController::class, 'logout'])
@@ -44,7 +48,10 @@ Route::middleware(['auth'])->group(function () {
 
 Route::middleware(['auth', 'cipi-gui.2fa'])->group(function () {
     Route::get('/', Dashboard::class)->name('cipi-gui.dashboard');
-    Route::get('/servers', Servers::class)->name('cipi-gui.servers');
+    Route::middleware('cipi-gui.admin')->group(function () {
+        Route::get('/servers', Servers::class)->name('cipi-gui.servers');
+        Route::get('/team', Team::class)->name('cipi-gui.team');
+    });
     Route::post('/servers/switch', ServerSwitchController::class)->name('cipi-gui.servers.switch');
     Route::get('/server/{serverId?}', ServerManage::class)->name('cipi-gui.server-manage')
         ->whereNumber('serverId');

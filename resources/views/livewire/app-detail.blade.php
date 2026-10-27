@@ -26,7 +26,7 @@
             <x-slot:eyebrow>
                 <a href="{{ route('cipi-gui.apps') }}">Apps</a>
                 <x-cipi::icon name="chevron-right" class="h-3 w-3" />
-                <span>{{ $server?->name }}</span>
+                @if($server)<a href="{{ route('cipi-gui.apps', ['server' => $server->id]) }}" title="Apps on {{ $server->name }}">{{ $server->name }}</a>@endif
             </x-slot:eyebrow>
             <x-slot:meta>
                 <span class="flex flex-wrap items-center gap-2 mt-1">
@@ -44,28 +44,36 @@
             <x-slot:actions>
                 @if(! $isNode && ! $isLaravel && $app['repository'] === '')
                     <span class="text-xs text-muted">SFTP-only app</span>
-                @else
+                @elseif($can['deploy'] ?? false)
                     <button type="button" wire:click="deploy" class="btn btn-primary"><x-cipi::icon name="rocket" /> Deploy</button>
                 @endif
                 <div class="dropdown" x-data="{ open: false }" x-on:click.outside="open = false" x-on:keydown.escape.window="open = false">
                     <button type="button" class="btn btn-secondary" x-on:click="open = !open" :aria-expanded="open">Actions <x-cipi::icon name="chevron-down" class="h-3.5 w-3.5" /></button>
                     <div class="dropdown-menu" x-show="open" x-cloak x-transition.opacity.duration.150ms>
                         <a href="{{ $this->siteUrl() }}" target="_blank" rel="noopener" class="dropdown-item"><x-cipi::icon name="external" /> Open site</a>
-                        @if($isSsr)
-                            <button type="button" class="dropdown-item" wire:click="restartNode" wire:confirm="Blue/green restart {{ $app['app'] }}? The new process must pass its health path before traffic switches." x-on:click="open = false"><x-cipi::icon name="refresh" /> Restart Node process</button>
+                        @if($can['edit'] ?? false)
+                            @if($isSsr)
+                                <button type="button" class="dropdown-item" wire:click="restartNode" wire:confirm="Blue/green restart {{ $app['app'] }}? The new process must pass its health path before traffic switches." x-on:click="open = false"><x-cipi::icon name="refresh" /> Restart Node process</button>
+                            @endif
+                            <button type="button" class="dropdown-item" wire:click="fixPermissions" wire:confirm="Restore ownership and modes of /home/{{ $app['app'] }}?" x-on:click="open = false"><x-cipi::icon name="wrench" /> Fix permissions</button>
+                            @if($app['suspended'] ?? false)
+                                <button type="button" class="dropdown-item" wire:click="unsuspendApp" x-on:click="open = false"><x-cipi::icon name="play" /> Unsuspend</button>
+                            @else
+                                <button type="button" class="dropdown-item" wire:click="suspendApp" wire:confirm="Take {{ $app['app'] }} offline with an HTTP 503 maintenance page?" x-on:click="open = false"><x-cipi::icon name="pause" /> Suspend (maintenance page)</button>
+                            @endif
                         @endif
-                        <button type="button" class="dropdown-item" wire:click="fixPermissions" wire:confirm="Restore ownership and modes of /home/{{ $app['app'] }}?" x-on:click="open = false"><x-cipi::icon name="wrench" /> Fix permissions</button>
-                        @if($app['suspended'] ?? false)
-                            <button type="button" class="dropdown-item" wire:click="unsuspendApp" x-on:click="open = false"><x-cipi::icon name="play" /> Unsuspend</button>
-                        @else
-                            <button type="button" class="dropdown-item" wire:click="suspendApp" wire:confirm="Take {{ $app['app'] }} offline with an HTTP 503 maintenance page?" x-on:click="open = false"><x-cipi::icon name="pause" /> Suspend (maintenance page)</button>
+                        @if($can['delete'] ?? false)
+                            <div class="dropdown-divider"></div>
+                            <button type="button" class="dropdown-item danger" wire:click="confirmDeleteApp" x-on:click="open = false"><x-cipi::icon name="trash" /> Delete app</button>
                         @endif
-                        <div class="dropdown-divider"></div>
-                        <button type="button" class="dropdown-item danger" wire:click="confirmDeleteApp" x-on:click="open = false"><x-cipi::icon name="trash" /> Delete app</button>
                     </div>
                 </div>
             </x-slot:actions>
         </x-cipi::page-header>
+
+        @unless($can['edit'] ?? false)
+            <x-cipi::alert type="info" class="mb-4">Read-only: your access lets you look at this app{{ ($can['deploy'] ?? false) ? ' and deploy it' : '' }}, not change it.</x-cipi::alert>
+        @endunless
 
         <nav class="tabs" aria-label="App sections">
             @foreach($tabs as $tab => $label)
@@ -559,12 +567,30 @@
                 <div class="card">
                     <div class="card-header"><h2 class="card-title">Deploy</h2></div>
                     <p class="text-sm text-muted mb-4">Zero-downtime release from <code>{{ $app['branch'] ?: 'main' }}</code>. Pushes deploy automatically through the webhook.</p>
-                    <div class="space-y-2">
-                        <button wire:click="deploy" class="btn btn-primary w-full"><x-cipi::icon name="rocket" /> Deploy now</button>
-                        <button wire:click="rollback" wire:confirm="Roll back to the previous release?" class="btn btn-secondary w-full"><x-cipi::icon name="rollback" /> Roll back</button>
-                        <button wire:click="unlockDeploy" wire:confirm="Remove the deploy lock? Only do this if no deploy is running." class="btn btn-ghost w-full"><x-cipi::icon name="unlock" /> Unlock a stuck deploy</button>
-                    </div>
-                    @if($app['repository'] !== '')
+                    @if($can['deploy'] ?? false)
+                        <div class="space-y-2">
+                            <button wire:click="deploy" class="btn btn-primary w-full"><x-cipi::icon name="rocket" /> Deploy now</button>
+                            <button wire:click="rollback" wire:confirm="Roll back to the previous release?" class="btn btn-secondary w-full"><x-cipi::icon name="rollback" /> Roll back</button>
+                            <button wire:click="unlockDeploy" wire:confirm="Remove the deploy lock? Only do this if no deploy is running." class="btn btn-ghost w-full"><x-cipi::icon name="unlock" /> Unlock a stuck deploy</button>
+                        </div>
+                    @else
+                        <p class="text-xs text-muted">Deploying needs the Deploy ability on this app.</p>
+                    @endif
+                    @if($auditLoaded && ! $auditUnsupported)
+                        @php $times = $this->deployTimes(); @endphp
+                        <div class="mt-5 pt-4 border-t">
+                            <p class="font-medium text-strong mb-1 flex items-center gap-1.5"><x-cipi::icon name="clock" class="h-4 w-4 text-muted" /> Deploy time</p>
+                            @if($times)
+                                <p class="text-sm text-soft">Last deploy took <strong class="text-strong tabular-nums">{{ \CipiGui\Support\DeployLog::format($times['last']) }}</strong>@if($times['count'] > 1) · <span class="tabular-nums">{{ \CipiGui\Support\DeployLog::format($times['average']) }}</span> on average over {{ $times['count'] }} {{ \Illuminate\Support\Str::plural('deploy', $times['count']) }}@endif.</p>
+                                <p class="text-xs text-muted mt-1">From the deploy log — the Took column in the audit has every deploy.</p>
+                            @elseif(! empty($auditRecords))
+                                <p class="text-xs text-muted">No timing yet. Cipi 5.6+ writes how long each deploy took to the deploy log; it shows here from the next deploy.</p>
+                            @else
+                                <p class="text-xs text-muted">Shown once a deploy has run.</p>
+                            @endif
+                        </div>
+                    @endif
+                    @if($app['repository'] !== '' && ($can['edit'] ?? false))
                         <div class="mt-5 pt-4 border-t">
                             <p class="font-medium text-strong mb-1">Git webhook</p>
                             <p class="text-xs text-muted mb-3">Recreate the GitHub/GitLab hook, or rotate <code>CIPI_WEBHOOK_TOKEN</code>.</p>
@@ -601,7 +627,7 @@
                         <div class="table-scroll max-h-panel overflow-y-auto">
                             <table class="table-compact">
                                 <thead>
-                                    <tr><th>#</th><th>When</th><th>Event</th><th>Release</th><th>Origin</th><th>By</th></tr>
+                                    <tr><th>#</th><th>When</th><th>Event</th><th>Release</th><th class="text-right" title="From the deploy log (Cipi 5.6+)">Took</th><th>Origin</th><th>By</th></tr>
                                 </thead>
                                 <tbody>
                                     @foreach($auditRecords as $record)
@@ -621,6 +647,7 @@
                                                 {{ $record['release'] ?? '—' }}
                                                 @if(!empty($record['commit']))<span class="text-subtle"> · {{ substr((string) $record['commit'], 0, 7) }}</span>@endif
                                             </td>
+                                            <td class="text-right tabular-nums text-xs {{ isset($auditTook[$loop->index]) ? 'text-soft' : 'text-subtle' }}">{{ isset($auditTook[$loop->index]) ? \CipiGui\Support\DeployLog::format($auditTook[$loop->index]) : '—' }}</td>
                                             <td class="text-xs"><span class="badge badge-neutral">{{ $record['origin'] ?? '—' }}</span>@if(!empty($record['trigger']))<span class="text-subtle"> {{ $record['trigger'] }}</span>@endif</td>
                                             <td class="text-xs">
                                                 {{ $record['operator'] ?? '—' }}

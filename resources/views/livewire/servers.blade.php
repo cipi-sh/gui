@@ -37,7 +37,7 @@
                                     <p class="font-semibold text-strong">{{ $server->name }}</p>
                                     <p class="text-xs text-muted">{{ $server->base_url }}</p>
                                 </td>
-                                <td class="font-mono text-xs text-muted">{{ $server->ip ?? '—' }}</td>
+                                <td class="font-mono text-xs text-muted">@if($server->ip)<x-cipi::copyable :value="$server->ip" label="Copy IP" />@else — @endif</td>
                                 <td>
                                     @if(! $server->is_active)
                                         <span class="badge badge-gray">Disabled</span>
@@ -97,7 +97,7 @@
     </div>
 
     @if($showFormModal)
-        <x-cipi::modal :title="$editingId ? 'Edit connection' : 'Add server'" close="closeForm"
+        <x-cipi::modal :title="$editingId ? 'Edit connection' : 'Add server'" close="closeForm" persistent
                        :subtitle="$editingId ? 'Leave the token empty to keep the current one.' : 'The token is tested right after saving.'">
             <form wire:submit="save" novalidate>
                 <div class="modal-body space-y-4">

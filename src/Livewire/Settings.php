@@ -6,7 +6,9 @@ use BaconQrCode\Renderer\Image\SvgImageBackEnd;
 use BaconQrCode\Renderer\ImageRenderer;
 use BaconQrCode\Renderer\RendererStyle\RendererStyle;
 use BaconQrCode\Writer;
+use CipiGui\Services\Access;
 use CipiGui\Services\TwoFactorService;
+use CipiGui\Support\Panel;
 use CipiGui\Support\Theme;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -40,12 +42,37 @@ class Settings extends Component
 
     public string $disablePassword = '';
 
+    // Panel (admins): fleet view and how a server is picked
+    public bool $fleetView = true;
+
+    public string $serverNav = 'sidebar';
+
     public function mount(): void
     {
         $user = Auth::user();
         $this->name = (string) ($user->name ?? '');
         $this->email = (string) ($user->email ?? '');
         $this->twoFactorEnabled = (bool) ($user->two_factor_enabled ?? false);
+        $this->fleetView = Panel::fleetView();
+        $this->serverNav = Panel::serverNav();
+    }
+
+    /** Settings → Panel: saved for everyone, then the page reloads so the navigation follows. */
+    public function savePanel(): void
+    {
+        if (! Access::isAdmin(Auth::user())) {
+            $this->dispatch('notify', type: 'error', message: 'Only admins can change the panel settings.');
+
+            return;
+        }
+
+        $this->validate(['serverNav' => ['required', 'in:sidebar,picker']]);
+
+        Panel::set(Panel::FLEET_VIEW, $this->fleetView ? '1' : '0');
+        Panel::set(Panel::SERVER_NAV, $this->serverNav);
+
+        session()->flash('cipi_gui_flash', ['type' => 'success', 'message' => 'Panel settings saved.']);
+        $this->redirect(route('cipi-gui.settings'));
     }
 
     public function saveProfile(): void
@@ -147,6 +174,8 @@ class Settings extends Component
     public function render()
     {
         return view('cipi-gui::livewire.settings', [
+            'isAdmin' => Access::isAdmin(Auth::user()),
+            'role' => Access::role(Auth::user()),
             'versions' => [
                 'cipi/gui' => Theme::VERSION,
                 'Laravel' => app()->version(),

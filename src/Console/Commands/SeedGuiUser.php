@@ -30,7 +30,7 @@ class SeedGuiUser extends Command
 
         $password ??= Str::password(16);
 
-        $this->userModel()::updateOrCreate(
+        $user = $this->userModel()::updateOrCreate(
             ['email' => $email],
             [
                 'name' => $name,
@@ -39,6 +39,10 @@ class SeedGuiUser extends Command
                 'password' => Hash::make($password),
             ],
         );
+
+        if (Schema::hasColumn($user->getTable(), 'role')) {
+            $user->forceFill(['role' => 'admin'])->save();
+        }
 
         $this->info('Cipi GUI admin user ready.');
         $this->line("  Email:    {$email}");
@@ -87,6 +91,9 @@ class SeedGuiUser extends Command
             'password' => Hash::make($password),
         ];
 
+        if (Schema::hasColumn('users', 'role')) {
+            $attributes['role'] = 'admin';
+        }
         if (Schema::hasColumn('users', 'two_factor_secret')) {
             $attributes['two_factor_secret'] = null;
         }

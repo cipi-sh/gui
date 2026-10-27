@@ -4,9 +4,12 @@ namespace CipiGui\Livewire;
 
 use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
+use CipiGui\Models\CipiServer;
+use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
 use CipiGui\Support\BuildCommand;
+use CipiGui\Support\Panel;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
@@ -30,10 +33,20 @@ class Apps extends Component
         'vite' => ['label' => 'Vite', 'mode' => 'spa', 'build' => 'npm run build', 'start' => '', 'output' => 'dist'],
     ];
 
-    /** @var array<int, array> */
+    /** @var array<int, array> every app of every server that answered, each with `server_id` and `server_name` */
     public array $apps = [];
 
+    /** @var array<int, string> server id → why its apps could not be loaded */
+    public array $serverErrors = [];
+
     public bool $loading = true;
+
+    /** Server whose apps are shown — 0 for every connected server (`?server=` in the URL). */
+    #[Url(as: 'server', except: 0)]
+    public int $scopeServerId = 0;
+
+    /** Settings → Panel: every server in one list (fleet view) or the current server only. */
+    public bool $fleet = true;
 
     #[Url(as: 'q', except: '')]
     public string $search = '';
@@ -43,7 +56,15 @@ class Apps extends Component
 
     public bool $showCreateModal = false;
 
+    /** Server the create form targets (its engines, PHP versions and Node runtimes). */
+    public int $createServerId = 0;
+
+    /** The create form was closed with something typed in it: reopening restores it. */
+    public bool $createDraft = false;
+
     public string $deleteAppName = '';
+
+    public string $deleteServerName = '';
 
     public string $deleteConfirmation = '';
 
@@ -99,33 +120,71 @@ class Apps extends Component
 
     public function mount(): void
     {
+        // ?server= also selects that server for the rest of the panel (shareable links).
         $this->ensureServerSelected();
-        $this->loadApps();
+        $this->fleet = Panel::fleetView();
+
+        if (! $this->fleet) {
+            $this->scopeServerId = (int) ($this->serverId ?? 0);
+        }
     }
 
+    /** Called by wire:init so the page paints before the servers answer. */
     public function loadApps(): void
     {
         $this->loading = true;
         $this->error = null;
         $this->apps = [];
+        $this->serverErrors = [];
 
-        if (! $this->currentServer()) {
+        $servers = $this->fleet ? $this->activeServers() : collect(array_filter([$this->currentServer()]));
+
+        if ($servers->isEmpty()) {
             $this->loading = false;
 
             return;
         }
 
-        try {
-            $this->apps = array_map(
-                fn (array $app) => $this->normalizeApp($app),
-                $this->client()->listApps(),
-            );
-            usort($this->apps, fn ($a, $b) => strcmp($a['app'] ?? '', $b['app'] ?? ''));
-            $this->apps = $this->applySessionAppPatches($this->apps);
-        } catch (CipiApiException $e) {
-            $this->handleApiError($e);
-        } finally {
-            $this->loading = false;
+        $user = $this->panelUser();
+        $results = CipiApiClient::appsForMany($servers);
+
+        foreach ($servers as $server) {
+            $result = $results[$server->id] ?? ['apps' => null, 'error' => 'No response', 'status' => 503];
+
+            if ($result['apps'] === null) {
+                $this->serverErrors[$server->id] = $this->friendlyApiError(
+                    new CipiApiException((string) ($result['error'] ?: 'No response'), (int) ($result['status'] ?? 500)),
+                );
+
+                continue;
+            }
+
+            $seesAll = Access::seesAllAppsOn($user, $server->id);
+            foreach ($result['apps'] as $app) {
+                if (! is_array($app) || ! isset($app['app'])) {
+                    continue;
+                }
+                if (! $seesAll && ! Access::can($user, 'view', $server->id, (string) $app['app'])) {
+                    continue; // not one of this user's apps
+                }
+                $app = $this->normalizeApp($app);
+                $app['server_id'] = $server->id;
+                $app['server_name'] = $server->name;
+                $app['can'] = Access::appAbilityMap($user, $server->id, (string) $app['app']);
+                $this->apps[] = $app;
+            }
+        }
+
+        usort($this->apps, fn (array $a, array $b) => strcmp($a['app'], $b['app']) ?: strcmp($a['server_name'], $b['server_name']));
+        $this->apps = $this->applySessionAppPatches($this->apps);
+        $this->loading = false;
+    }
+
+    /** Show one server's apps (0 = every server). A filter on the loaded list, kept in the URL. */
+    public function setScope(int $serverId): void
+    {
+        if ($this->fleet) {
+            $this->scopeServerId = $serverId;
         }
     }
 
@@ -138,30 +197,113 @@ class Apps extends Component
     {
         $this->search = '';
         $this->kindFilter = 'all';
+        if ($this->fleet) {
+            $this->scopeServerId = 0;
+        }
     }
 
     // ── Create ────────────────────────────────────────────────────────
 
     public function openCreate(): void
     {
-        $this->reset([
-            'user', 'domain', 'repository', 'branch', 'docroot', 'engine', 'error',
-            'nodeMode', 'nodeFramework', 'nodeVersion', 'nodeBuild', 'nodeStart',
-            'nodeOutput', 'nodeHealthPath', 'octane', 'assetBuild',
-        ]);
         $this->resetErrorBag();
-        $this->appKind = 'laravel';
-        $this->loadAvailableEngines();
-        $this->loadInstalledPhpVersions();
-        $this->loadNodeRuntimes();
-        $this->php = $this->defaultPhpForNewApp();
+        $this->error = null;
+
+        if (! $this->createDraft) {
+            $this->resetCreateFields();
+        }
+
+        // A kept draft stays on the server it was written for; otherwise the server
+        // in view, or the current one.
+        $target = $this->createDraft && $this->createServerId !== 0
+            ? $this->createServerId
+            : ($this->scopeServerId !== 0 ? $this->scopeServerId : (int) ($this->serverId ?? 0));
+
+        $this->selectCreateServer($target, keepChoices: $this->createDraft);
         $this->showCreateModal = true;
     }
 
+    /**
+     * Hide the dialog. Nothing typed is lost: a click outside the dialog does not
+     * close it, and Cancel or Escape keep the draft until the app is created or the
+     * form is cleared.
+     */
     public function closeCreate(): void
     {
         $this->showCreateModal = false;
         $this->resetErrorBag();
+        $this->createDraft = $this->hasCreateInput();
+    }
+
+    public function clearCreateForm(): void
+    {
+        $this->resetCreateFields();
+        $this->resetErrorBag();
+        $this->loadCreateOptions(keepChoices: false);
+    }
+
+    public function updatedCreateServerId(mixed $value): void
+    {
+        $this->selectCreateServer((int) $value, keepChoices: true);
+    }
+
+    protected function resetCreateFields(): void
+    {
+        $this->reset([
+            'user', 'domain', 'repository', 'branch', 'docroot', 'engine',
+            'nodeMode', 'nodeFramework', 'nodeVersion', 'nodeBuild', 'nodeStart',
+            'nodeOutput', 'nodeHealthPath', 'octane', 'assetBuild',
+        ]);
+        $this->appKind = 'laravel';
+        $this->createDraft = false;
+    }
+
+    protected function hasCreateInput(): bool
+    {
+        foreach (['user', 'domain', 'repository', 'docroot', 'assetBuild', 'nodeFramework', 'nodeBuild', 'nodeStart', 'nodeOutput', 'nodeHealthPath'] as $field) {
+            if (trim((string) $this->{$field}) !== '') {
+                return true;
+            }
+        }
+
+        return $this->branch !== 'main' || $this->appKind !== 'laravel' || $this->octane;
+    }
+
+    /** Make $id the server the create form (and the create job) talks to, and load what it offers. Only servers the user manages. */
+    protected function selectCreateServer(int $id, bool $keepChoices): void
+    {
+        $servers = $this->manageableServers();
+        $server = $servers->firstWhere('id', $id) ?? $servers->first();
+
+        if (! $server) {
+            $this->createServerId = 0;
+
+            return;
+        }
+
+        $this->createServerId = $server->id;
+        $this->serverId = $server->id;
+        $this->loadCreateOptions($keepChoices);
+    }
+
+    /** Engines, PHP versions and Node runtimes of the create server — keeping a draft's choices when it still offers them. */
+    protected function loadCreateOptions(bool $keepChoices): void
+    {
+        $engine = $this->engine;
+        $php = $this->php;
+        $nodeVersion = $this->nodeVersion;
+
+        $this->loadAvailableEngines();
+        $this->loadInstalledPhpVersions();
+        $this->loadNodeRuntimes();
+
+        if ($keepChoices && $engine !== '' && in_array($engine, array_column($this->availableEngines, 'engine'), true)) {
+            $this->engine = $engine;
+        }
+        if ($keepChoices && $nodeVersion !== '' && in_array($nodeVersion, array_map(fn (array $r) => (string) $r['major'], $this->nodeRuntimes), true)) {
+            $this->nodeVersion = $nodeVersion;
+        }
+        $this->php = $keepChoices && in_array($php, $this->installedPhpVersions, true) ? $php : $this->defaultPhpForNewApp();
     }
 
     public function setAppKind(string $kind): void
@@ -330,6 +472,10 @@ class Apps extends Component
             }
         }
 
+        if ($this->createServerId === 0 || ! $this->serverAllowed(Access::MANAGE, $this->createServerId)) {
+            return;
+        }
+
         $this->validate($rules, [
             'user.regex' => 'Use 3–32 lowercase letters or digits, starting with a letter.',
             'user.not_in' => 'This name is reserved on Cipi servers.',
@@ -375,29 +521,54 @@ class Apps extends Component
             }
         }
 
-        if ($this->startJob("Create app {$this->user}", fn (CipiApiClient $api) => $api->createApp($payload))) {
+        if ($this->startJob("Create app {$this->user}".$this->jobServerSuffix(), fn (CipiApiClient $api) => $api->createApp($payload))) {
+            // Kept until the job succeeds, so a refused name or domain can be fixed and resent.
             $this->showCreateModal = false;
+            $this->createDraft = true;
         }
     }
 
-    // ── Row actions ───────────────────────────────────────────────────
-
-    public function deploy(string $name): void
+    /** " on fra1" when more than one server is connected — jobs can target any of them. */
+    protected function jobServerSuffix(): string
     {
-        $this->startJob("Deploy {$name}", fn (CipiApiClient $api) => $api->deploy($name));
+        if (CipiServer::where('is_active', true)->count() < 2) {
+            return '';
+        }
+
+        return ' on '.($this->currentServer()?->name ?? 'server');
     }
 
-    public function toggleSuspend(string $name, bool $suspended): void
+    // ── Row actions (each row carries its server) ─────────────────────
+
+    public function deploy(string $name, int $serverId = 0): void
     {
+        if (! $this->useServer($serverId) || ! $this->appAllowed('deploy', (int) $this->serverId, $name)) {
+            return;
+        }
+
+        $this->startJob("Deploy {$name}".$this->jobServerSuffix(), fn (CipiApiClient $api) => $api->deploy($name));
+    }
+
+    public function toggleSuspend(string $name, bool $suspended, int $serverId = 0): void
+    {
+        if (! $this->useServer($serverId) || ! $this->appAllowed('edit', (int) $this->serverId, $name)) {
+            return;
+        }
+
         $this->startJob(
-            ($suspended ? 'Unsuspend ' : 'Suspend ').$name,
+            ($suspended ? 'Unsuspend ' : 'Suspend ').$name.$this->jobServerSuffix(),
             fn (CipiApiClient $api) => $suspended ? $api->unsuspendApp($name) : $api->suspendApp($name),
         );
     }
 
-    public function confirmDeleteApp(string $name): void
+    public function confirmDeleteApp(string $name, int $serverId = 0): void
     {
+        if (! $this->useServer($serverId) || ! $this->appAllowed('delete', (int) $this->serverId, $name)) {
+            return;
+        }
+
         $this->deleteAppName = $name;
+        $this->deleteServerName = (string) ($this->currentServer()?->name ?? '');
         $this->deleteConfirmation = '';
         $this->resetErrorBag();
     }
@@ -405,6 +576,7 @@ class Apps extends Component
     public function cancelDeleteApp(): void
     {
         $this->deleteAppName = '';
+        $this->deleteServerName = '';
         $this->deleteConfirmation = '';
     }
 
@@ -421,22 +593,30 @@ class Apps extends Component
             return;
         }
 
-        if ($this->startJob("Delete app {$name}", fn (CipiApiClient $api) => $api->deleteApp($name))) {
+        if (! $this->appAllowed('delete', (int) $this->serverId, $name)) {
+            return;
+        }
+
+        if ($this->startJob("Delete app {$name}".$this->jobServerSuffix(), fn (CipiApiClient $api) => $api->deleteApp($name))) {
             $this->cancelDeleteApp();
         }
     }
 
     protected function onJobCompleted(array $data): void
     {
+        if (str_starts_with($this->jobLabel, 'Create app')) {
+            $this->resetCreateFields();
+        }
+
         $this->loadApps();
     }
 
     /** @param  array<string, mixed>  $patch */
     #[On('app-changed')]
-    public function onAppChanged(string $name, array $patch): void
+    public function onAppChanged(string $name, array $patch, ?int $serverId = null): void
     {
         foreach ($this->apps as $index => $app) {
-            if (($app['app'] ?? '') === $name) {
+            if (($app['app'] ?? '') === $name && ($serverId === null || (int) ($app['server_id'] ?? 0) === $serverId)) {
                 $this->apps[$index] = array_merge($app, $patch);
 
                 return;
@@ -446,34 +626,59 @@ class Apps extends Component
 
     public function render()
     {
-        $counts = ['all' => count($this->apps), 'laravel' => 0, 'node' => 0, 'custom' => 0];
+        $servers = $this->fleet ? $this->activeServers() : collect(array_filter([$this->currentServer()]));
+        $scopeServer = $this->scopeServerId !== 0 ? $servers->firstWhere('id', $this->scopeServerId) : null;
+        if (! $this->fleet) {
+            $scopeServer = $servers->first();
+        }
+        $scopeId = $scopeServer?->id ?? 0;
+        $createServers = $this->manageableServers();
+
+        $serverCounts = [];
         foreach ($this->apps as $app) {
+            $serverCounts[$app['server_id']] = ($serverCounts[$app['server_id']] ?? 0) + 1;
+        }
+
+        $scoped = $scopeId === 0 ? $this->apps : array_values(array_filter($this->apps, fn (array $app) => (int) $app['server_id'] === $scopeId));
+
+        $counts = ['all' => count($scoped), 'laravel' => 0, 'node' => 0, 'custom' => 0];
+        foreach ($scoped as $app) {
             $counts[$this->appKind($app)]++;
         }
 
         $needle = mb_strtolower(trim($this->search));
-        $visible = array_values(array_filter($this->apps, function (array $app) use ($needle): bool {
+        $visible = array_values(array_filter($scoped, function (array $app) use ($needle): bool {
             if ($this->kindFilter !== 'all' && $this->appKind($app) !== $this->kindFilter) {
                 return false;
             }
             if ($needle === '') {
                 return true;
             }
-            $haystack = mb_strtolower(implode(' ', [$app['app'] ?? '', $app['domain'] ?? '', implode(' ', $app['aliases'] ?? []), $app['repository'] ?? '']));
+            $haystack = mb_strtolower(implode(' ', [$app['app'] ?? '', $app['domain'] ?? '', implode(' ', $app['aliases'] ?? []), $app['repository'] ?? '', $app['server_name'] ?? '']));
 
             return str_contains($haystack, $needle);
         }));
 
-        $server = $this->currentServer();
+        $errors = $scopeId === 0 ? $this->serverErrors : array_intersect_key($this->serverErrors, [$scopeId => true]);
 
         return view('cipi-gui::livewire.apps', [
-            'server' => $server,
+            'servers' => $servers,
+            'fleet' => $this->fleet,
+            'multiServer' => $this->fleet && $servers->count() > 1,
+            'createServers' => $createServers,
+            'canCreate' => $createServers->isNotEmpty(),
+            'scopeServer' => $scopeServer,
+            'scopeId' => $scopeId,
+            'serverCounts' => $serverCounts,
+            'serverErrors' => $errors,
+            'scopedCount' => count($scoped),
             'visibleApps' => $visible,
             'counts' => $counts,
+            'createServer' => $servers->firstWhere('id', $this->createServerId),
             'phpVersions' => $this->installedPhpVersions !== [] ? $this->installedPhpVersions : config('cipi-gui.php_versions'),
             'presets' => self::NODE_PRESETS,
             'buildPlaceholder' => BuildCommand::PLACEHOLDER,
             'buildMaxLength' => BuildCommand::MAX_LENGTH,
-        ])->title($server ? 'Apps · '.$server->name : 'Apps');
+        ])->title($scopeServer ? 'Apps · '.$scopeServer->name : 'Apps');
     }
 }

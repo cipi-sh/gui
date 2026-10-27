@@ -3,7 +3,7 @@
         <x-slot:eyebrow><x-cipi::icon name="server" class="h-3.5 w-3.5" /> Server</x-slot:eyebrow>
         <x-slot:meta>
             @if($server)
-                <span class="font-mono text-xs">{{ $server->host }}</span>@if($server->ip) · <span class="font-mono text-xs">{{ $server->ip }}</span>@endif
+                <span class="font-mono text-xs">{{ $server->host }}</span>@if($server->ip) · <x-cipi::copyable :value="$server->ip" label="Copy IP" class="font-mono text-xs" />@endif
                 @if(!empty($status['system']['cipi'])) · Cipi {{ $status['system']['cipi'] }}@endif
             @else
                 Connect a server to manage PHP, Node, services, notifications and API access.
@@ -11,7 +11,14 @@
         </x-slot:meta>
         @if($server)
             <x-slot:actions>
-                <a href="{{ route('cipi-gui.apps') }}" class="btn btn-secondary"><x-cipi::icon name="apps" /> Apps</a>
+                @if($picker->count() > 1)
+                    <select class="w-auto" aria-label="Server" wire:change="switchServer($event.target.value)">
+                        @foreach($picker as $s)
+                            <option value="{{ $s->id }}" @selected($s->id === $server->id)>{{ $s->name }}</option>
+                        @endforeach
+                    </select>
+                @endif
+                <a href="{{ route('cipi-gui.apps', ['server' => $server->id]) }}" class="btn btn-secondary"><x-cipi::icon name="apps" /> Apps</a>
                 <button type="button" wire:click="refresh" class="btn btn-secondary" wire:loading.attr="disabled" wire:target="refresh,setTab">
                     <x-cipi::icon name="refresh" wire:loading.class="animate-spin" wire:target="refresh,setTab" /> Refresh
                 </button>
@@ -35,6 +42,10 @@
         @if($error)
             <x-cipi::alert type="danger" class="mb-4">{{ $error }}</x-cipi::alert>
         @endif
+
+        @unless($canManage)
+            <x-cipi::alert type="info" class="mb-4">Read-only: your access lets you look at this server, not change it.</x-cipi::alert>
+        @endunless
 
         @if($unsupported[$activeTab] ?? false)
             <x-cipi::alert type="warn" title="Not available on this server">
@@ -61,9 +72,9 @@
                         <dt>Hostname</dt><dd class="font-mono text-xs">{{ $sys['hostname'] ?? '—' }}</dd>
                         <dt>OS</dt><dd>{{ $sys['os'] ?? '—' }}</dd>
                         <dt>Cipi</dt><dd>{{ $sys['cipi'] ?? '—' }}</dd>
-                        <dt>Public IP</dt><dd class="font-mono text-xs">{{ $sys['ip'] ?? ($server->ip ?? '—') }}</dd>
+                        <dt>Public IP</dt><dd class="font-mono text-xs">@if($publicIp = $sys['ip'] ?? $server->ip)<x-cipi::copyable :value="$publicIp" label="Copy IP" />@else — @endif</dd>
                         <dt>Uptime</dt><dd>{{ isset($sys['uptime']) ? preg_replace('/^up\s+/', '', $sys['uptime']) : '—' }}</dd>
-                        <dt>Apps</dt><dd><a href="{{ route('cipi-gui.apps') }}" class="text-link">{{ $status['apps'] ?? 0 }}</a></dd>
+                        <dt>Apps</dt><dd><a href="{{ route('cipi-gui.apps', ['server' => $server->id]) }}" class="text-link">{{ $status['apps'] ?? 0 }}</a></dd>
                     </dl>
                 </div>
                 <div class="card">
@@ -119,7 +130,7 @@
                                     <tr>
                                         <td class="font-mono text-xs text-strong"><span class="dot {{ ($svc['status'] ?? '') === 'running' ? 'dot-green' : 'dot-red' }} mr-2"></span>{{ $svc['name'] }}</td>
                                         <td class="text-xs text-muted">{{ $svc['status'] ?? '' }}@if(!empty($svc['since'])) · since {{ $svc['since'] }}@endif</td>
-                                        <td class="text-right"><button type="button" wire:click="restartService(@js($svc['name']))" wire:confirm="Restart {{ $svc['name'] }}?" class="btn btn-ghost btn-xs" @disabled(($svc['status'] ?? '') === 'not_installed')>Restart</button></td>
+                                        <td class="text-right">@if($canManage)<button type="button" wire:click="restartService(@js($svc['name']))" wire:confirm="Restart {{ $svc['name'] }}?" class="btn btn-ghost btn-xs" @disabled(($svc['status'] ?? '') === 'not_installed')>Restart</button>@endif</td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -278,7 +289,9 @@
                 </div>
                 <div class="card">
                     <div class="card-header"><div><h2 class="card-title">Install PHP</h2><p class="card-subtitle">FPM, CLI and the extensions Laravel needs. Takes a few minutes.</p></div></div>
-                    @if($phpInstallVersion === '')
+                    @if(! $canManage)
+                        <p class="text-muted">Installing a PHP version needs Manage access to this server.</p>
+                    @elseif($phpInstallVersion === '')
                         <p class="text-muted">Every installable version ({{ implode(', ', $phpData['installable'] ?: ['8.3', '8.4', '8.5']) }}) is already installed.</p>
                     @else
                         <form wire:submit="installPhp" class="space-y-3">
@@ -337,9 +350,9 @@
                                 <span class="badge {{ $ready ? 'badge-green' : 'badge-gray' }}">{{ $engine['status'] ?? '' }}</span>
                             </div>
                         </div>
-                        @unless($ready)
+                        @if(! $ready && $canManage)
                             <button type="button" wire:click="installEngine('{{ $engine['engine'] }}')" wire:confirm="Install {{ $this->engineLabel($engine['engine']) }} on this server?" class="btn btn-primary btn-sm mt-4">Install</button>
-                        @endunless
+                        @endif
                     </div>
                 @empty
                     <div class="card text-muted">No engine information.</div>
@@ -358,7 +371,7 @@
                                 <td class="font-mono text-strong">{{ $svc['name'] }}</td>
                                 <td><span class="badge {{ $state === 'running' ? 'badge-green' : ($state === 'not_installed' ? 'badge-gray' : 'badge-red') }}">{{ str_replace('_', ' ', $state) }}</span></td>
                                 <td class="text-xs text-muted">{{ $svc['since'] ?? '—' }}</td>
-                                <td class="text-right"><button type="button" wire:click="restartService(@js($svc['name']))" wire:confirm="Restart {{ $svc['name'] }}?" class="btn btn-secondary btn-sm" @disabled($state === 'not_installed')><x-cipi::icon name="refresh" /> Restart</button></td>
+                                <td class="text-right">@if($canManage)<button type="button" wire:click="restartService(@js($svc['name']))" wire:confirm="Restart {{ $svc['name'] }}?" class="btn btn-secondary btn-sm" @disabled($state === 'not_installed')><x-cipi::icon name="refresh" /> Restart</button>@endif</td>
                             </tr>
                         @empty
                             <tr><td colspan="4" class="text-muted">No services returned.</td></tr>
@@ -430,7 +443,7 @@
                             <span class="badge badge-gray">Not configured</span>
                         @endif
                     </div>
-                    <form wire:submit="saveSmtp" class="space-y-4">
+                    <form wire:submit="saveSmtp" class="space-y-4" @if(! $canManage) inert @endif>
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div class="sm:col-span-2">
                                 <label for="smtp-host">SMTP host</label>
@@ -473,7 +486,9 @@
                 </div>
                 <div class="card">
                     <div class="card-header"><h2 class="card-title">Actions</h2></div>
-                    @if(!empty($smtp['configured']))
+                    @if(! $canManage)
+                        <p class="text-muted">Managing notifications needs Manage access to this server.</p>
+                    @elseif(!empty($smtp['configured']))
                         <div class="space-y-2">
                             <button type="button" wire:click="testSmtp" class="btn btn-secondary w-full">Send test email</button>
                             @if(!empty($smtp['enabled']))
@@ -505,7 +520,7 @@
                                     <td class="text-right">
                                         @if(!empty($key['current_session']))
                                             <span class="badge badge-accent" title="Used by the current SSH session — cannot be removed from here">In use</span>
-                                        @else
+                                        @elseif($canManage)
                                             <button type="button" wire:click="removeSshKey({{ (int) $key['id'] }})" wire:confirm="Remove the key {{ $key['comment'] ?: '#'.$key['id'] }}?" class="btn btn-ghost btn-sm danger">Remove</button>
                                         @endif
                                     </td>
@@ -518,11 +533,15 @@
                 </div>
                 <div class="card">
                     <div class="card-header"><h2 class="card-title">Add a key</h2></div>
-                    <form wire:submit="addSshKey" class="space-y-3">
-                        <textarea wire:model="sshKey" rows="5" placeholder="ssh-ed25519 AAAA… you@laptop" class="font-mono text-xs" aria-label="Public key"></textarea>
-                        @error('sshKey') <p class="field-error">{{ $message }}</p> @enderror
-                        <button type="submit" class="btn btn-primary w-full">Add key</button>
-                    </form>
+                    @if($canManage)
+                        <form wire:submit="addSshKey" class="space-y-3">
+                            <textarea wire:model="sshKey" rows="5" placeholder="ssh-ed25519 AAAA… you@laptop" class="font-mono text-xs" aria-label="Public key"></textarea>
+                            @error('sshKey') <p class="field-error">{{ $message }}</p> @enderror
+                            <button type="submit" class="btn btn-primary w-full">Add key</button>
+                        </form>
+                    @else
+                        <p class="text-muted">Adding keys needs Manage access to this server.</p>
+                    @endif
                 </div>
             </div>
 
@@ -606,7 +625,7 @@
                         @forelse($entries as $entry)
                             <li class="list-row">
                                 <span class="font-mono text-strong">{{ $entry }}@if(($ipWhitelist['client_ip'] ?? null) === $entry)<span class="badge badge-accent ml-2">this panel</span>@endif</span>
-                                @if($entry !== '*' && ($ipWhitelist['client_ip'] ?? null) !== $entry)
+                                @if($canManage && $entry !== '*' && ($ipWhitelist['client_ip'] ?? null) !== $entry)
                                     <button type="button" wire:click="removeIpWhitelistEntry(@js($entry))" wire:confirm="Remove {{ $entry }}?" class="btn btn-ghost btn-sm danger">Remove</button>
                                 @endif
                             </li>
@@ -617,12 +636,16 @@
                 </div>
                 <div class="card">
                     <div class="card-header"><h2 class="card-title">Allow an address</h2></div>
-                    <form wire:submit="addIpWhitelistEntry" class="space-y-3">
-                        <input type="text" wire:model="ipWhitelistEntry" placeholder="203.0.113.10 or 10.0.0.0/8" class="font-mono" aria-label="IP or CIDR">
-                        @error('ipWhitelistEntry') <p class="field-error">{{ $message }}</p> @enderror
-                        <button type="submit" class="btn btn-primary w-full">Add</button>
-                    </form>
-                    @if(!empty($entries) && empty($ipWhitelist['allow_all']))
+                    @if($canManage)
+                        <form wire:submit="addIpWhitelistEntry" class="space-y-3">
+                            <input type="text" wire:model="ipWhitelistEntry" placeholder="203.0.113.10 or 10.0.0.0/8" class="font-mono" aria-label="IP or CIDR">
+                            @error('ipWhitelistEntry') <p class="field-error">{{ $message }}</p> @enderror
+                            <button type="submit" class="btn btn-primary w-full">Add</button>
+                        </form>
+                    @else
+                        <p class="text-muted">Changing the whitelist needs Manage access to this server.</p>
+                    @endif
+                    @if($canManage && !empty($entries) && empty($ipWhitelist['allow_all']))
                         <button type="button" wire:click="allowAllIpWhitelist" wire:confirm="Allow every client IP to call the API?" class="btn btn-ghost w-full mt-3">Allow all IPs</button>
                     @endif
                     <p class="field-hint mt-3">Stored in <code>{{ $ipWhitelist['file'] ?? '/etc/cipi/api-ip-whitelist' }}</code>.</p>

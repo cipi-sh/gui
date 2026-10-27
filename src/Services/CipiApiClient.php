@@ -21,12 +21,13 @@ class CipiApiClient
     }
 
     /**
-     * GET /api/status on many servers concurrently (dashboard).
+     * GET the same path on many servers concurrently (dashboard, fleet-wide app list).
      *
      * @param  iterable<CipiServer>  $servers
-     * @return array<int, array{status: ?array, error: ?string}> keyed by server id
+     * @return array<int, array{data: mixed, error: ?string, status: ?int}> keyed by server id —
+     *                                                                        `data` is the `data` of the answer, null when the server failed
      */
-    public static function statusForMany(iterable $servers): array
+    public static function getForMany(iterable $servers, string $path): array
     {
         $servers = collect($servers)->keyBy('id');
         if ($servers->isEmpty()) {
@@ -34,7 +35,7 @@ class CipiApiClient
         }
 
         $responses = Http::pool(fn (Pool $pool) => $servers->map(
-            fn (CipiServer $server) => self::configure($pool->as((string) $server->id), $server)->get($server->api_url.'/status'),
+            fn (CipiServer $server) => self::configure($pool->as((string) $server->id), $server)->get($server->api_url.$path),
         )->all());
 
         $results = [];
@@ -45,19 +46,47 @@ class CipiApiClient
             if (! $response instanceof Response) {
                 $message = $response instanceof \Throwable ? $response->getMessage() : 'No response';
                 $server->markError('Connection failed: '.$message);
-                $results[$id] = ['status' => null, 'error' => 'Unable to connect to server. Check the URL and network.'];
+                $results[$id] = ['data' => null, 'error' => 'Unable to connect to server. Check the URL and network.', 'status' => 503];
 
                 continue;
             }
 
             try {
-                $results[$id] = ['status' => $client->handle($response)['data'] ?? [], 'error' => null];
+                $results[$id] = ['data' => $client->handle($response)['data'] ?? [], 'error' => null, 'status' => null];
             } catch (CipiApiException $e) {
-                $results[$id] = ['status' => null, 'error' => $e->getMessage()];
+                $results[$id] = ['data' => null, 'error' => $e->getMessage(), 'status' => $e->getStatusCode()];
             }
         }
 
         return $results;
+    }
+
+    /**
+     * GET /api/status on many servers concurrently (dashboard).
+     *
+     * @param  iterable<CipiServer>  $servers
+     * @return array<int, array{status: ?array, error: ?string}> keyed by server id
+     */
+    public static function statusForMany(iterable $servers): array
+    {
+        return array_map(
+            fn (array $result) => ['status' => is_array($result['data']) ? $result['data'] : null, 'error' => $result['error']],
+            self::getForMany($servers, '/status'),
+        );
+    }
+
+    /**
+     * GET /api/apps on many servers concurrently (the apps list across the fleet).
+     *
+     * @param  iterable<CipiServer>  $servers
+     * @return array<int, array{apps: ?array, error: ?string, status: ?int}> keyed by server id
+     */
+    public static function appsForMany(iterable $servers): array
+    {
+        return array_map(
+            fn (array $result) => ['apps' => is_array($result['data']) ? array_values($result['data']) : null, 'error' => $result['error'], 'status' => $result['status']],
+            self::getForMany($servers, '/apps'),
+        );
     }
 
     // ── Apps ──────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 @php
     /** @var \Illuminate\Support\Collection<int, \CipiGui\Models\CipiServer> $switcherServers */
-    $switcherServers = \CipiGui\Models\CipiServer::query()->where('is_active', true)->orderBy('name')->get();
+    $switcherServers = \CipiGui\Services\Access::visibleServers(auth()->user());
     $currentServerId = (int) session('cipi_gui_server_id');
     $currentServer = $switcherServers->firstWhere('id', $currentServerId) ?? $switcherServers->first();
 @endphp
@@ -29,10 +29,12 @@
                     </button>
                 @endforeach
             </form>
-            <div class="dropdown-divider"></div>
-            <a href="{{ route('cipi-gui.servers') }}" class="dropdown-item"><x-cipi::icon name="plus" /> Add or manage connections</a>
+            @if(\CipiGui\Services\Access::isAdmin(auth()->user()))
+                <div class="dropdown-divider"></div>
+                <a href="{{ route('cipi-gui.servers') }}" class="dropdown-item"><x-cipi::icon name="plus" /> Add or manage connections</a>
+            @endif
         </div>
     </div>
-@else
+@elseif(\CipiGui\Services\Access::isAdmin(auth()->user()))
     <a href="{{ route('cipi-gui.servers') }}" class="btn btn-secondary btn-sm"><x-cipi::icon name="plus" /> Connect a server</a>
 @endif

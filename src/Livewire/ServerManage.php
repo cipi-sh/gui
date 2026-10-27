@@ -4,9 +4,11 @@ namespace CipiGui\Livewire;
 
 use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
+use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
 use Livewire\Attributes\Layout;
+use CipiGui\Support\Panel;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
@@ -106,7 +108,22 @@ class ServerManage extends Component
 
     public function mount(?int $serverId = null): void
     {
-        $this->ensureServerSelected($serverId);
+        $openable = Access::serversWithLevel($this->panelUser());
+
+        if ($serverId !== null && ! $openable->contains('id', $serverId)) {
+            abort(403, 'Your access does not include this server.');
+        }
+
+        if ($serverId === null) {
+            // No id in the URL: the server last looked at, when its page may be opened, else the first one.
+            $fromSession = (int) session('cipi_gui_server_id');
+            $serverId = $openable->contains('id', $fromSession) ? $fromSession : $openable->first()?->id;
+        }
+
+        if ($serverId !== null) {
+            $this->serverId = $serverId;
+            session(['cipi_gui_server_id' => $serverId]);
+        }
 
         if (! array_key_exists($this->activeTab, self::TABS)) {
             $this->activeTab = 'overview';
@@ -126,6 +143,16 @@ class ServerManage extends Component
 
         if (! ($this->loaded[$tab] ?? false)) {
             $this->loadTab($tab);
+        }
+    }
+
+    /** The picker on the page (Settings → Panel → server picker): open another server. */
+    public function switchServer(mixed $id): void
+    {
+        $id = (int) $id;
+        if ($id > 0 && Access::serversWithLevel($this->panelUser())->contains('id', $id)) {
+            session(['cipi_gui_server_id' => $id]);
+            $this->redirect(route('cipi-gui.server-manage', ['serverId' => $id]));
         }
     }
 
@@ -208,6 +235,10 @@ class ServerManage extends Component
 
     public function installPhp(): void
     {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
         $this->validate(['phpInstallVersion' => ['required', 'regex:/^\d+\.\d+$/']]);
 
         $version = $this->phpInstallVersion;
@@ -216,11 +247,19 @@ class ServerManage extends Component
 
     public function installEngine(string $engine): void
     {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
         $this->startJob('Install '.$this->engineLabel($engine), fn (CipiApiClient $api) => $api->installDbEngine($engine));
     }
 
     public function restartService(string $name): void
     {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
         $this->startJob('Restart '.$name, fn (CipiApiClient $api) => $api->restartService($name));
     }
 
@@ -228,6 +267,10 @@ class ServerManage extends Component
 
     public function addSshKey(): void
     {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
         $this->sshKey = trim($this->sshKey);
         $this->validate(['sshKey' => ['required', 'string', 'min:40', 'regex:/^(ssh-(ed25519|rsa)|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com)\s+\S+/']], [
             'sshKey.regex' => 'Paste a public key (ssh-ed25519 AAAA… comment).',
@@ -245,6 +288,10 @@ class ServerManage extends Component
 
     public function removeSshKey(int $id): void
     {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
         try {
             $this->client()->removeSshKey($id);
             $this->sshKeys = $this->client()->listSshKeys();
@@ -272,6 +319,10 @@ class ServerManage extends Component
 
     public function saveSmtp(): void
     {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
         $this->validate([
             'smtpHost' => ['required', 'string', 'max:255'],
             'smtpPort' => ['required', 'integer', 'min:1', 'max:65535'],
@@ -300,21 +351,37 @@ class ServerManage extends Component
 
     public function enableSmtp(): void
     {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
         $this->smtpCall(fn (CipiApiClient $api) => $api->enableSmtp(), 'Email notifications enabled.');
     }
 
     public function disableSmtp(): void
     {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
         $this->smtpCall(fn (CipiApiClient $api) => $api->disableSmtp(), 'Email notifications paused.');
     }
 
     public function testSmtp(): void
     {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
         $this->smtpCall(fn (CipiApiClient $api) => $api->testSmtp(), 'Test email sent to '.($this->smtp['to'] ?? 'the recipient').'.');
     }
 
     public function deleteSmtp(): void
     {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
         $this->smtpCall(fn (CipiApiClient $api) => $api->deleteSmtp(), 'SMTP configuration removed.');
     }
 
@@ -333,6 +400,10 @@ class ServerManage extends Component
 
     public function addIpWhitelistEntry(): void
     {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
         $this->ipWhitelistEntry = trim($this->ipWhitelistEntry);
         $this->validate(['ipWhitelistEntry' => ['required', 'string', 'max:64', function ($attribute, $value, $fail) {
             [$ip, $mask] = array_pad(explode('/', $value, 2), 2, null);
@@ -347,11 +418,19 @@ class ServerManage extends Component
 
     public function removeIpWhitelistEntry(string $ip): void
     {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
         $this->ipCall(fn (CipiApiClient $api) => $api->removeIpWhitelistEntry($ip), $ip.' removed from the API whitelist.');
     }
 
     public function allowAllIpWhitelist(): void
     {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
         $this->ipCall(fn (CipiApiClient $api) => $api->allowAllIpWhitelist(), 'The API accepts every client IP again.');
     }
 
@@ -420,8 +499,12 @@ class ServerManage extends Component
     public function render()
     {
         $server = $this->currentServer();
+        $fleet = Panel::fleetView();
 
         return view('cipi-gui::livewire.server-manage', [
+            'canManage' => $server ? Access::canManageServer($this->panelUser(), $server->id) : false,
+            'picker' => $fleet && Panel::serverNav() === 'picker' ? Access::serversWithLevel($this->panelUser()) : collect(),
+
             'server' => $server,
             'tabs' => self::TABS,
         ])->title($server ? 'Server · '.$server->name : 'Server');

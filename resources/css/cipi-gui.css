@@ -435,6 +435,14 @@ table.table-plain th { background: transparent; }
 .copy-btn:hover { color: var(--text); border-color: var(--border-strong); }
 .copy-btn svg { width: 0.8rem; height: 0.8rem; }
 
+/* Click-to-copy inline value (IPs on the server pages). */
+.copyable { display: inline-flex; align-items: center; gap: 0.3rem; max-width: 100%; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: copy; border-radius: var(--radius-sm); }
+.copyable .copyable-text { text-decoration: underline dotted transparent; text-underline-offset: 3px; transition: color 0.15s ease, text-decoration-color 0.15s ease; }
+.copyable:hover .copyable-text, .copyable:focus-visible .copyable-text { color: var(--text); text-decoration-color: var(--border-strong); }
+.copyable svg { width: 0.8rem; height: 0.8rem; flex-shrink: 0; color: var(--text-subtle); opacity: 0; transition: opacity 0.15s ease; }
+.copyable:hover svg, .copyable:focus-visible svg { opacity: 1; }
+@media (hover: none) { .copyable svg { opacity: 1; } }
+
 /* ── Terminal (always dark) ────────────────────────────────────────────── */
 
 .terminal { background: #08090c; border: 1px solid #23262e; border-radius: var(--radius-lg); font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.65; overflow: hidden; }

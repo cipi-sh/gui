@@ -2,8 +2,11 @@
 
 namespace CipiGui\Tests\Feature;
 
+use CipiGui\Livewire\Apps;
+use CipiGui\Livewire\Databases;
 use CipiGui\Tests\TestCase;
 use Illuminate\Support\Facades\Http;
+use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\Test;
 
 class PanelPagesTest extends TestCase
@@ -54,14 +57,17 @@ class PanelPagesTest extends TestCase
         $this->server();
         $this->actingAs($this->admin());
 
-        $this->get('/apps')->assertOk()->assertSee('shop.example.com')->assertSee('Custom PHP');
-        $this->get('/databases')->assertOk()->assertSee('MariaDB');
+        $this->get('/apps')->assertOk()->assertSeeHtml('wire:init="loadApps"');
+        Livewire::test(Apps::class)->call('loadApps')->assertSee('shop.example.com')->assertSee('Custom PHP');
+        $this->get('/databases')->assertOk()->assertSeeHtml('wire:init="loadDatabases"');
+        Livewire::test(Databases::class)->call('loadDatabases')->assertSee('MariaDB')->assertSee('shop');
         $this->get('/server')->assertOk()->assertSee('fra1');
         $this->get('/server?tab=disk')->assertOk()
             ->assertSee('Everything else')->assertSee('13.22 GB')->assertSee('20 GB · 66%')->assertSee('2 GB · 117% · over')
             ->assertSee('1 over the limit')->assertSee('Valkey')->assertSee('1,204')->assertSee('12.3 MB');
         $this->get('/servers')->assertOk()->assertSee('cipi api token create');
-        $this->get('/settings')->assertOk()->assertSee('Two-factor authentication');
+        $this->get('/settings')->assertOk()->assertSee('Two-factor authentication')->assertSee('Fleet view');
+        $this->get('/team')->assertOk()->assertSee('Pending invites');
     }
 
     #[Test]
@@ -86,7 +92,11 @@ class PanelPagesTest extends TestCase
         $this->actingAs($this->admin())
             ->from('/apps/shop?server='.$first->id)
             ->post('/servers/switch', ['server_id' => $second->id])
-            ->assertRedirect('/apps')
+            ->assertRedirect('/apps?server='.$second->id)
             ->assertSessionHas('cipi_gui_server_id', $second->id);
+
+        // The fleet-wide list stays fleet-wide; a list narrowed to the old server follows the switch.
+        $this->from('/apps?type=node')->post('/servers/switch', ['server_id' => $first->id])->assertRedirect('/apps?type=node');
+        $this->from('/apps?server='.$first->id.'&q=shop')->post('/servers/switch', ['server_id' => $second->id])->assertRedirect('/apps?server='.$second->id.'&q=shop');
     }
 }

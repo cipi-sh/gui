@@ -52,5 +52,8 @@ $user = \App\Models\User::updateOrCreate(
     ['name' => 'Alice Admin', 'password' => 'admin'],
 );
 $user->forceFill(['two_factor_secret' => null, 'two_factor_enabled' => false, 'two_factor_confirmed_at' => null])->save();
+if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'role')) {
+    $user->forceFill(['role' => 'admin'])->save();
+}
 
 echo "  ✓ admin@cipi.local / admin\n";
