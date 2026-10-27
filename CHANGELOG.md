@@ -1,5 +1,18 @@
 # Changelog
 
+## [4.1.0] — 2026-10-27
+
+Aligned with cipi/api 1.36: every app has an **environment** label. Needs **cipi/api ≥ 1.36.0** (and the Cipi release it goes with) on the server to store the label and pick `cipi-<env>.yml`; older servers ignore the field and the panel shows every app as production — nothing else changes for them.
+
+### Added
+
+- **Environment label** on apps (`env`): `production` by default, or `staging`, `development`, `testing` or any word of up to 32 lowercase letters, digits, `-` and `_` (`CipiGui\Support\AppEnv`, the API's own rule). Deploys read `cipi-<env>.yml` at the root of the release before `cipi.yml`.
+- **Create app** — an Environment field with the usual labels suggested (a datalist; anything matching the rule is accepted), sent as `env` on `POST /api/apps`. A non-default label counts as a draft when the dialog is closed.
+- **App → Overview → Configuration** — the same field, pre-filled; sent on `PUT /api/apps/{name}` only when it changed, like every other field. The Details card names the environment and the files a deploy reads.
+- **Badges** — the environment of every app in the Apps list (fleet view and single server, desktop and phone) and in the app page header: production muted, anything else highlighted so a staging app stands out. The label is searchable in the list.
+- **App → cipi.yml** — says which environment the plan is for and which file the server reads first (`cipi-staging.yml`, then `cipi.yml`), from the `env` the endpoint returns next to `file` (API 1.36+; the app's label on older servers). The help text mentions `deploy.branch`, the branch the app deploys from, among what the file can set — and what auto-apply hands to whoever can commit.
+- Demo API 1.36: `env` on app create (validated, 422 when it does not match), on app edit, in app objects and in the cipi.yml plan; the staging server's apps are `staging` and `shopstg` ships a `cipi-staging.yml`. `./dev/demo.sh --reset` once to pick them up in an existing demo state.
+
 ## [4.0.0] — 2026-10-27
 
 Two things change for everyone who signs in, hence the major version: the panel has **roles** (admins and users with granted access) and a **fleet view** across every server, both set from Settings. Existing accounts become admins when the migration runs (`cipi gui update` runs it); nothing else is needed. No new API requirement — everything works with cipi/api 1.31+; deploy times need **Cipi 5.6.0+** on the server.

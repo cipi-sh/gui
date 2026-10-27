@@ -132,6 +132,7 @@
                             <span class="badge {{ ($app['suspended'] ?? false) ? 'badge-amber' : 'badge-green' }}">{{ ($app['suspended'] ?? false) ? 'Suspended' : 'Live' }}</span>
                         </div>
                         <div class="flex flex-wrap gap-1 mt-3">
+                            <span class="badge {{ $this->envBadgeClass($app['env']) }}" title="Environment" data-app-env="{{ $app['env'] }}">{{ $app['env'] }}</span>
                             <span class="badge {{ $kind === 'laravel' ? 'badge-accent' : ($kind === 'node' ? 'badge-blue' : 'badge-neutral') }}">{{ $this->appKindLabel($app) }}</span>
                             <span class="badge">{{ $this->appRuntimeLabel($app) }}</span>
                             @if($kind === 'laravel')<span class="badge">{{ $this->engineLabel($app['engine']) }}</span>@endif
@@ -164,7 +165,10 @@
                                 @endphp
                                 <tr wire:key="app-{{ $app['server_id'] }}-{{ $app['app'] }}">
                                     <td>
-                                        <a href="{{ $url }}" class="row-link">{{ $app['app'] }}</a>
+                                        <span class="inline-flex items-center gap-2">
+                                            <a href="{{ $url }}" class="row-link">{{ $app['app'] }}</a>
+                                            <span class="badge {{ $this->envBadgeClass($app['env']) }}" title="Environment: {{ $app['env'] }}" data-app-env="{{ $app['env'] }}">{{ $app['env'] }}</span>
+                                        </span>
                                         <p class="text-xs text-muted flex items-center gap-1 mt-0.5">
                                             <span class="truncate" style="max-width: 18rem;">{{ $app['domain'] }}</span>
                                             @if(count($app['aliases']) > 0)
@@ -317,6 +321,21 @@
                             <input id="app-branch" type="text" wire:model="branch" placeholder="main" autocomplete="off">
                             @error('branch') <p class="field-error">{{ $message }}</p> @enderror
                         </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label for="app-env">Environment</label>
+                            <input id="app-env" type="text" wire:model="env" list="app-env-options" class="font-mono" placeholder="production" maxlength="{{ $envMaxLength }}" autocomplete="off" autocapitalize="none" spellcheck="false">
+                            <datalist id="app-env-options">
+                                @foreach($envSuggestions as $suggestion)<option value="{{ $suggestion }}"></option>@endforeach
+                            </datalist>
+                            @error('env') <p class="field-error">{{ $message }}</p> @enderror
+                        </div>
+                        <p class="field-hint sm:col-span-2 self-center">
+                            Tells the environments of a project apart — production, staging, development, testing or your own word (lowercase letters, digits, <code>-</code> and <code>_</code>).
+                            Shown as a badge in the lists, and deploys read <code>cipi-&lt;environment&gt;.yml</code> before <code>cipi.yml</code>. Servers before cipi/api 1.36 keep every app as production.
+                        </p>
                     </div>
 
                     @if($appKind === 'node')

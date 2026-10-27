@@ -39,6 +39,9 @@
     --info: #60a5fa;
     --info-bg: rgba(96, 165, 250, 0.08);
     --info-border: rgba(96, 165, 250, 0.28);
+    --env: #c084fc;
+    --env-bg: rgba(192, 132, 252, 0.1);
+    --env-border: rgba(192, 132, 252, 0.32);
     --overlay: rgba(4, 5, 7, 0.7);
     --progress-track: #23262e;
     --link: #f4f4f5;
@@ -85,6 +88,9 @@
     --info: #2563eb;
     --info-bg: rgba(37, 99, 235, 0.06);
     --info-border: rgba(37, 99, 235, 0.22);
+    --env: #7e22ce;
+    --env-bg: rgba(126, 34, 206, 0.07);
+    --env-border: rgba(126, 34, 206, 0.28);
     --overlay: rgba(20, 23, 30, 0.38);
     --progress-track: #e2e6ec;
     --link: #14171e;
@@ -285,6 +291,8 @@ a.card { color: inherit; display: block; }
 .badge-neutral { color: var(--text-soft); border-color: var(--border); background: var(--bg-raised); }
 .badge-gray { color: var(--text-subtle); border-color: var(--border-subtle); }
 .badge-mono { font-family: var(--font-mono); font-size: 0.6875rem; }
+/* Environment label: production is .badge-gray, anything else stands out */
+.badge-env { color: var(--env); border-color: var(--env-border); background: var(--env-bg); }
 .dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 9999px; background: var(--text-subtle); flex-shrink: 0; }
 .dot-green { background: var(--success); box-shadow: 0 0 0 3px var(--success-bg); }
 .dot-red { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-bg); }

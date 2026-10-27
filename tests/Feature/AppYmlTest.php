@@ -212,7 +212,7 @@ class AppYmlTest extends TestCase
         $component = $this->ymlTab()
             ->assertSeeHtml('wire:click="enableYmlAuto" wire:confirm="Turn on auto-apply for shop?')
             ->assertSee('anyone who can commit to the repository can then change this app')
-            ->assertSee('deploy recipe, scheduled commands, databases and backup schedule');
+            ->assertSee('deploy branch and recipe, scheduled commands, databases and backup schedule');
 
         $this->plan = $this->pendingPlan(['auto' => true]);
         $component->call('enableYmlAuto')

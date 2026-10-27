@@ -35,6 +35,7 @@
                     @else
                         <span class="badge badge-green"><span class="dot dot-green" style="width:.4rem;height:.4rem;box-shadow:none"></span> Live</span>
                     @endif
+                    <span class="badge {{ $this->envBadgeClass($app['env']) }}" title="Environment" data-app-env="{{ $app['env'] }}">{{ $app['env'] }}</span>
                     <span class="badge {{ $isLaravel ? 'badge-accent' : ($isNode ? 'badge-blue' : 'badge-neutral') }}">{{ $this->appKindLabel($app) }}</span>
                     <span class="badge">{{ $this->appRuntimeLabel($app) }}</span>
                     @if($app['force_https'] ?? false)<span class="badge"><x-cipi::icon name="lock" class="h-3 w-3" /> HTTPS</span>@endif
@@ -123,6 +124,8 @@
                             @endif
                         </dd>
                         <dt>Branch</dt><dd class="font-mono text-xs">{{ $app['branch'] ?: '—' }}</dd>
+                        <dt>Environment</dt>
+                        <dd><span class="badge {{ $this->envBadgeClass($app['env']) }}">{{ $app['env'] }}</span> <span class="text-xs text-muted">· deploys read <code>cipi-{{ $app['env'] }}.yml</code>, then <code>cipi.yml</code></span></dd>
                         <dt>Domains</dt>
                         <dd>
                             {{ $app['domain'] }}
@@ -154,6 +157,15 @@
                             <div>
                                 <label for="edit-branch">Branch</label>
                                 <input id="edit-branch" type="text" wire:model="editBranch" class="font-mono">
+                            </div>
+                            <div>
+                                <label for="edit-env">Environment</label>
+                                <input id="edit-env" type="text" wire:model="editEnv" list="edit-env-options" class="font-mono" placeholder="production" maxlength="{{ $envMaxLength }}" autocomplete="off" autocapitalize="none" spellcheck="false">
+                                <datalist id="edit-env-options">
+                                    @foreach($envSuggestions as $suggestion)<option value="{{ $suggestion }}"></option>@endforeach
+                                </datalist>
+                                <p class="field-hint">production, staging, development, testing or your own word — lowercase letters, digits, <code>-</code>, <code>_</code>. Picks <code>cipi-&lt;environment&gt;.yml</code> over <code>cipi.yml</code> on deploys (cipi/api 1.36+).</p>
+                                @error('editEnv') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
                             @if($isNode)
                                 <div>
@@ -744,6 +756,9 @@
                     };
                     $ymlCanApply = $this->ymlCanApply();
                     $nodeExtra = $isNode ? ', and Node mode, version, build and start command' : '';
+                    // The server names the environment it planned for (API 1.36+); older ones do not, so the app's label is used.
+                    $ymlEnv = $yml['env'] ?? $app['env'];
+                    $ymlFiles = \CipiGui\Support\AppEnv::ymlFiles($ymlEnv);
                 @endphp
 
                 @if($ymlLastApply)
@@ -757,7 +772,7 @@
                         <div class="card-header">
                             <div>
                                 <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="document" /> cipi.yml</h2>
-                                <p class="card-subtitle">The server settings the repository asks for — aliases, PHP, limits, workers, deploy recipe, crons, backups — compared with what this server has now.</p>
+                                <p class="card-subtitle">The server settings the repository asks for — aliases, PHP, limits, workers, the deploy branch (<code>deploy.branch</code>) and recipe, crons, backups — compared with what this server has now.</p>
                             </div>
                             <div class="flex items-center gap-2">
                                 <span class="badge {{ $ymlBadge }}" data-yml-state>{{ $ymlState }}</span>
@@ -766,6 +781,11 @@
                         </div>
 
                         <dl class="kv mb-4">
+                            <dt>Environment</dt>
+                            <dd data-yml-env="{{ $ymlEnv }}">
+                                <span class="badge {{ $this->envBadgeClass($ymlEnv) }}">{{ $ymlEnv }}</span>
+                                <span class="text-xs text-muted">· reads <code>{{ $ymlFiles[0] }}</code> first, then <code>{{ $ymlFiles[1] }}</code></span>
+                            </dd>
                             <dt>File</dt>
                             <dd>
                                 @if($ymlFile !== null)
@@ -781,7 +801,7 @@
 
                         @if($ymlFile === null)
                             <p class="text-sm text-muted">
-                                Commit a <code>cipi.yml</code> at the root of the repository and deploy. To start from what this server already has, run
+                                Commit a <code>cipi.yml</code> — or a <code>{{ $ymlFiles[0] }}</code> for this environment only — at the root of the repository and deploy. To start from what this server already has, run
                                 <code>cipi yml generate {{ $app['app'] }} &gt; cipi.yml</code> on the server.
                             </p>
                         @else
@@ -865,7 +885,7 @@
                             <span class="badge {{ $yml['auto'] ? 'badge-green' : 'badge-gray' }}" data-yml-auto>{{ $yml['auto'] ? 'On' : 'Off' }}</span>
                         </div>
                         <p class="text-sm text-muted mb-4">
-                            While it is on, anyone who can commit to the repository can change this app's aliases, PHP settings, limits, workers, deploy recipe, scheduled commands, databases and backup schedule{{ $nodeExtra }}.
+                            While it is on, anyone who can commit to the repository can change this app's aliases, PHP settings, limits, workers, deploy branch and recipe, scheduled commands, databases and backup schedule{{ $nodeExtra }}.
                         </p>
                         @if($yml['auto'] && $ymlSudoers === false)
                             <x-cipi::alert type="warn" class="mb-4">
@@ -875,7 +895,7 @@
                         @if($yml['auto'])
                             <button type="button" wire:click="disableYmlAuto" wire:confirm="Turn off auto-apply for {{ $app['app'] }}? Deploys keep the server settings as they are; cipi.yml is applied only when you apply it." class="btn btn-secondary">Turn off</button>
                         @else
-                            <button type="button" wire:click="enableYmlAuto" wire:confirm="Turn on auto-apply for {{ $app['app'] }}? cipi.yml will be applied after every successful deploy (CLI, panel and Git webhook): anyone who can commit to the repository can then change this app's aliases, PHP settings, limits, workers, deploy recipe, scheduled commands, databases and backup schedule{{ $nodeExtra }}." class="btn btn-primary">Turn on</button>
+                            <button type="button" wire:click="enableYmlAuto" wire:confirm="Turn on auto-apply for {{ $app['app'] }}? cipi.yml will be applied after every successful deploy (CLI, panel and Git webhook): anyone who can commit to the repository can then change this app's aliases, PHP settings, limits, workers, deploy branch and recipe, scheduled commands, databases and backup schedule{{ $nodeExtra }}." class="btn btn-primary">Turn on</button>
                         @endif
                     </div>
                 </div>

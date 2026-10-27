@@ -9,12 +9,12 @@ The optional web control panel for [Cipi](https://cipi.sh): manage one or many C
 
 Cipi stays CLI-first. The panel is a thin Laravel + Livewire client of the API: everything it does can still be done with `cipi` over SSH, it keeps no state about your servers besides an encrypted API token, and removing it leaves every server untouched.
 
-> Screenshots in this README come from the bundled demo environment (`./dev/demo.sh`) — a stand-in for `cipi api` 1.35 with three fictional servers. See [Local development & demo](#local-development--demo).
+> Screenshots in this README come from the bundled demo environment (`./dev/demo.sh`) — a stand-in for `cipi api` 1.36 with three fictional servers. See [Local development & demo](#local-development--demo).
 
 ## Requirements
 
 - A Cipi server to host the panel — `cipi gui <domain>` provisions everything
-- **Cipi API** on every server you manage (`cipi api`), ideally API **1.35+** with Cipi **5.6.4+** (cipi.yml plan, apply and auto-apply); 1.34 / 5.6.0 for the build command at creation and the repository access check; 1.33 / 5.5.2 for disk usage; 1.31 / 5.4.1 for everything else
+- **Cipi API** on every server you manage (`cipi api`), ideally API **1.36+** (environment labels — production, staging, … — and `cipi-<env>.yml`); 1.35 / 5.6.4 for cipi.yml plan, apply and auto-apply; 1.34 / 5.6.0 for the build command at creation and the repository access check; 1.33 / 5.5.2 for disk usage; 1.31 / 5.4.1 for everything else
 - PHP 8.3+, Laravel 12 or 13, Livewire 3.6+ or 4 (only relevant for manual installs)
 
 ## Installation
@@ -54,11 +54,11 @@ Sections a server's API or token does not support are shown as "not available" o
 
 | | |
 |---|---|
-| ![Apps](docs/screenshots/apps.webp) | **Apps** — Laravel (PHP-FPM or Octane/FrankenPHP), Node (SPA, static, SSR with Next, Nuxt, SvelteKit, Astro, Remix or Vite) and custom PHP apps of **every connected server in one list** (fleet view, on by default), with a server column and a server filter; `?server=` narrows it to one server. Filter by type, search by name, domain, alias or server, deploy from the list. With fleet view off, one server at a time, picked from the header. |
-| ![Create app](docs/screenshots/create-app.webp) | **Create** apps with a type picker and, with several servers, a server picker; Node framework presets use the same defaults as `cipi app create --node`. Laravel apps take an optional **build command** (`npm ci && npm run build`) run on every deploy before the release goes live. Wildcard primary domains (`*.example.com`) are accepted. The dialog keeps what you typed if it is closed. |
+| ![Apps](docs/screenshots/apps.webp) | **Apps** — Laravel (PHP-FPM or Octane/FrankenPHP), Node (SPA, static, SSR with Next, Nuxt, SvelteKit, Astro, Remix or Vite) and custom PHP apps of **every connected server in one list** (fleet view, on by default), with a server column and a server filter; `?server=` narrows it to one server. Every app carries its **environment** badge — production muted, staging and the rest highlighted. Filter by type, search by name, domain, alias, server or environment, deploy from the list. With fleet view off, one server at a time, picked from the header. |
+| ![Create app](docs/screenshots/create-app.webp) | **Create** apps with a type picker and, with several servers, a server picker; Node framework presets use the same defaults as `cipi app create --node`. Laravel apps take an optional **build command** (`npm ci && npm run build`) run on every deploy before the release goes live. An **environment** label (production by default; staging, development, testing or any lowercase word) tells the environments of a project apart and picks `cipi-<env>.yml` over `cipi.yml` on deploys. Wildcard primary domains (`*.example.com`) are accepted. The dialog keeps what you typed if it is closed. |
 | ![Credentials](docs/screenshots/job-credentials.webp) | **Async jobs** run in an overlay with live status, elapsed time and the CLI output. One-time secrets — SSH and database passwords, deploy key, webhook URL and token — are listed with copy buttons. After app create, and after a repository or branch change, the overlay says whether the deploy key can read the repository and, when it cannot, shows Git's error and the command to fix it on the server. |
-| ![App overview](docs/screenshots/app-overview.webp) | **App overview** — details, configuration (PHP version, Node pin, repository, branch, domain), HTTP healthcheck and Meilisearch/Scout. Tabs are part of the URL, so every view can be bookmarked. |
-| ![Deploy](docs/screenshots/app-deploy.webp) | **Deploy** — deploy, roll back, unlock, recreate or rotate the Git webhook, the hash-chained **deploy audit** (who, from where, which commit, and **how long it took** — from the deploy log, Cipi 5.6+) and the structured `deploy.php` pipeline. The **cipi.yml** tab shows the repository's `cipi.yml` against the server — validity, the plan, blockers, in sync — applies it, and turns auto-apply after every deploy on or off. |
+| ![App overview](docs/screenshots/app-overview.webp) | **App overview** — details, configuration (PHP version, Node pin, repository, branch, environment, domain), HTTP healthcheck and Meilisearch/Scout. Tabs are part of the URL, so every view can be bookmarked. |
+| ![Deploy](docs/screenshots/app-deploy.webp) | **Deploy** — deploy, roll back, unlock, recreate or rotate the Git webhook, the hash-chained **deploy audit** (who, from where, which commit, and **how long it took** — from the deploy log, Cipi 5.6+) and the structured `deploy.php` pipeline. The **cipi.yml** tab shows the repository's `cipi.yml` against the server — the environment it was planned for and which file is read first (`cipi-staging.yml`, then `cipi.yml`), validity, the plan, blockers, in sync — applies it, and turns auto-apply after every deploy on or off. |
 | ![Routing](docs/screenshots/app-routing.webp) | **Routing** — whole-app redirect (set, toggle, remove), path redirects and prefix reverse proxies, with the same validation as `cipi redirect` / `cipi proxy`. |
 | ![Domains](docs/screenshots/app-domains.webp) | **Domains & SSL** — aliases, Let's Encrypt, forced HTTPS and www ↔ apex canonical redirects. |
 | ![Environment](docs/screenshots/app-env.webp) | **Environment** — edit `shared/.env` with sensitive values masked, a filter, and changed rows highlighted before saving. Also Composer `auth.json`, Artisan, whitelisted commands and HTTP basic auth. |
@@ -79,16 +79,16 @@ Light and dark themes follow the system preference (toggle in the header), and t
 
 ## API coverage
 
-The panel targets **Cipi API 1.35** and degrades per section on older APIs or narrower tokens.
+The panel targets **Cipi API 1.36** and degrades per section on older APIs or narrower tokens.
 
 | Area | Endpoints |
 |------|-----------|
 | Status | `GET /api/status` — dashboard (queried concurrently for every server) and server overview |
-| Apps | `GET/POST /api/apps`, `GET/PUT/DELETE /api/apps/{name}`, suspend, unsuspend, fix-permissions, webhook recreate; create accepts `engine`, `octane`, `custom`/`docroot`, `node_build` for Laravel (API 1.34+) and Node (`node`, `framework`, `node_version`, `build`, `start`, `output`, `health_path`) |
+| Apps | `GET/POST /api/apps`, `GET/PUT/DELETE /api/apps/{name}`, suspend, unsuspend, fix-permissions, webhook recreate; create accepts `engine`, `octane`, `custom`/`docroot`, `node_build` for Laravel (API 1.34+) and Node (`node`, `framework`, `node_version`, `build`, `start`, `output`, `health_path`); create and update take `env` and app objects carry it (API 1.36+ — older servers drop it and list every app as production) |
 | Env / auth.json | `GET/PUT /api/apps/{name}/env`, `GET/POST/PUT/DELETE /api/apps/{name}/auth` |
 | Artisan / commands | `POST /api/apps/{name}/artisan`, `GET /api/run-commands`, `POST /api/apps/{name}/run` |
 | Deploy | deploy, rollback, unlock, `GET /api/apps/{name}/deploy/audit`, `GET/PUT /api/apps/{name}/deploy-config` |
-| cipi.yml | `GET /api/apps/{name}/yml`, `POST /api/apps/{name}/yml/apply` (job `app-yml-apply`), `POST /api/apps/{name}/yml/auto/enable` and `…/disable` — abilities `yml-view` / `yml-manage` (API 1.35+, Cipi 5.6.4+) |
+| cipi.yml | `GET /api/apps/{name}/yml` (with `env` next to `file` since API 1.36: `cipi-<env>.yml` is read first, then `cipi.yml`), `POST /api/apps/{name}/yml/apply` (job `app-yml-apply`), `POST /api/apps/{name}/yml/auto/enable` and `…/disable` — abilities `yml-view` / `yml-manage` (API 1.35+, Cipi 5.6.4+) |
 | Domains | aliases, `www` status/add/force-to-root/force-from-root/clear, `ssl`, `ssl/force` |
 | Routing | `/redirects`, `/redirect` (set, enable, disable, unset), `/proxies` |
 | Node | `GET /api/node`, `GET /api/apps/{name}/node`, `POST /api/apps/{name}/node/restart` |
@@ -127,7 +127,7 @@ Artisan commands: `cipi:seed-gui-user` (create or `--reset` the admin), `cipi:gu
 ./dev/demo.sh       # demo API + panel on http://127.0.0.1:8000 (admin@cipi.local / admin)
 ```
 
-`dev/demo/api` is a stateful stand-in for `cipi api` 1.35: three fictional servers (production, client hosting, staging) with Laravel, Node and custom apps, databases, monitor checks, a deploy ledger and logs. Async jobs go from pending to completed with CLI-like output, and changes persist until `./dev/demo.sh --reset`. Domains and IPs are reserved documentation ranges. Details in [`dev/README.md`](dev/README.md).
+`dev/demo/api` is a stateful stand-in for `cipi api` 1.36: three fictional servers (production, client hosting, staging) with Laravel, Node and custom apps, databases, monitor checks, a deploy ledger and logs. Async jobs go from pending to completed with CLI-like output, and changes persist until `./dev/demo.sh --reset`. Domains and IPs are reserved documentation ranges. Details in [`dev/README.md`](dev/README.md).
 
 Tests (Orchestra Testbench + PHPUnit) and the CI matrix (PHP 8.3–8.5 × Laravel 12/13 × Livewire 3/4):
 
@@ -150,7 +150,7 @@ cipi/gui
 │   ├── CipiGuiServiceProvider.php
 │   ├── Livewire/                # Dashboard, Servers, Apps, AppDetail, Databases, ServerManage, Settings, LogViewer
 │   ├── Services/                # CipiApiClient, JobOutputParser, TwoFactorService
-│   ├── Support/                 # Theme, Icons, BuildCommand (the CLI's build-command rule)
+│   ├── Support/                 # Theme, Icons, BuildCommand (the CLI's build-command rule), AppEnv (environment labels)
 │   └── Models/CipiServer.php
 ├── dev/                         # host bootstrap + demo API
 └── tests/

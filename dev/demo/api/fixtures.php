@@ -86,6 +86,7 @@ $audit = function (string $app, array $events) use ($iso): array {
 $app = fn (array $attrs): array => array_merge([
     'php' => '8.5',
     'branch' => 'main',
+    'env' => 'production',
     'repository' => null,
     'aliases' => [],
     'suspended' => false,
@@ -655,7 +656,7 @@ return [
             'shopstg' => [
                 'info' => $app([
                     'app' => 'shopstg', 'domain' => 'shop.staging.example.com', 'repository' => 'git@github.com:example-org/shop.git',
-                    'branch' => 'develop', 'engine' => 'mariadb', 'basic_auth' => true, 'created_at' => '2026-10-02',
+                    'branch' => 'develop', 'env' => 'staging', 'engine' => 'mariadb', 'basic_auth' => true, 'created_at' => '2026-10-02',
                 ]),
                 'env' => $laravelEnv('shopstg', 'shop.staging.example.com', 'mariadb', ['APP_ENV' => 'staging', 'APP_DEBUG' => 'true']),
                 'auth' => null,
@@ -663,7 +664,9 @@ return [
                 'audit' => $audit('shopstg', [['at' => $now - 40 * 60, 'release' => '18', 'commit' => '6a8c0e2b4d1f3a5c7e9b2d4f6a8c1e3b5d7f9a2c', 'operator' => 'github', 'ip' => '140.82.115.14']]),
                 'basic_auth' => ['enabled' => true, 'users' => ['qa']],
                 'health' => ['enabled' => false, 'url' => null, 'expect' => null, 'state' => null, 'failcount' => 0],
+                // A staging app: the release ships a cipi-staging.yml, read before cipi.yml.
                 'yml' => $ymlPlan('shopstg', [
+                    'file' => '/home/shopstg/current/cipi-staging.yml',
                     'auto' => true,
                     'changes' => [
                         ['kind' => 'alias-add', 'summary' => 'add domain alias pr.staging.example.com'],
@@ -674,7 +677,7 @@ return [
             'apistg' => [
                 'info' => $app([
                     'app' => 'apistg', 'domain' => '*.preview.example.com', 'repository' => 'git@github.com:example-org/shop-api.git',
-                    'branch' => 'develop', 'engine' => 'pgsql', 'created_at' => '2026-10-02', 'force_https' => false,
+                    'branch' => 'develop', 'env' => 'staging', 'engine' => 'pgsql', 'created_at' => '2026-10-02', 'force_https' => false,
                 ]),
                 'env' => $laravelEnv('apistg', 'api.preview.example.com', 'pgsql', ['APP_ENV' => 'staging']),
                 'auth' => null,

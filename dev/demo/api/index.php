@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Cipi GUI demo API — a stateful stand-in for `cipi api` (REST API 1.35).
+ * Cipi GUI demo API — a stateful stand-in for `cipi api` (REST API 1.36).
  *
  * It answers the same paths, payloads and status codes the GUI consumes, with
  * realistic fixtures (fixtures.php) and async jobs that move pending → running →
@@ -21,7 +21,7 @@ declare(strict_types=1);
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
-const API_VERSION = '1.35.0';
+const API_VERSION = '1.36.0';
 const JOB_PENDING_SECONDS = 0.6;
 const JOB_RUNNING_SECONDS = 2.4;
 
@@ -298,9 +298,12 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
         case $sub === '' && $method === 'GET':
             return [200, ['data' => publicApp($info, true)]];
         case $sub === '' && $method === 'PUT':
-            $changes = array_intersect_key($body, array_flip(['php', 'branch', 'repository', 'domain', 'node', 'node_version', 'build', 'start', 'output', 'health_path']));
+            $changes = array_intersect_key($body, array_flip(['php', 'branch', 'repository', 'domain', 'env', 'node', 'node_version', 'build', 'start', 'output', 'health_path']));
             if ($changes === []) {
                 throw new DemoHttpError(422, 'Nothing to change');
+            }
+            if (isset($changes['env']) && ! preg_match('/^[a-z0-9][a-z0-9_-]{0,31}$/', (string) $changes['env'])) {
+                throw new DemoHttpError(422, 'env must be 1-32 lowercase letters, digits, - or _, starting with a letter or digit');
             }
 
             return $job('app-edit', ['changes' => $changes]);
@@ -525,9 +528,9 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
 
             return [200, ['data' => ['app' => $name, 'records' => $records]]];
 
-        // cipi.yml (API 1.35+): `cipi yml plan --json`, apply, auto on/off
+        // cipi.yml (API 1.35+): `cipi yml plan --json`, apply, auto on/off; `env` since 1.36
         case $sub === '/yml' && $method === 'GET':
-            return [200, ['data' => ymlView($name, $a['yml'] ?? null)]];
+            return [200, ['data' => ymlView($name, $a['yml'] ?? null, (string) ($info['env'] ?? 'production'))]];
         case $sub === '/yml/apply' && $method === 'POST':
             return $job('app-yml-apply');
         case in_array($sub, ['/yml/auto/enable', '/yml/auto/disable'], true) && $method === 'POST':
@@ -1079,9 +1082,15 @@ function createApp(array &$s, array &$state, string $profile, array $body): arra
         }
     }
 
+    // Environment label (API 1.36+): production unless given, same rule as the CLI.
+    $env = trim((string) ($body['env'] ?? 'production'));
+    if (! preg_match('/^[a-z0-9][a-z0-9_-]{0,31}$/', $env)) {
+        throw new DemoHttpError(422, 'env must be 1-32 lowercase letters, digits, - or _, starting with a letter or digit');
+    }
+
     $framework = $body['framework'] ?? null;
     $info = [
-        'app' => $user, 'domain' => $domain, 'php' => $php, 'branch' => $body['branch'] ?? 'main',
+        'app' => $user, 'domain' => $domain, 'php' => $php, 'branch' => $body['branch'] ?? 'main', 'env' => $env,
         'repository' => $body['repository'] ?? null, 'aliases' => [], 'suspended' => false, 'basic_auth' => false,
         'custom' => $custom, 'engine' => (! $node && ! $custom) ? ($body['engine'] ?? $s['engines']['default']) : null,
         'www_redirect' => null, 'force_https' => false,
@@ -1127,7 +1136,7 @@ function createApp(array &$s, array &$state, string $profile, array $body): arra
  */
 function publicApp(array $info, bool $show): array
 {
-    $keys = ['app', 'domain', 'php', 'branch', 'repository', 'aliases', 'engine', 'octane', 'octane_port', 'node', 'node_mode', 'node_version', 'www_redirect', 'redirect', 'redirects', 'proxies', 'force_https', 'suspended', 'basic_auth', 'created_at'];
+    $keys = ['app', 'domain', 'php', 'branch', 'env', 'repository', 'aliases', 'engine', 'octane', 'octane_port', 'node', 'node_mode', 'node_version', 'www_redirect', 'redirect', 'redirects', 'proxies', 'force_https', 'suspended', 'basic_auth', 'created_at'];
     if ($show) {
         $keys = array_merge($keys, ['custom', 'docroot']);
     }
@@ -1137,6 +1146,7 @@ function publicApp(array $info, bool $show): array
     }
     $out['php'] ??= '';
     $out['branch'] ??= '';
+    $out['env'] ??= 'production';
     $out['repository'] ??= '';
     if ($show && empty($info['custom'])) {
         unset($out['custom'], $out['docroot']);
@@ -1158,8 +1168,12 @@ function redirectsView(string $name, array $info): array
     return ['app' => $name, 'redirect' => $info['redirect'], 'redirects' => $info['redirects']];
 }
 
-/** `cipi yml plan <app> --json`; a release without the file has only the auto flag. */
-function ymlView(string $name, ?array $yml): array
+/**
+ * `cipi yml plan <app> --json`; a release without the file has only the auto flag.
+ * `env` (API 1.36+) is the app's environment label: the server reads cipi-<env>.yml
+ * first and falls back to cipi.yml.
+ */
+function ymlView(string $name, ?array $yml, string $env = 'production'): array
 {
     $file = $yml['file'] ?? null;
     $valid = $file === null ? null : (bool) ($yml['valid'] ?? true);
@@ -1167,7 +1181,7 @@ function ymlView(string $name, ?array $yml): array
     $blockers = $file !== null && $valid ? $yml['blockers'] : [];
 
     return [
-        'app' => $name, 'file' => $file, 'auto' => (bool) ($yml['auto'] ?? false), 'valid' => $valid,
+        'app' => $name, 'env' => $env, 'file' => $file, 'auto' => (bool) ($yml['auto'] ?? false), 'valid' => $valid,
         'in_sync' => $valid ? $changes === [] && $blockers === [] : null,
         'errors' => $file !== null ? $yml['errors'] : [], 'warnings' => $file !== null ? $yml['warnings'] : [],
         'changes' => $changes, 'blockers' => $blockers, 'notes' => $file !== null && $valid ? $yml['notes'] : [],

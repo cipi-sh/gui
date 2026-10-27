@@ -297,9 +297,11 @@ class CipiApiClient
      * `cipi yml plan <app> --json`: the cipi.yml of the live release, whether it is
      * valid, what `apply` would change, what blocks it, and the auto-apply flag.
      * `file` is null when the release has none; `valid` and `in_sync` are null when
-     * there is nothing to compare.
+     * there is nothing to compare. `env` (API 1.36+) is the app's environment label:
+     * the server reads `cipi-<env>.yml` first and falls back to `cipi.yml`; null on
+     * servers that do not report it.
      *
-     * @return array{app: string, file: ?string, auto: bool, valid: ?bool, in_sync: ?bool, errors: list<string>, warnings: list<string>, changes: list<array{kind: string, summary: string}>, blockers: list<string>, notes: list<string>}
+     * @return array{app: string, env: ?string, file: ?string, auto: bool, valid: ?bool, in_sync: ?bool, errors: list<string>, warnings: list<string>, changes: list<array{kind: string, summary: string}>, blockers: list<string>, notes: list<string>}
      */
     public function ymlStatus(string $app): array
     {
@@ -320,6 +322,7 @@ class CipiApiClient
 
         return [
             'app' => is_string($data['app'] ?? null) ? $data['app'] : $app,
+            'env' => is_string($data['env'] ?? null) && trim($data['env']) !== '' ? trim($data['env']) : null,
             'file' => is_string($data['file'] ?? null) && $data['file'] !== '' ? $data['file'] : null,
             'auto' => ($data['auto'] ?? false) === true,
             'valid' => $flag($data['valid'] ?? null),

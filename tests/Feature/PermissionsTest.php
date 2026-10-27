@@ -66,7 +66,7 @@ class PermissionsTest extends TestCase
         $detail = Livewire::withQueryParams(['server' => $this->prod->id])->test(AppDetail::class, ['name' => 'shop'])
             ->assertSet('can.deploy', true)->assertSet('can.edit', false)
             ->assertSee('Read-only')
-            ->assertDontSee('Environment')->assertDontSee('Logs')->assertDontSee('Commands')
+            ->assertDontSeeHtml("setTab('env')")->assertDontSee('Logs')->assertDontSee('Commands')
             ->call('setTab', 'deploy')->assertSee('Deploy now')->assertDontSee('Git webhook');
 
         $detail->call('saveApp')->assertSet('error', 'Your access does not include this action. Ask an admin of the panel.');

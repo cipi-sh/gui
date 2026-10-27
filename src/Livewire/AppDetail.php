@@ -7,6 +7,7 @@ use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
 use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
+use CipiGui\Support\AppEnv;
 use CipiGui\Support\BuildCommand;
 use CipiGui\Support\DeployLog;
 use Livewire\Attributes\Layout;
@@ -48,6 +49,9 @@ class AppDetail extends Component
     public string $editPhp = '';
 
     public string $editBranch = '';
+
+    /** Environment label (`env`, API 1.36+). */
+    public string $editEnv = AppEnv::DEFAULT;
 
     public string $editRepository = '';
 
@@ -285,6 +289,7 @@ class AppDetail extends Component
             $this->aliases = $this->app['aliases'];
             $this->editPhp = $this->app['php'] !== '' ? $this->app['php'] : '8.5';
             $this->editBranch = $this->app['branch'];
+            $this->editEnv = $this->app['env'];
             $this->editRepository = $this->app['repository'];
             $this->editDomain = $this->app['domain'];
             $this->editNodeMode = (string) ($this->app['node_mode'] ?? '');
@@ -527,9 +532,11 @@ class AppDetail extends Component
         }
 
         $isNode = $this->isNodeApp($this->app ?? []);
+        $this->editEnv = trim($this->editEnv);
 
         $rules = [
             'editBranch' => ['nullable', 'string', 'max:64'],
+            'editEnv' => ['required', 'string', 'max:'.AppEnv::MAX_LENGTH, AppEnv::rule()],
             'editRepository' => ['nullable', 'string', 'max:512'],
             'editDomain' => ['nullable', 'string', 'max:255', 'regex:/^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i'],
             'editNodeVersion' => ['nullable', 'string', 'max:8'],
@@ -547,7 +554,11 @@ class AppDetail extends Component
             $rules['editPhp'] = ['required', 'regex:/^\d+\.\d+$/'];
         }
 
-        $this->validate($rules, ['editDomain.regex' => 'Enter a hostname such as app.example.com or *.example.com.']);
+        $this->validate($rules, [
+            'editDomain.regex' => 'Enter a hostname such as app.example.com or *.example.com.',
+            'editEnv.regex' => AppEnv::message(),
+            'editEnv.max' => AppEnv::message(),
+        ]);
 
         if (! $isNode && $this->installedPhpVersions !== [] && ! in_array($this->editPhp, $this->installedPhpVersions, true)) {
             $this->addError('editPhp', 'PHP '.$this->editPhp.' is not installed on this server. Install it from Server → PHP, or pick: '.implode(', ', $this->installedPhpVersions).'.');
@@ -561,6 +572,9 @@ class AppDetail extends Component
         }
         if ($this->editBranch !== (string) $this->app['branch']) {
             $payload['branch'] = $this->editBranch;
+        }
+        if ($this->editEnv !== (string) $this->app['env']) {
+            $payload['env'] = $this->editEnv;
         }
         if ($this->editRepository !== (string) $this->app['repository']) {
             $payload['repository'] = $this->editRepository;
@@ -1748,6 +1762,8 @@ class AppDetail extends Component
             'tabs' => $this->app ? $this->tabs() : [],
             'artisanPresets' => self::ARTISAN_PRESETS,
             'runPresets' => self::RUN_PRESETS,
+            'envSuggestions' => AppEnv::SUGGESTIONS,
+            'envMaxLength' => AppEnv::MAX_LENGTH,
         ])->title($this->appName.($server ? ' · '.$server->name : ''));
     }
 }

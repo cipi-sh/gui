@@ -79,6 +79,7 @@ class CipiApiClientTest extends TestCase
 
         $plan = CipiApiClient::for($this->server())->ymlStatus('shop');
 
+        $this->assertNull($plan['env']); // before API 1.36 the plan names no environment
         $this->assertNull($plan['file']);
         $this->assertFalse($plan['auto']);
         $this->assertNull($plan['valid']);
@@ -86,6 +87,17 @@ class CipiApiClientTest extends TestCase
         $this->assertSame(['PHP 8.4 is not installed — run: cipi php install 8.4'], $plan['blockers']);
         $this->assertSame([], $plan['errors']);
         $this->assertSame([], $plan['notes']);
+    }
+
+    #[Test]
+    public function the_yml_plan_carries_the_environment_the_server_planned_for(): void
+    {
+        Http::fake(['*' => Http::response(['data' => ['app' => 'shop', 'env' => ' staging ', 'file' => '/home/shop/current/cipi-staging.yml', 'auto' => false]])]);
+
+        $plan = CipiApiClient::for($this->server())->ymlStatus('shop');
+
+        $this->assertSame('staging', $plan['env']);
+        $this->assertSame('/home/shop/current/cipi-staging.yml', $plan['file']);
     }
 
     #[Test]

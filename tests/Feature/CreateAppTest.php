@@ -80,6 +80,54 @@ class CreateAppTest extends TestCase
     }
 
     #[Test]
+    public function the_environment_defaults_to_production_and_offers_the_usual_labels(): void
+    {
+        $this->createForm()
+            ->assertSet('env', 'production')
+            ->assertSee('Environment')
+            ->assertSeeHtml('list="app-env-options"')
+            ->assertSeeHtml('<option value="staging"></option>')
+            ->assertSeeHtml('<option value="development"></option>')
+            ->assertSeeHtml('<option value="testing"></option>')
+            ->call('createApp')
+            ->assertHasNoErrors();
+
+        $this->assertSame('production', $this->createPayload()['env']);
+    }
+
+    #[Test]
+    public function any_label_matching_the_rule_is_sent_as_env_and_kept_in_the_draft(): void
+    {
+        $form = $this->createForm()->set('env', ' qa-2 ');
+
+        // A non-default environment counts as something typed: closing keeps the draft.
+        $form->call('closeCreate')->assertSet('createDraft', true)->call('openCreate')->assertSet('env', ' qa-2 ');
+
+        $form->call('createApp')->assertHasNoErrors();
+
+        $this->assertSame('qa-2', $this->createPayload()['env']);
+
+        // A Node app sends it too.
+        $this->createForm()->call('setAppKind', 'node')->set('env', 'staging')->call('createApp')->assertHasNoErrors();
+
+        $sent = Http::recorded(fn (Request $r) => $r->method() === 'POST' && parse_url($r->url(), PHP_URL_PATH) === '/api/apps');
+        $this->assertSame('staging', $sent->last()[0]->data()['env']);
+    }
+
+    #[Test]
+    public function the_environment_is_validated_like_the_api(): void
+    {
+        foreach (['Staging', 'pre prod', '-dev', 'a.b', str_repeat('a', 33), ''] as $bad) {
+            $this->createForm()->set('env', $bad)->call('createApp')->assertHasErrors(['env']);
+        }
+
+        $this->createForm()->set('env', 'Staging')->call('createApp')
+            ->assertSee('Use up to 32 lowercase letters, digits, - or _');
+
+        $this->assertNull($this->createPayload());
+    }
+
+    #[Test]
     public function the_build_command_is_validated_like_the_cli(): void
     {
         $this->createForm()

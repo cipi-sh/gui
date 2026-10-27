@@ -8,6 +8,7 @@ use CipiGui\Models\CipiServer;
 use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
+use CipiGui\Support\AppEnv;
 use CipiGui\Support\BuildCommand;
 use CipiGui\Support\Panel;
 use Livewire\Attributes\Layout;
@@ -76,6 +77,9 @@ class Apps extends Component
     public string $repository = '';
 
     public string $branch = 'main';
+
+    /** Environment label (`env`, API 1.36+): production, staging, … — free text within AppEnv::PATTERN. */
+    public string $env = AppEnv::DEFAULT;
 
     public string $php = '8.5';
 
@@ -250,7 +254,7 @@ class Apps extends Component
     protected function resetCreateFields(): void
     {
         $this->reset([
-            'user', 'domain', 'repository', 'branch', 'docroot', 'engine',
+            'user', 'domain', 'repository', 'branch', 'env', 'docroot', 'engine',
             'nodeMode', 'nodeFramework', 'nodeVersion', 'nodeBuild', 'nodeStart',
             'nodeOutput', 'nodeHealthPath', 'octane', 'assetBuild',
         ]);
@@ -266,7 +270,7 @@ class Apps extends Component
             }
         }
 
-        return $this->branch !== 'main' || $this->appKind !== 'laravel' || $this->octane;
+        return $this->branch !== 'main' || $this->env !== AppEnv::DEFAULT || $this->appKind !== 'laravel' || $this->octane;
     }
 
     /** Make $id the server the create form (and the create job) talks to, and load what it offers. Only servers the user manages. */
@@ -436,9 +440,12 @@ class Apps extends Component
         $isCustom = $this->appKind === 'custom';
         $reserved = implode(',', (array) config('cipi-gui.reserved_usernames', []));
 
+        $this->env = trim($this->env);
+
         $rules = [
             'user' => ['required', 'regex:/^[a-z][a-z0-9]{2,31}$/', 'not_in:'.$reserved],
             'domain' => ['required', 'string', 'max:255', 'regex:/^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i'],
+            'env' => ['required', 'string', 'max:'.AppEnv::MAX_LENGTH, AppEnv::rule()],
             'octane' => ['boolean'],
         ];
 
@@ -480,10 +487,13 @@ class Apps extends Component
             'user.regex' => 'Use 3–32 lowercase letters or digits, starting with a letter.',
             'user.not_in' => 'This name is reserved on Cipi servers.',
             'domain.regex' => 'Enter a hostname such as app.example.com or *.example.com.',
+            'env.regex' => AppEnv::message(),
+            'env.max' => AppEnv::message(),
             'nodeHealthPath.regex' => 'The health path starts with /.',
         ]);
 
-        $payload = ['user' => $this->user, 'domain' => strtolower($this->domain)];
+        // `env` is validated and dropped by servers before API 1.36 (production there).
+        $payload = ['user' => $this->user, 'domain' => strtolower($this->domain), 'env' => $this->env];
 
         if ($isNode) {
             $payload += ['node' => $this->nodeMode, 'repository' => $this->repository, 'branch' => $this->branch ?: 'main'];
@@ -654,7 +664,7 @@ class Apps extends Component
             if ($needle === '') {
                 return true;
             }
-            $haystack = mb_strtolower(implode(' ', [$app['app'] ?? '', $app['domain'] ?? '', implode(' ', $app['aliases'] ?? []), $app['repository'] ?? '', $app['server_name'] ?? '']));
+            $haystack = mb_strtolower(implode(' ', [$app['app'] ?? '', $app['domain'] ?? '', implode(' ', $app['aliases'] ?? []), $app['repository'] ?? '', $app['server_name'] ?? '', $app['env'] ?? '']));
 
             return str_contains($haystack, $needle);
         }));
@@ -679,6 +689,8 @@ class Apps extends Component
             'presets' => self::NODE_PRESETS,
             'buildPlaceholder' => BuildCommand::PLACEHOLDER,
             'buildMaxLength' => BuildCommand::MAX_LENGTH,
+            'envSuggestions' => AppEnv::SUGGESTIONS,
+            'envMaxLength' => AppEnv::MAX_LENGTH,
         ])->title($scopeServer ? 'Apps · '.$scopeServer->name : 'Apps');
     }
 }

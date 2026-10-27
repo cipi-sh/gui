@@ -53,4 +53,17 @@ class NormalizeAppTest extends TestCase
         $this->assertSame([], $app['redirects']);
         $this->assertNull($app['octane']);
     }
+
+    #[Test]
+    public function the_environment_label_defaults_to_production_on_older_servers(): void
+    {
+        $n = $this->normalizer();
+
+        // Before API 1.36 apps carry no `env`; an empty or non-string one means the same.
+        $this->assertSame('production', $n->normalizeApp(['app' => 'shop'])['env']);
+        $this->assertSame('production', $n->normalizeApp(['app' => 'shop', 'env' => ''])['env']);
+        $this->assertSame('production', $n->normalizeApp(['app' => 'shop', 'env' => null])['env']);
+        $this->assertSame('production', $n->normalizeApp(['app' => 'shop', 'env' => ['x']])['env']);
+        $this->assertSame('staging', $n->normalizeApp(['app' => 'shopstg', 'env' => 'staging'])['env']);
+    }
 }

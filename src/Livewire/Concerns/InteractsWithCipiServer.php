@@ -6,6 +6,7 @@ use CipiGui\Models\CipiServer;
 use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
+use CipiGui\Support\AppEnv;
 
 trait InteractsWithCipiServer
 {
@@ -206,7 +207,16 @@ trait InteractsWithCipiServer
             $app[$key] = is_scalar($app[$key] ?? null) ? (string) $app[$key] : '';
         }
 
+        // Environment label (API 1.36+); servers before it omit it, which means production.
+        $app['env'] = AppEnv::normalize($app['env'] ?? null);
+
         return $app;
+    }
+
+    /** Badge class of an environment label: production muted, anything else highlighted. */
+    protected function envBadgeClass(string $env): string
+    {
+        return AppEnv::badgeClass($env);
     }
 
     protected function nodeModeLabel(?string $mode): string
