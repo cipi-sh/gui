@@ -1,8 +1,8 @@
 # Changelog
 
-## [4.1.0] — 2026-10-27
+## [4.0.0] — 2026-10-27
 
-Aligned with cipi/api 1.36: every app has an **environment** label. Needs **cipi/api ≥ 1.36.0** (and the Cipi release it goes with) on the server to store the label and pick `cipi-<env>.yml`; older servers ignore the field and the panel shows every app as production — nothing else changes for them.
+Two things change for everyone who signs in, hence the major version: the panel has **roles** (admins and users with granted access) and a **fleet view** across every server, both set from Settings. Existing accounts become admins when the migration runs (`cipi gui update` runs it); nothing else is needed. Everything works with cipi/api 1.31+; deploy times need **Cipi 5.6.0+** on the server. The **environment** label needs **cipi/api 1.36.0+** (and Cipi 5.8.0+) to be stored and to pick `cipi-<env>.yml`; older servers ignore the field and the panel shows every app as production — nothing else changes for them.
 
 ### Added
 
@@ -12,13 +12,6 @@ Aligned with cipi/api 1.36: every app has an **environment** label. Needs **cipi
 - **Badges** — the environment of every app in the Apps list (fleet view and single server, desktop and phone) and in the app page header: production muted, anything else highlighted so a staging app stands out. The label is searchable in the list.
 - **App → cipi.yml** — says which environment the plan is for and which file the server reads first (`cipi-staging.yml`, then `cipi.yml`), from the `env` the endpoint returns next to `file` (API 1.36+; the app's label on older servers). The help text mentions `deploy.branch`, the branch the app deploys from, among what the file can set — and what auto-apply hands to whoever can commit.
 - Demo API 1.36: `env` on app create (validated, 422 when it does not match), on app edit, in app objects and in the cipi.yml plan; the staging server's apps are `staging` and `shopstg` ships a `cipi-staging.yml`. `./dev/demo.sh --reset` once to pick them up in an existing demo state.
-
-## [4.0.0] — 2026-10-27
-
-Two things change for everyone who signs in, hence the major version: the panel has **roles** (admins and users with granted access) and a **fleet view** across every server, both set from Settings. Existing accounts become admins when the migration runs (`cipi gui update` runs it); nothing else is needed. No new API requirement — everything works with cipi/api 1.31+; deploy times need **Cipi 5.6.0+** on the server.
-
-### Added
-
 - **Roles and granted access** — every account is an *admin* (sees and does everything: connections, API tokens, the team, the panel settings) or a *user* with what an admin granted: a level on whole servers — **View** (the server page read-only, its apps and databases listed, apps opened read-only) or **Manage** (everything on that server, apps included) — and abilities on single apps: **View, Deploy, Edit, Environment** (.env and Composer auth.json), **Logs, Commands** (Artisan and whitelisted commands) and **Delete**. Pages, tabs, buttons and actions follow the grants; a refused action says so. Tables `cipi_server_grants`, `cipi_app_grants`; column `users.role` (`CipiGui\Services\Access`).
 - **Team** (admins): the accounts with role, 2FA and a summary of their access; edit anyone's role and grants; remove accounts. An admin cannot take the admin role from themselves or remove their own account, so a panel always keeps one.
 - **Invite links** — Team → Invite picks the role and the grants and gives a link to copy (`/invite/{token}`): whoever opens it creates the account with that access. One account per link, links expire after 7 days, pending ones can be revoked. Nothing is emailed.
