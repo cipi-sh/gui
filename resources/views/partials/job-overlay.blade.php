@@ -37,12 +37,17 @@
         </div>
 
         <div class="modal-body space-y-4">
+            @php $published = $this->jobDeployPublished(); @endphp
             @if($activeJobError)
-                <x-cipi::alert type="danger" title="The job failed">{{ $activeJobError }}</x-cipi::alert>
+                @if($published)
+                    <x-cipi::alert type="warn" title="The release is live, but the command then failed">{{ $activeJobError }}</x-cipi::alert>
+                @else
+                    <x-cipi::alert type="danger" title="The job failed">{{ $activeJobError }}</x-cipi::alert>
+                @endif
             @endif
 
             @if($showDeployHints && !empty($deployHints))
-                <x-cipi::alert type="warn" title="Deploy troubleshooting">
+                <x-cipi::alert type="{{ $published ? 'info' : 'warn' }}" title="{{ $published ? 'What to check' : 'Deploy troubleshooting' }}">
                     <ul class="space-y-1 mt-1" style="list-style:disc;padding-left:1.1rem;">
                         @foreach($deployHints as $hint)
                             <li>{{ $hint }}</li>

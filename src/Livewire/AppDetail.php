@@ -1709,6 +1709,16 @@ class AppDetail extends Component
             $this->loadApp();
             $this->loadYml();
         }
+
+        // A deploy that published and failed afterwards changed the live
+        // release: reload it as a completed deploy would.
+        if ($this->jobDeployPublished()) {
+            $this->loadApp();
+            if ($this->activeTab === 'deploy') {
+                $this->auditLoaded = false;
+                $this->loadDeployTab();
+            }
+        }
     }
 
     protected function rememberYmlApply(array $data): bool

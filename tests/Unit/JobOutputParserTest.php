@@ -102,4 +102,35 @@ class JobOutputParserTest extends TestCase
         $this->assertStringNotContainsString('--parallel', $parser->cleanOutput($output));
         $this->assertTrue($parser->isDeployFailure('', 'app-deploy'));
     }
+
+    #[Test]
+    public function it_tells_a_deploy_that_published_and_failed_afterwards_from_a_failed_deploy(): void
+    {
+        $parser = new JobOutputParser;
+        $published = "\e[0;32m[INFO]\e[0m Deploying 'shop'...\n\e[0;33m[WARN]\e[0m Pre-deploy snapshot skipped\n"
+            ."➤ Executing task deploy:symlink\n✔ Ok\nSuccessfully deployed!\n\n\e[0;32m✓\e[0m Deploy completed  (release 4, 11s)";
+        $failed = "➤ Executing task deploy:update_code\n[ERROR] Deploy failed (exit 1)";
+
+        $this->assertTrue($parser->deployPublished($published));
+        $this->assertTrue($parser->deployPublished("\e[0;32m✓\e[0m Deploy completed"));
+        $this->assertFalse($parser->deployPublished($failed));
+        $this->assertFalse($parser->deployPublished(''));
+
+        // Nothing after the release went live: the exit code and the Cipi < 5.8.1 bug.
+        $this->assertSame(
+            'The release is live, but cipi deploy exited with code 1 afterwards without saying why. '
+            .'Check the deploy log. Cipi before 5.8.1 exits 1 after every successful deploy: run cipi self-update on the server.',
+            $parser->publishedDeployError($published, 1),
+        );
+        $this->assertStringStartsWith('The release is live, but cipi deploy exited with an error afterwards', $parser->publishedDeployError($published));
+
+        // The post-deploy error after the release went live, never a warning before it.
+        $this->assertSame(
+            'The release is live, but cipi deploy exited with code 1 afterwards: Post-deploy: 1 of 2 failed (warn)',
+            $parser->publishedDeployError($published."\n\e[0;31m[ERROR]\e[0m Post-deploy: 1 of 2 failed (warn)\n[WARN] Post-deploy steps failed — see the deploy log.", 1),
+        );
+
+        $this->assertNotSame($parser->deployHints(), $parser->publishedDeployHints());
+        $this->assertStringContainsString('5.8.1', implode(' ', $parser->publishedDeployHints()));
+    }
 }

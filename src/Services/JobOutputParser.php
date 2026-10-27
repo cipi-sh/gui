@@ -113,6 +113,57 @@ class JobOutputParser
     }
 
     /**
+     * Whether a deploy's output says the release went live: Deployer's closing
+     * line, or Cipi's own. A failed `app-deploy` job that carries one did not
+     * fail to deploy — what ran afterwards (the post-deploy steps) did, or the
+     * server runs Cipi before 5.8.1, which exited 1 after every successful deploy.
+     */
+    public function deployPublished(string $output): bool
+    {
+        $text = $this->stripAnsi($output);
+
+        return str_contains($text, 'Successfully deployed!')
+            || preg_match('/^\s*✓ Deploy completed/mu', $text) === 1;
+    }
+
+    /**
+     * The error of a failed deploy whose release is live ({@see deployPublished}):
+     * the first `[ERROR]` or `[WARN]` line printed after the release went live
+     * (`Post-deploy: 1 of 2 failed`), or the exit code alone.
+     */
+    public function publishedDeployError(string $output, ?int $exitCode = null): string
+    {
+        $text = $this->cleanOutput($output);
+        $marks = array_filter(
+            [strpos($text, 'Successfully deployed!'), strpos($text, '✓ Deploy completed')],
+            fn ($pos) => $pos !== false,
+        );
+        $after = $marks === [] ? $text : substr($text, min($marks));
+        $how = $exitCode !== null ? "exited with code {$exitCode}" : 'exited with an error';
+
+        if (preg_match('/\[(?:ERROR|WARN)\]\s*(.+?)(?:\n|$)/', $after, $m)) {
+            return "The release is live, but cipi deploy {$how} afterwards: ".trim($m[1]);
+        }
+
+        return "The release is live, but cipi deploy {$how} afterwards without saying why. "
+            .'Check the deploy log. Cipi before 5.8.1 exits 1 after every successful deploy: run cipi self-update on the server.';
+    }
+
+    /**
+     * What to check when a deploy published and the command still failed.
+     *
+     * @return array<int, string>
+     */
+    public function publishedDeployHints(): array
+    {
+        return [
+            'The release is live: nothing was rolled back.',
+            'Check the post-deploy steps of cipi.yml and the deploy log (App → Logs).',
+            'Cipi before 5.8.1 exits 1 after every successful deploy started from the API: run cipi self-update on the server.',
+        ];
+    }
+
+    /**
      * Credentials and one-time values from a job result, in display order.
      *
      * @param  array<string, mixed>  $result

@@ -96,6 +96,15 @@ trait ManagesAsyncJobs
                 if ($this->activeJobStatus === 'completed') {
                     $this->dispatch('notify', type: 'success', message: "{$this->jobLabel} completed.");
                     $this->onJobCompleted($data);
+                } elseif ($this->jobDeployPublished()) {
+                    // The release went live and the command failed afterwards: the
+                    // post-deploy steps, or Cipi before 5.8.1 exiting 1 by mistake.
+                    $exitCode = is_numeric($data['exit_code'] ?? null) ? (int) $data['exit_code'] : null;
+                    $this->activeJobError = $parser->publishedDeployError($rawOutput ?? '', $exitCode);
+                    $this->showDeployHints = true;
+                    $this->deployHints = $parser->publishedDeployHints();
+                    $this->dispatch('notify', type: 'info', message: $this->activeJobError);
+                    $this->onJobFailed($data);
                 } else {
                     $this->activeJobError = $parser->extractError($rawOutput ?? '', $this->activeJobResult);
                     $this->showDeployHints = $parser->isDeployFailure($rawOutput ?? '', $data['type'] ?? null);
@@ -165,6 +174,19 @@ trait ManagesAsyncJobs
     public function jobYmlApply(): ?array
     {
         return app(JobOutputParser::class)->ymlApply($this->activeJobResult ?? []);
+    }
+
+    /**
+     * A failed `app-deploy` job whose output says the release went live: the
+     * deploy itself worked and what ran after it did not — or the server runs
+     * Cipi before 5.8.1, which exited 1 after every successful deploy. The
+     * overlay shows it as a warning with its own hints, not as a failed deploy.
+     */
+    public function jobDeployPublished(): bool
+    {
+        return $this->activeJobStatus === 'failed'
+            && $this->activeJobType === 'app-deploy'
+            && app(JobOutputParser::class)->deployPublished($this->activeJobOutput ?? '');
     }
 
     protected function onJobCompleted(array $data): void {}

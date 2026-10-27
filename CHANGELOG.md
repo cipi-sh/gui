@@ -1,5 +1,11 @@
 # Changelog
 
+## [4.0.1] — 2026-10-27
+
+### Fixed
+
+- **A deploy that published and whose command then failed** is told apart from a failed deploy. Cipi before 5.8.1 exited 1 after every successful deploy started from the API, so the job overlay showed **Failed** with `✓ Deploy completed` quoted as the error and the Git-key hints under it. When the output says the release went live (`Successfully deployed!`), the overlay now says so as a warning, quotes the post-deploy error or the exit code, lists what to check (the post-deploy steps of cipi.yml, the deploy log, `cipi self-update` on a server before 5.8.1), and the Deploy tab reloads its audit so the new release shows. The job keeps the status the API reports.
+
 ## [4.0.0] — 2026-10-27
 
 Two things change for everyone who signs in, hence the major version: the panel has **roles** (admins and users with granted access) and a **fleet view** across every server, both set from Settings. Existing accounts become admins when the migration runs (`cipi gui update` runs it); nothing else is needed. Everything works with cipi/api 1.31+; deploy times need **Cipi 5.6.0+** on the server. The **environment** label needs **cipi/api 1.36.0+** (and Cipi 5.8.0+) to be stored and to pick `cipi-<env>.yml`; older servers ignore the field and the panel shows every app as production — nothing else changes for them.
