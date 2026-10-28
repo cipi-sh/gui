@@ -91,6 +91,30 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Single sign-on (OpenID Connect)
+    |--------------------------------------------------------------------------
+    |
+    | Written into the panel's .env by `cipi gui sso` on the server. An empty
+    | issuer turns SSO off. Discovery is read at
+    | <issuer>/.well-known/openid-configuration; the redirect URI to register
+    | at the identity provider is {APP_URL}/auth/sso/callback.
+    |
+    */
+    'sso' => [
+        'issuer' => env('CIPI_GUI_SSO_ISSUER', ''),
+        'client_id' => env('CIPI_GUI_SSO_CLIENT_ID', ''),
+        'client_secret' => env('CIPI_GUI_SSO_CLIENT_SECRET', ''),
+        // Button text; empty = from the issuer host (Microsoft Entra ID, Google, Okta, else "SSO").
+        'label' => env('CIPI_GUI_SSO_LABEL', ''),
+        // Comma-separated email domains whose people get an account (role user, no grants) on first sign-in.
+        'domains' => env('CIPI_GUI_SSO_DOMAINS', ''),
+        // true: password sign-in is off for everyone; `cipi gui reset-user` on the server is the break-glass.
+        'only' => (bool) env('CIPI_GUI_SSO_ONLY', false),
+        'scopes' => env('CIPI_GUI_SSO_SCOPES', 'openid email profile'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Theme assets (bump after CSS changes to bust browser cache)
     |--------------------------------------------------------------------------
     */

@@ -4,6 +4,7 @@ namespace CipiGui\Livewire;
 
 use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Services\CipiApiException;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 class LogViewer extends Component
@@ -86,6 +87,13 @@ class LogViewer extends Component
         if ($this->autoRefresh) {
             $this->loadLogs();
         }
+    }
+
+    /** A job of the app finished on the page around this viewer (a deploy, a command): its log has new lines. */
+    #[On('app-job-finished')]
+    public function reloadAfterJob(): void
+    {
+        $this->loadLogs();
     }
 
     public function loadLogs(): void

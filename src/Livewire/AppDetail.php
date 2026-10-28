@@ -1687,22 +1687,27 @@ class AppDetail extends Component
         }
 
         $this->rememberYmlApply($data);
+        // The ledger is read again when the Deploy tab is next shown: a deploy
+        // started from the header while another tab was open changed it too.
+        $this->auditLoaded = false;
         $this->loadApp();
 
         match ($this->activeTab) {
             'domains' => $this->loadWwwStatus(),
             'routing' => $this->loadRouting(),
-            'deploy' => (function () {
-                $this->auditLoaded = false;
-                $this->loadDeployTab();
-            })(),
+            'deploy' => $this->loadDeployTab(),
             'yml' => $this->loadYml(),
             default => null,
         };
+
+        $this->dispatch('app-job-finished'); // the Logs tab is a nested component: it reloads itself
     }
 
     protected function onJobFailed(array $data): void
     {
+        // The ledger records failed deploys too.
+        $this->auditLoaded = false;
+
         // A partial, blocked or invalid apply still fails the job: keep its result
         // and show the plan as it is now (a partial apply changed part of it).
         if ($this->rememberYmlApply($data)) {
@@ -1714,11 +1719,13 @@ class AppDetail extends Component
         // release: reload it as a completed deploy would.
         if ($this->jobDeployPublished()) {
             $this->loadApp();
-            if ($this->activeTab === 'deploy') {
-                $this->auditLoaded = false;
-                $this->loadDeployTab();
-            }
         }
+
+        if ($this->activeTab === 'deploy') {
+            $this->loadDeployTab();
+        }
+
+        $this->dispatch('app-job-finished');
     }
 
     protected function rememberYmlApply(array $data): bool

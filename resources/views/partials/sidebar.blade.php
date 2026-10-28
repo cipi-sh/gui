@@ -8,9 +8,7 @@
         <span class="brand-tag ml-auto">panel</span>
     </div>
 
-    <nav class="flex-1 overflow-y-auto px-3 pb-4">
-        @include('cipi-gui::partials.nav-links')
-    </nav>
+    @livewire('cipi-gui.nav', [], key('nav-sidebar'))
 
     <div class="border-t px-4 py-3 text-2xs text-subtle flex items-center justify-between gap-2">
         <span>cipi/gui {{ \CipiGui\Support\Theme::VERSION }}</span>

@@ -1,5 +1,26 @@
 # Changelog
 
+## [4.0.2] — 2026-10-28
+
+### Added
+
+- **Single sign-on over OpenID Connect**, opt-in — "Sign in with Microsoft Entra ID" (or Google Workspace, Okta, Keycloak, Authentik: anything that speaks OIDC) on the login page, next to the password form or instead of it. The panel runs the authorization-code flow with PKCE against the provider's discovery document (`<issuer>/.well-known/openid-configuration`, cached for an hour), exchanges the code server-side and reads the identity from the **userinfo endpoint** — a server-to-server call over TLS — after checking the ID token's nonce, audience and issuer; no JWT library, no new dependency (`CipiGui\Services\OidcClient`, `SsoController`). Who gets in: the account already linked to the identity (`users.sso_subject`, new column), else the account with the same email, linked on first sign-in (an email linked to another identity is refused), else — only when the email's domain is in `CIPI_GUI_SSO_DOMAINS` — a new **user** with no access, for an admin to grant in Team; anyone else is told to ask for an invite link. An email the provider marks unverified is refused, and `preferred_username` is never taken as an email. **The identity provider is the authority for MFA**: after SSO the panel's own 2FA step is not asked for. Configured from the server, where the panel's `.env` is written: `cipi gui sso set --issuer=… --client-id=… --client-secret=…` (`CIPI_GUI_SSO_ISSUER`, `CIPI_GUI_SSO_CLIENT_ID`, `CIPI_GUI_SSO_CLIENT_SECRET`; optional `CIPI_GUI_SSO_LABEL`, `CIPI_GUI_SSO_DOMAINS`, `CIPI_GUI_SSO_SCOPES` — default `openid email profile`), `cipi gui sso only on|off` turns password sign-in off or back on for everyone (`CIPI_GUI_SSO_ONLY`; `cipi gui reset-user` on the server stays the break-glass), `cipi gui sso status`, `cipi gui sso disable` — Cipi 5.8.2+; on an older server the same keys go into the panel's `.env` by hand. The redirect URI to register at the provider is `{APP_URL}/auth/sso/callback` (routes `/auth/sso` and `/auth/sso/callback`, 404 while SSO is off). Settings → Panel shows the state read-only — provider, SSO-only, auto-provisioned domains, the redirect URI — and Team marks SSO-linked accounts. `cipi gui update` runs the migration.
+
+### Fixed
+
+- **The header's server switcher did not show a server just added** — nor one renamed, removed, enabled or disabled, nor a test that changed its state (the dot) — until the page was reloaded; in fleet view the same went for the sidebar's entry per server. Both were plain partials of the layout, outside every Livewire component. They are now components of their own (`cipi-gui.header`, `cipi-gui.nav`) that re-render on the `servers-changed` event the Connections page dispatches after every such change; the markup is the same.
+- **The name in the header** did not follow Settings → Profile until a reload; the header re-renders on `profile-changed`.
+- **A job closed with "Run in background" was forgotten**: polling stopped with the overlay, so the list, card or tab behind it never learned that the job had finished. The job is now polled on while hidden; when it finishes the page reloads its data and shows the usual toast, and the overlay comes back only when a toast cannot carry the outcome — the job failed, or it returned one-time credentials (a database password, a new app's SSH access).
+- **A failed job left the page as it was** on Apps, Databases and the Server page, although a create, delete, install or restart may have changed the server partway. They now reload what they show after a failed job, as after a completed one.
+- **App → Deploy kept an old ledger** when a deploy was started from the header while another tab was open: the tab had its audit cached and did not read it again. Every finished job — completed or failed, the ledger records failed deploys too — invalidates it: the Deploy tab reloads it when open and reads it again when next opened.
+- **App → Logs** did not refresh after a deploy or a command run from the same page; the log viewer reloads when a job of the app finishes.
+- **App → Deploy, the By column** was empty for every deploy the panel or a Git push started: it printed only the login user root could establish (an SSH session), and read the actor an app reports under keys that do not exist. It now shows that user when there is one, otherwise the actor the app's own code reported (the pusher of a webhook, an MCP client), marked as reported and with its source, and "—" only when nothing is known.
+- **Connections → Create a token on the server** showed two lines (`$ cipi api`, then the token command) and the terminal's Copy button copied both with their `$ ` prompts. One line now, and Copy (and MD) give the command alone, ready to paste.
+
+### Changed
+
+- **Connections**: whenever a connection test succeeds, the panel makes sure the address it calls the API from (the `client_ip` the server reports) is on that server's API IP whitelist (`cipi api ip-whitelist`), adding it when missing, so restricting the list later never locks the panel out; the test result says when it did. An API that cannot answer (older release, token without `ip-whitelist-manage`) leaves the test result as it is. The form's "IP address" is now labelled "Server IP" with a hint: it is the address shown in the list, not an access rule.
+
 ## [4.0.1] — 2026-10-27
 
 ### Fixed

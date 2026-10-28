@@ -1,3 +1,7 @@
+@if(($jobRunning ?? false) && ! ($showJobOverlay ?? false))
+    {{-- Closed with "Run in background": keep polling, so the page reloads its data when the job finishes. --}}
+    <span wire:poll.{{ config('cipi-gui.job_poll_interval_ms', 1500) }}ms="pollJob" aria-hidden="true"></span>
+@endif
 @if($showJobOverlay ?? false)
 @php
     $status = $activeJobStatus ?? 'pending';
@@ -105,7 +109,7 @@
 
         <div class="modal-footer">
             @if($jobRunning ?? false)
-                <span class="text-xs text-muted mr-auto self-center">The job keeps running on the server if you close this.</span>
+                <span class="text-xs text-muted mr-auto self-center">The job keeps running on the server if you close this; the page updates when it finishes.</span>
                 <button type="button" wire:click="dismissJob" class="btn btn-secondary">Run in background</button>
             @else
                 <button type="button" wire:click="dismissJob" class="btn btn-primary">Done</button>

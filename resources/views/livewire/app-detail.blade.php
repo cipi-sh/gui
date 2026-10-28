@@ -639,7 +639,7 @@
                         <div class="table-scroll max-h-panel overflow-y-auto">
                             <table class="table-compact">
                                 <thead>
-                                    <tr><th>#</th><th>When</th><th>Event</th><th>Release</th><th class="text-right" title="From the deploy log (Cipi 5.6+)">Took</th><th>Origin</th><th>By</th></tr>
+                                    <tr><th>#</th><th>When</th><th>Event</th><th>Release</th><th class="text-right" title="From the deploy log (Cipi 5.6+)">Took</th><th>Origin</th><th title="Who started it: the login user root established, or the actor the app's own code reported (webhook pusher, MCP client)">By</th></tr>
                                 </thead>
                                 <tbody>
                                     @foreach($auditRecords as $record)
@@ -661,10 +661,22 @@
                                             </td>
                                             <td class="text-right tabular-nums text-xs {{ isset($auditTook[$loop->index]) ? 'text-soft' : 'text-subtle' }}">{{ isset($auditTook[$loop->index]) ? \CipiGui\Support\DeployLog::format($auditTook[$loop->index]) : '—' }}</td>
                                             <td class="text-xs"><span class="badge badge-neutral">{{ $record['origin'] ?? '—' }}</span>@if(!empty($record['trigger']))<span class="text-subtle"> {{ $record['trigger'] }}</span>@endif</td>
+                                            @php
+                                                $operator = trim((string) ($record['operator'] ?? ''));
+                                                $claimedActor = trim((string) ($claimed['actor'] ?? ''));
+                                                $claimedSource = trim((string) ($claimed['source'] ?? ''));
+                                            @endphp
                                             <td class="text-xs">
-                                                {{ $record['operator'] ?? '—' }}
+                                                @if($operator !== '')
+                                                    <span class="text-strong">{{ $operator }}</span>
+                                                @elseif($claimedActor !== '')
+                                                    <span class="text-strong" title="Reported by the app's own code ({{ $claimedSource !== '' ? $claimedSource : 'cipi/agent' }}), not checked by the server">{{ $claimedActor }}</span>
+                                                @else
+                                                    —
+                                                @endif
                                                 @if(!empty($record['ip']))<span class="block font-mono text-2xs text-subtle">{{ $record['ip'] }}</span>@endif
-                                                @if($claimed)<span class="block text-2xs text-subtle" title="{{ json_encode($claimed) }}">{{ $claimed['note'] ?? ('claimed by '.($claimed['by'] ?? '?')) }}</span>@endif
+                                                @if($operator !== '' && $claimedActor !== '')<span class="block text-2xs text-subtle" title="{{ json_encode($claimed) }}">{{ $claimedActor }} ({{ $claimedSource !== '' ? $claimedSource : 'claimed' }})</span>
+                                                @elseif($claimedActor !== '' && ($claimedSource !== '' || !empty($claimed['ip'])))<span class="block text-2xs text-subtle" title="{{ json_encode($claimed) }}">via {{ $claimedSource !== '' ? $claimedSource : 'the app' }}@if(!empty($claimed['ip'])) · <span class="font-mono">{{ $claimed['ip'] }}</span>@endif</span>@endif
                                             </td>
                                         </tr>
                                     @endforeach

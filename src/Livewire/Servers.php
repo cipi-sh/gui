@@ -5,6 +5,7 @@ namespace CipiGui\Livewire;
 use CipiGui\Models\CipiServer;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -28,8 +29,11 @@ class Servers extends Component
 
     public ?int $confirmDeleteId = null;
 
-    /** @var array<int, array{ok: bool, message: string, cipi?: ?string}> */
+    /** @var array<int, array{ok: bool, message: string, cipi?: ?string, whitelisted?: string}> */
     public array $testResults = [];
+
+    /** Where the last connection test said this panel calls the API from (the server's client_ip). */
+    public const PANEL_IP_CACHE_KEY = 'cipi-gui.panel_ip';
 
     public function openAdd(): void
     {
@@ -104,7 +108,7 @@ class Servers extends Component
 
         $editing = (bool) $this->editingId;
         $this->closeForm();
-        $this->testConnection($server->id);
+        $this->runConnectionTest($server->id);
 
         if (! session('cipi_gui_server_id')) {
             session(['cipi_gui_server_id' => $server->id]);
@@ -117,23 +121,83 @@ class Servers extends Component
                 ? ($editing ? "Connection \"{$server->name}\" updated." : "Server \"{$server->name}\" connected.")
                 : "Saved, but the connection test failed: ".($this->testResults[$server->id]['message'] ?? 'unknown error'),
         );
+        $this->serversChanged();
     }
 
     public function testConnection(int $id): void
     {
+        if ($this->runConnectionTest($id)) {
+            $this->serversChanged();
+        }
+    }
+
+    /**
+     * Test one connection and record the result. True when the test changed
+     * what the header and the sidebar show for the server (the dot: last_error).
+     */
+    private function runConnectionTest(int $id): bool
+    {
         $server = CipiServer::findOrFail($id);
+        $errorBefore = $server->last_error;
 
         try {
-            $status = CipiApiClient::for($server)->testConnection();
+            $client = CipiApiClient::for($server);
+            $status = $client->testConnection();
             $this->syncIpFromStatus($server, $status);
             $this->testResults[$id] = [
                 'ok' => true,
                 'message' => 'Connected',
                 'cipi' => $status['system']['cipi'] ?? null,
             ];
+            $this->ensurePanelIpWhitelisted($client, $id);
         } catch (CipiApiException $e) {
             $this->testResults[$id] = ['ok' => false, 'message' => $e->getMessage()];
         }
+
+        return $server->last_error !== $errorBefore;
+    }
+
+    /**
+     * The server's API IP whitelist (cipi api ip-whitelist) decides who may
+     * call it, and the server knows which address this panel calls from
+     * (client_ip). After a successful test, keep the panel on that list:
+     *
+     *  - list restricted and the address not on it (allowed through a CIDR,
+     *    say): add it, so the panel survives the CIDR being dropped;
+     *  - list open to any IP: nothing to add — on the server, `add` on an open
+     *    list *restricts* it to the added address and would lock every other
+     *    client out. The address is remembered and shown next to the token
+     *    command, to be kept when the list is restricted.
+     *
+     * An API that cannot answer (older release, token without
+     * ip-whitelist-manage) leaves the test result as it is.
+     */
+    private function ensurePanelIpWhitelisted(CipiApiClient $client, int $id): void
+    {
+        try {
+            $list = $client->getIpWhitelist();
+        } catch (CipiApiException) {
+            return;
+        }
+
+        $clientIp = trim((string) ($list['client_ip'] ?? ''));
+        if ($clientIp === '' || ! filter_var($clientIp, FILTER_VALIDATE_IP)) {
+            return;
+        }
+        Cache::put(self::PANEL_IP_CACHE_KEY, $clientIp, now()->addDays(30));
+
+        $entries = is_array($list['entries'] ?? null) ? array_map('strval', $list['entries']) : [];
+        if (! empty($list['allow_all']) || in_array('*', $entries, true) || in_array($clientIp, $entries, true)) {
+            return;
+        }
+
+        try {
+            $client->addIpWhitelistEntry($clientIp);
+        } catch (CipiApiException) {
+            return;
+        }
+        $this->testResults[$id]['message'] = "Connected — {$clientIp} (this panel) added to the API IP whitelist";
+        $this->testResults[$id]['whitelisted'] = $clientIp;
     }
 
     public function toggleActive(int $id): void
@@ -145,6 +209,7 @@ class Servers extends Component
             session()->forget('cipi_gui_server_id');
         }
 
+        $this->serversChanged();
         $this->dispatch('notify', type: 'info', message: $server->is_active ? "{$server->name} enabled." : "{$server->name} disabled — hidden from the switcher.");
     }
 
@@ -174,7 +239,18 @@ class Servers extends Component
         $name = $server->name;
         $server->delete();
         unset($this->testResults[$server->id]);
+        $this->serversChanged();
         $this->dispatch('notify', type: 'success', message: "Connection \"{$name}\" removed. Nothing was changed on the server.");
+    }
+
+    /**
+     * The header (server switcher) and the sidebar (an entry per server in
+     * fleet view) belong to the layout, not to this page: they re-render on
+     * this event.
+     */
+    private function serversChanged(): void
+    {
+        $this->dispatch('servers-changed');
     }
 
     private function normalizeUrl(string $url): string
@@ -237,6 +313,7 @@ class Servers extends Component
             'servers' => CipiServer::orderBy('name')->get(),
             'tokenCommand' => 'cipi api token create --name=gui --abilities='.implode(',', $abilities),
             'abilityCount' => count($abilities),
+            'panelIp' => Cache::get(self::PANEL_IP_CACHE_KEY),
             'deleting' => $this->confirmDeleteId ? CipiServer::find($this->confirmDeleteId) : null,
         ]);
     }

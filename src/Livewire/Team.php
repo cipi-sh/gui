@@ -272,6 +272,7 @@ class Team extends Component
             'email' => (string) ($user->email ?? ''),
             'role' => Access::role($user),
             'two_factor' => (bool) ($user->two_factor_enabled ?? false),
+            'sso' => filled($user->sso_subject ?? null),
             'access' => Access::summary($user),
             'self' => (int) $user->getKey() === $me,
         ])->all();

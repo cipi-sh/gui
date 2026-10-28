@@ -621,6 +621,12 @@ class Apps extends Component
         $this->loadApps();
     }
 
+    /** The server may have changed partway (an app half created or deleted): show what it has now. */
+    protected function onJobFailed(array $data): void
+    {
+        $this->loadApps();
+    }
+
     /** @param  array<string, mixed>  $patch */
     #[On('app-changed')]
     public function onAppChanged(string $name, array $patch, ?int $serverId = null): void

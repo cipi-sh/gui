@@ -3,6 +3,7 @@
 use CipiGui\Http\Controllers\AssetsController;
 use CipiGui\Http\Controllers\Auth\InviteController;
 use CipiGui\Http\Controllers\Auth\LoginController;
+use CipiGui\Http\Controllers\Auth\SsoController;
 use CipiGui\Http\Controllers\Auth\TwoFactorController;
 use CipiGui\Http\Controllers\ServerSwitchController;
 use CipiGui\Livewire\AppDetail;
@@ -35,6 +36,9 @@ Route::middleware('guest')->group(function () {
     Route::post('/login', [LoginController::class, 'login'])->name('cipi-gui.login.submit');
     Route::get('/invite/{token}', [InviteController::class, 'show'])->name('cipi-gui.invite');
     Route::post('/invite/{token}', [InviteController::class, 'accept'])->name('cipi-gui.invite.accept');
+    // Single sign-on (OIDC); both 404 unless cipi-gui.sso is configured.
+    Route::get('/auth/sso', [SsoController::class, 'redirect'])->name('cipi-gui.sso.redirect');
+    Route::get('/auth/sso/callback', [SsoController::class, 'callback'])->name('cipi-gui.sso.callback');
 });
 
 Route::post('/logout', [LoginController::class, 'logout'])

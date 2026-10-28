@@ -1,9 +1,13 @@
 @php
     $terminalLines = $lines ?? [];
     $terminalText = implode("\n", $terminalLines);
-    $terminalMd = "```text\n".$terminalText.($terminalText !== '' ? "\n" : '')."```";
+    // stripPrompt: the lines are commands to run — copy them without the "$ " prompt.
+    $terminalCopy = ($stripPrompt ?? false)
+        ? implode("\n", array_map(fn ($l) => preg_replace('/^\$ /', '', $l), $terminalLines))
+        : $terminalText;
+    $terminalMd = "```text\n".$terminalCopy.($terminalCopy !== '' ? "\n" : '')."```";
 @endphp
-<div class="terminal" x-data="{ copied: false, md: {{ \Illuminate\Support\Js::from($terminalMd) }}, raw: {{ \Illuminate\Support\Js::from($terminalText) }} }">
+<div class="terminal" x-data="{ copied: false, md: {{ \Illuminate\Support\Js::from($terminalMd) }}, raw: {{ \Illuminate\Support\Js::from($terminalCopy) }} }">
     <div class="terminal-header">
         <span class="terminal-dot" style="background:#ff5f57;"></span>
         <span class="terminal-dot" style="background:#febc2e;"></span>

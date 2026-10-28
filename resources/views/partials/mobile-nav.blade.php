@@ -14,9 +14,7 @@
                 <x-cipi::icon name="x" />
             </button>
         </div>
-        <nav class="flex-1 overflow-y-auto px-3 pb-4">
-            @include('cipi-gui::partials.nav-links', ['closeMobileNav' => 'mobileNavOpen = false'])
-        </nav>
+        @livewire('cipi-gui.nav', ['mobile' => true], key('nav-mobile'))
         <div class="border-t p-3">
             <form method="POST" action="{{ route('cipi-gui.logout') }}">
                 @csrf

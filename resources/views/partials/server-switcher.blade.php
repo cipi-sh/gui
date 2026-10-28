@@ -1,9 +1,4 @@
-@php
-    /** @var \Illuminate\Support\Collection<int, \CipiGui\Models\CipiServer> $switcherServers */
-    $switcherServers = \CipiGui\Services\Access::visibleServers(auth()->user());
-    $currentServerId = (int) session('cipi_gui_server_id');
-    $currentServer = $switcherServers->firstWhere('id', $currentServerId) ?? $switcherServers->first();
-@endphp
+{{-- Rendered by the Header component (cipi-gui.header), which passes $switcherServers, $currentServer and $isAdmin and re-renders on `servers-changed`. --}}
 @if($currentServer)
     <div class="server-switch" x-data="{ open: false }" x-on:click.outside="open = false" x-on:keydown.escape.window="open = false">
         <button type="button" class="server-switch-btn" x-on:click="open = !open" :aria-expanded="open" aria-haspopup="listbox" title="Switch server">
@@ -29,12 +24,12 @@
                     </button>
                 @endforeach
             </form>
-            @if(\CipiGui\Services\Access::isAdmin(auth()->user()))
+            @if($isAdmin)
                 <div class="dropdown-divider"></div>
                 <a href="{{ route('cipi-gui.servers') }}" class="dropdown-item"><x-cipi::icon name="plus" /> Add or manage connections</a>
             @endif
         </div>
     </div>
-@elseif(\CipiGui\Services\Access::isAdmin(auth()->user()))
+@elseif($isAdmin)
     <a href="{{ route('cipi-gui.servers') }}" class="btn btn-secondary btn-sm"><x-cipi::icon name="plus" /> Connect a server</a>
 @endif

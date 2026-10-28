@@ -15,7 +15,7 @@
                     @foreach($users as $user)
                         <tr wire:key="user-{{ $user['id'] }}">
                             <td>
-                                <p class="font-semibold text-strong">{{ $user['name'] ?: $user['email'] }} @if($user['self'])<span class="badge badge-neutral ml-1">you</span>@endif</p>
+                                <p class="font-semibold text-strong">{{ $user['name'] ?: $user['email'] }} @if($user['self'])<span class="badge badge-neutral ml-1">you</span>@endif @if($user['sso'])<span class="badge badge-blue ml-1" title="Signs in through the identity provider">SSO</span>@endif</p>
                                 <p class="text-xs text-muted">{{ $user['email'] }}</p>
                             </td>
                             <td><span class="badge {{ $user['role'] === 'admin' ? 'badge-accent' : 'badge-neutral' }}">{{ $user['role'] === 'admin' ? 'Admin' : 'User' }}</span></td>

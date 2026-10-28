@@ -13,6 +13,7 @@ cipi gui status                   # domain, host app path, Laravel and cipi/gui 
 cipi gui fix-permissions          # open_basedir and file permissions (alias: repair)
 cipi gui refresh-theme            # clear compiled views so the theme reloads
 cipi gui reset-user [--email= --password= --name=]   # recover an admin, clears 2FA (alias: reset-password)
+cipi gui sso set --issuer= --client-id= --client-secret= [--label= --domains=]   # single sign-on over OpenID Connect (5.8.2+); also: sso status | only on|off | disable
 cipi gui remove [--force]         # uninstall (alias: uninstall) — managed servers are not touched
 ```
 
@@ -35,4 +36,5 @@ cipi gui remove [--force]         # uninstall (alias: uninstall) — managed ser
 - **Published views are deleted on boot** (`CipiGuiServiceProvider::purgePublishedViews`) so an update always ships the new UI; `cipi gui refresh-theme` clears compiled views.
 - **Migrations must be idempotent** — `cipi gui update` runs `php artisan migrate --force` on every update.
 - **Admin users**: the installer and `reset-user` write the user directly (`lib/gui-reset-admin.php`); `php artisan cipi:seed-gui-user` is the equivalent for manual installs and hashes the password itself.
+- **Single sign-on is configured only on the server**: `cipi gui sso` writes the `CIPI_GUI_SSO_*` keys into the panel's `.env` (read by `config/cipi-gui.php` under `sso`); the panel shows the state read-only on Settings → Panel and never edits them. The redirect URI to register at the identity provider is `{APP_URL}/auth/sso/callback`. With SSO-only on, `cipi gui sso only off` (or `cipi gui reset-user`) is the break-glass.
 - **The panel only talks to servers through their API** (`cipi api` on each managed server, Bearer token, optional IP whitelist). It never needs SSH or root on the managed servers.

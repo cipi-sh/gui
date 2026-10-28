@@ -68,6 +68,7 @@ Sections a server's API or token does not support are shown as "not available" o
 | ![Connections](docs/screenshots/connections.webp) | **Connections** (admins) — add, edit, rotate tokens, disable or test servers. IPs copy on click, here and on the Dashboard and Server pages. |
 | ![Team](docs/screenshots/team.webp) | **Team** (admins) — every account with its role and access. An **admin** sees and does everything; a **user** gets what an admin grants: **View** or **Manage** on whole servers, and **View, Deploy, Edit, Environment, Logs, Commands, Delete** on single apps. Invite people with a **copyable link** that carries the role and the grants — no email is sent; links work once and expire after 7 days. |
 | ![Settings](docs/screenshots/settings-2fa.webp) | **Settings** — profile, password (12+ characters, mixed case, number, symbol) and TOTP two-factor authentication. Admins also set the **panel** for everyone: fleet view on or off, and whether the Server page is reached from one sidebar entry per server or a picker on the page. |
+| | **Single sign-on** (opt-in) — "Sign in with Microsoft Entra ID" (Google Workspace, Okta, Keycloak… anything that speaks OpenID Connect) next to the password form, or instead of it with `CIPI_GUI_SSO_ONLY`. Existing accounts are matched by email and linked; people from the allowed domains get a user account with no access on first sign-in; everyone else needs an invite link. The provider's MFA replaces the panel's 2FA step. Set up on the server: `cipi gui sso set --issuer=… --client-id=… --client-secret=…` (Cipi 5.8.2+). |
 
 Light and dark themes follow the system preference (toggle in the header), and the layout adapts to phones:
 
@@ -115,8 +116,9 @@ The panel targets **Cipi API 1.36** and degrades per section on older APIs or na
 | `http_disk_timeout` | Timeout for `GET /api/disk*`, which measure every app home on request (seconds) | `180` |
 | `php_versions` | Fallback PHP hints when a server cannot list its versions | `['8.4', '8.5']` |
 | `token_abilities` | Abilities shown in the token command on Connections | API 1.35 list |
+| `sso` | Single sign-on over OpenID Connect: issuer, client id and secret, button label, auto-provisioned domains, SSO-only, scopes — written to `.env` by `cipi gui sso` | off |
 
-Environment variables: `CIPI_GUI_PREFIX`, `CIPI_GUI_JOB_POLL_MS`, `CIPI_GUI_JOB_POLL_MAX`, `CIPI_GUI_HTTP_TIMEOUT`, `CIPI_GUI_HTTP_CONNECT_TIMEOUT`, `CIPI_GUI_HTTP_DISK_TIMEOUT`, `CIPI_GUI_ADMIN_EMAIL`, `CIPI_GUI_ADMIN_NAME`.
+Environment variables: `CIPI_GUI_PREFIX`, `CIPI_GUI_JOB_POLL_MS`, `CIPI_GUI_JOB_POLL_MAX`, `CIPI_GUI_HTTP_TIMEOUT`, `CIPI_GUI_HTTP_CONNECT_TIMEOUT`, `CIPI_GUI_HTTP_DISK_TIMEOUT`, `CIPI_GUI_ADMIN_EMAIL`, `CIPI_GUI_ADMIN_NAME`; for single sign-on `CIPI_GUI_SSO_ISSUER`, `CIPI_GUI_SSO_CLIENT_ID`, `CIPI_GUI_SSO_CLIENT_SECRET`, `CIPI_GUI_SSO_LABEL`, `CIPI_GUI_SSO_DOMAINS`, `CIPI_GUI_SSO_ONLY`, `CIPI_GUI_SSO_SCOPES` (redirect URI to register at the provider: `{APP_URL}/auth/sso/callback`).
 
 Artisan commands: `cipi:seed-gui-user` (create or `--reset` the admin), `cipi:gui-refresh-theme`, `cipi:gui-version`.
 
@@ -141,7 +143,7 @@ composer test
 ```
 cipi/gui
 ├── config/cipi-gui.php
-├── database/migrations/        # cipi_servers, users 2FA columns
+├── database/migrations/        # cipi_servers, cipi_settings, grants, invites; users columns (2FA, role, sso_subject)
 ├── resources/
 │   ├── css/cipi-gui.css         # theme, inlined — no build step
 │   └── views/                   # layouts, partials, <x-cipi::…> components, Livewire views
@@ -149,7 +151,7 @@ cipi/gui
 ├── src/
 │   ├── CipiGuiServiceProvider.php
 │   ├── Livewire/                # Dashboard, Servers, Apps, AppDetail, Databases, ServerManage, Settings, LogViewer
-│   ├── Services/                # CipiApiClient, JobOutputParser, TwoFactorService
+│   ├── Services/                # CipiApiClient, JobOutputParser, TwoFactorService, OidcClient (single sign-on)
 │   ├── Support/                 # Theme, Icons, BuildCommand (the CLI's build-command rule), AppEnv (environment labels)
 │   └── Models/CipiServer.php
 ├── dev/                         # host bootstrap + demo API

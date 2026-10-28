@@ -53,6 +53,9 @@ class CipiGuiServiceProvider extends ServiceProvider
         Livewire::component('cipi-gui.log-viewer', \CipiGui\Livewire\LogViewer::class);
         Livewire::component('cipi-gui.settings', \CipiGui\Livewire\Settings::class);
         Livewire::component('cipi-gui.team', \CipiGui\Livewire\Team::class);
+        // Parts of the layout that follow the data they show (see the classes).
+        Livewire::component('cipi-gui.header', \CipiGui\Livewire\Header::class);
+        Livewire::component('cipi-gui.nav', \CipiGui\Livewire\Nav::class);
 
         if ($this->app->runningInConsole()) {
             $this->commands([

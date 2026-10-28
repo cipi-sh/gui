@@ -451,6 +451,12 @@ class ServerManage extends Component
         $this->loadTab($this->activeTab);
     }
 
+    /** A failed install or restart may have changed the server partway: show what it has now. */
+    protected function onJobFailed(array $data): void
+    {
+        $this->onJobCompleted($data);
+    }
+
     // ── Disk report helpers (same rounding as `cipi disk`) ────────────
 
     /** GB with two decimals, MB below 0.01 GB so a small database does not read as zero. */

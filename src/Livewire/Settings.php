@@ -7,6 +7,7 @@ use BaconQrCode\Renderer\ImageRenderer;
 use BaconQrCode\Renderer\RendererStyle\RendererStyle;
 use BaconQrCode\Writer;
 use CipiGui\Services\Access;
+use CipiGui\Services\OidcClient;
 use CipiGui\Services\TwoFactorService;
 use CipiGui\Support\Panel;
 use CipiGui\Support\Theme;
@@ -86,6 +87,7 @@ class Settings extends Component
 
         $user->forceFill(['name' => $this->name, 'email' => $this->email])->save();
         $this->dispatch('notify', type: 'success', message: 'Profile saved.');
+        $this->dispatch('profile-changed'); // the header shows the name
     }
 
     public function changePassword(): void
@@ -171,11 +173,25 @@ class Settings extends Component
         $this->reset(['setupSecret', 'qrCodeSvg', 'verificationCode']);
     }
 
+    /** Settings → Panel → Single sign-on, read-only: the panel's .env is written by `cipi gui sso` on the server. */
+    private function sso(): array
+    {
+        return [
+            'enabled' => OidcClient::configured(),
+            'label' => OidcClient::label(),
+            'host' => OidcClient::issuerHost(),
+            'only' => OidcClient::only(),
+            'domains' => OidcClient::domains(),
+            'redirect' => OidcClient::redirectUri(),
+        ];
+    }
+
     public function render()
     {
         return view('cipi-gui::livewire.settings', [
             'isAdmin' => Access::isAdmin(Auth::user()),
             'role' => Access::role(Auth::user()),
+            'sso' => $this->sso(),
             'versions' => [
                 'cipi/gui' => Theme::VERSION,
                 'Laravel' => app()->version(),

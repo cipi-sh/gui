@@ -350,6 +350,7 @@ class Databases extends Component
     protected function onJobFailed(array $data): void
     {
         $this->pendingBackup = null;
+        $this->loadDatabases(); // the server may have changed partway
     }
 
     public function render()

@@ -92,8 +92,8 @@
             </div>
             <x-cipi::copy :value="$tokenCommand" label="Copy command" />
         </div>
-        @include('cipi-gui::partials.terminal', ['lines' => ['$ cipi api', '$ '.$tokenCommand], 'title' => 'root@your-server', 'autoScroll' => false])
-        <p class="field-hint">Restrict who can call the API with <code>cipi api ip-whitelist</code> — and include this panel's IP.</p>
+        @include('cipi-gui::partials.terminal', ['lines' => ['$ '.$tokenCommand], 'title' => 'root@your-server', 'autoScroll' => false, 'stripPrompt' => true])
+        <p class="field-hint">Needs <code>cipi api</code> installed on that server. Restrict who can call the API with <code>cipi api ip-whitelist</code> and keep this panel on it@if($panelIp): it calls from <x-cipi::copyable :value="$panelIp" label="Copy IP" /> — <code>cipi api ip-whitelist add {{ $panelIp }}</code> when you restrict a list that is still open@endif. When a list is already restricted, a successful connection test adds the panel's address by itself.</p>
     </div>
 
     @if($showFormModal)
@@ -108,8 +108,9 @@
                             @error('name') <p class="field-error">{{ $message }}</p> @enderror
                         </div>
                         <div>
-                            <label for="server-ip">IP address <span class="text-subtle font-normal">(optional)</span></label>
+                            <label for="server-ip">Server IP <span class="text-subtle font-normal">(optional)</span></label>
                             <input id="server-ip" type="text" wire:model="ip" placeholder="Detected automatically" autocomplete="off" inputmode="decimal">
+                            <p class="field-hint">Shown in the list and on the dashboard; read from the server when empty. Not an access rule: the API's IP whitelist is on the server page, and this panel's IP is added there automatically.</p>
                             @error('ip') <p class="field-error">{{ $message }}</p> @enderror
                         </div>
                     </div>

@@ -112,16 +112,31 @@ trait ManagesAsyncJobs
                     $this->dispatch('notify', type: 'error', message: $this->activeJobError);
                     $this->onJobFailed($data);
                 }
+
+                $this->surfaceBackgroundJob();
             }
         } catch (\Throwable $e) {
             $this->jobRunning = false;
             $this->activeJobStatus = 'failed';
             $this->activeJobError = $e instanceof CipiApiException ? $this->friendlyApiError($e) : $e->getMessage();
+            $this->surfaceBackgroundJob();
         }
     }
 
+    /**
+     * Close the overlay. A job still running is kept and polled on (the overlay
+     * partial renders a poller while it is hidden), so the page reloads its
+     * data when the job finishes; surfaceBackgroundJob() says when the overlay
+     * comes back. A finished job is forgotten.
+     */
     public function dismissJob(): void
     {
+        if ($this->jobRunning) {
+            $this->showJobOverlay = false;
+
+            return;
+        }
+
         $this->activeJobId = null;
         $this->activeJobType = null;
         $this->activeJobStatus = null;
@@ -187,6 +202,19 @@ trait ManagesAsyncJobs
         return $this->activeJobStatus === 'failed'
             && $this->activeJobType === 'app-deploy'
             && app(JobOutputParser::class)->deployPublished($this->activeJobOutput ?? '');
+    }
+
+    /**
+     * A job closed with "Run in background" has finished: the toast says so and
+     * the page reloaded its data. The overlay comes back only when a toast
+     * cannot carry the outcome — the job failed, or it returned one-time
+     * credentials.
+     */
+    protected function surfaceBackgroundJob(): void
+    {
+        if (! $this->showJobOverlay && ($this->activeJobStatus === 'failed' || $this->jobSecrets() !== [])) {
+            $this->showJobOverlay = true;
+        }
     }
 
     protected function onJobCompleted(array $data): void {}

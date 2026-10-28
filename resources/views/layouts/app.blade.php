@@ -30,7 +30,7 @@
         @include('cipi-gui::partials.mobile-nav')
 
         <div class="flex flex-1 flex-col min-w-0">
-            @include('cipi-gui::partials.header')
+            @livewire('cipi-gui.header')
 
             <main id="main" class="cipi-gui-main">
                 {{ $slot }}

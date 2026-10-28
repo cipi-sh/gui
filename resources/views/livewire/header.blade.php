@@ -1,15 +1,9 @@
-@php
-    $user = auth()->user();
-    $isAdmin = \CipiGui\Services\Access::isAdmin($user);
-    $displayName = $user->name ?? $user->email ?? 'Admin';
-    $initials = collect(preg_split('/\s+/', trim((string) $displayName)))->filter()->take(2)->map(fn ($p) => mb_strtoupper(mb_substr($p, 0, 1)))->implode('');
-@endphp
 <header class="cipi-gui-header">
     <div class="flex items-center gap-2 min-w-0">
         <button type="button" class="btn btn-ghost btn-icon md:hidden" x-on:click="mobileNavOpen = true" aria-label="Open menu">
             <x-cipi::icon name="menu" class="h-5 w-5" />
         </button>
-        @unless(\CipiGui\Support\Panel::fleetView())
+        @unless($fleetView)
             @include('cipi-gui::partials.server-switcher')
         @endunless
     </div>

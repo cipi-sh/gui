@@ -29,6 +29,24 @@
                         </div>
                     </form>
                 </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="key" /> Single sign-on</h2><p class="card-subtitle">Sign in through the organisation's identity provider over OpenID Connect — Microsoft Entra ID, Google Workspace, Okta, Keycloak… The provider runs its own MFA, so the panel's 2FA step is not asked for after SSO.</p></div>
+                        <span class="badge {{ $sso['enabled'] ? 'badge-green' : 'badge-neutral' }}">{{ $sso['enabled'] ? 'On' : 'Off' }}</span>
+                    </div>
+                    @if($sso['enabled'])
+                        <dl class="kv">
+                            <dt>Provider</dt><dd>{{ $sso['label'] }} <span class="text-muted">· {{ $sso['host'] }}</span></dd>
+                            <dt>SSO only</dt><dd>{{ $sso['only'] ? 'Yes — password sign-in is off for everyone' : 'No — password sign-in stays available' }}</dd>
+                            <dt>Auto-provisioned domains</dt><dd>@if($sso['domains']){{ implode(', ', $sso['domains']) }} <span class="text-muted">— the first sign-in creates a user with no access; grant it in Team</span>@else<span class="text-muted">None — only existing and invited accounts can sign in</span>@endif</dd>
+                            <dt>Redirect URI</dt><dd><x-cipi::copyable :value="$sso['redirect']" class="font-mono text-xs" /> <span class="block text-xs text-muted">Register it at the identity provider.</span></dd>
+                        </dl>
+                    @else
+                        <p class="text-sm text-soft">Off — everyone signs in with email and password.</p>
+                    @endif
+                    <p class="field-hint mt-4">Set up on the server that hosts the panel, where its <code>.env</code> is written: <code>cipi gui sso set --issuer=… --client-id=… --client-secret=…</code>, then <code>cipi gui sso status</code>, <code>cipi gui sso only on|off</code>, <code>cipi gui sso disable</code>.</p>
+                </div>
             @endif
 
             <div class="card">
