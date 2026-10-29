@@ -7,6 +7,7 @@ use CipiGui\Models\CipiServer;
 use CipiGui\Tests\TestCase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\Test;
@@ -109,6 +110,20 @@ class DeployStatusTest extends TestCase
     }
 
     #[Test]
+    public function times_follow_the_account_time_zone(): void
+    {
+        $this->status = $this->running();   // started_at 18:32:49+01:00
+
+        Livewire::test(AppDetail::class, ['name' => 'shop'])->assertSee('Started 17:32:49');   // UTC until a zone is chosen
+
+        Auth::user()->forceFill(['timezone' => 'Europe/Rome'])->save();
+
+        Livewire::withQueryParams(['tab' => 'deploy'])->test(AppDetail::class, ['name' => 'shop'])
+            ->assertSee('Started 18:32:49')
+            ->assertSee('Times in Europe/Rome');
+    }
+
+    #[Test]
     public function the_header_links_to_the_server_the_app_runs_on(): void
     {
         Livewire::test(AppDetail::class, ['name' => 'shop'])
@@ -126,7 +141,7 @@ class DeployStatusTest extends TestCase
             ->assertSeeHtml('data-deploy-status="running"')
             ->assertSee('Deploying — started by a Git push')
             ->assertSee('Release 62 stays live until the new one is ready')
-            ->assertSee('Started 18:32:49')
+            ->assertSee('Started 17:32:49')
             ->assertSee('task deploy:vendors')
             ->assertSet('deployTail', ['[2026-10-28 18:32:50] task deploy:update_code', '[2026-10-28 18:33:10] task deploy:vendors'])
             ->assertSeeHtml('wire:poll.3s="pollDeployStatus"')
@@ -218,7 +233,7 @@ class DeployStatusTest extends TestCase
             ->assertDispatched('notify', type: 'error')
             ->assertSeeHtml('data-deploy-status="interrupted"')
             ->assertSee('The last deploy did not finish — started by a Git push')
-            ->assertSee('Started 18:32:49 on 2026-10-28')
+            ->assertSee('Started 17:32:49 on 2026-10-28')
             ->assertSeeHtml('wire:click="unlockDeploy"')
             ->assertDontSeeHtml('wire:click="deploy" disabled') // nothing holds the lock but a stale file: deploying stays possible
             ->call('setTab', 'deploy')

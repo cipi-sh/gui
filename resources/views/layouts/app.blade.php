@@ -58,5 +58,6 @@
 
     @livewireScripts
     @include('cipi-gui::partials.theme-init')
+    @include('cipi-gui::partials.busy-script')
 </body>
 </html>

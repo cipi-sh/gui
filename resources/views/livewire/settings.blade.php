@@ -64,6 +64,29 @@
                             @error('email') <p class="field-error">{{ $message }}</p> @enderror
                         </div>
                     </div>
+                    <div x-data>
+                        <label for="profile-timezone">Time zone</label>
+                        <div class="flex flex-col sm:flex-row gap-2">
+                            <select id="profile-timezone" wire:model="timezone" x-ref="tz" class="flex-1 min-w-0">
+                                @foreach($this->zones() as $region => $zones)
+                                    <optgroup label="{{ $region }}">
+                                        @foreach($zones as $zone)
+                                            <option value="{{ $zone }}">{{ $zone }}</option>
+                                        @endforeach
+                                    </optgroup>
+                                @endforeach
+                            </select>
+                            {{-- The browser knows where you are; the choice is still yours, and saved with the profile. --}}
+                            <button type="button" class="btn btn-secondary whitespace-nowrap"
+                                    x-on:click="const tz = Intl.DateTimeFormat().resolvedOptions().timeZone; const sel = $refs.tz;
+                                                if ([...sel.options].some((o) => o.value === tz)) { sel.value = tz; sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true })); }
+                                                else { $dispatch('notify', { type: 'error', message: 'This browser reports ' + tz + ', which is not in the list.' }); }">
+                                Use my browser's
+                            </button>
+                        </div>
+                        <p class="field-hint mt-1">Every time the panel shows — deploys, the audit, alerts — is in this zone. Accounts start on UTC.</p>
+                        @error('timezone') <p class="field-error">{{ $message }}</p> @enderror
+                    </div>
                     <div class="flex justify-end"><button type="submit" class="btn btn-primary">Save profile</button></div>
                 </form>
             </div>

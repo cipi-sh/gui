@@ -429,6 +429,17 @@ table.table-plain th { background: transparent; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner { display: inline-block; width: 1rem; height: 1rem; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; }
 .spinner-lg { width: 2rem; height: 2rem; border-width: 2.5px; }
+/* Busy buttons — set by partials/busy-script on the element that fired a wire:click or
+   wire:submit: clicks are ignored as soon as the request leaves; 150 ms later the label turns
+   transparent and a spinner sits in the middle, the button keeping its size and colours, until
+   the answer arrives. --busy-color follows the button variant so the ring stays visible. */
+[data-busy] { pointer-events: none; cursor: progress; }
+.busy-visible { position: relative; color: transparent !important; transition: none; }
+.busy-visible > .busy-spinner { position: absolute; inset: 0; margin: auto; width: 1rem; height: 1rem; border: 2px solid var(--busy-color, var(--text-muted)); border-right-color: transparent; border-radius: 50%; animation: spin 0.7s linear infinite; }
+.btn-sm > .busy-spinner, .btn-xs > .busy-spinner { width: 0.75rem; height: 0.75rem; border-width: 1.5px; }
+.btn-primary { --busy-color: var(--accent-fg); }
+.btn-danger-solid { --busy-color: #fff; }
+.btn-danger, .btn-ghost.danger, .btn-ghost.text-danger { --busy-color: var(--danger); }
 .job-status-icon { display: flex; align-items: center; justify-content: center; width: 2.25rem; height: 2.25rem; border-radius: 9999px; border: 2px solid currentColor; }
 .job-status-icon svg { width: 1.125rem; height: 1.125rem; }
 .job-status-icon-success { color: var(--success); background: var(--success-bg); }

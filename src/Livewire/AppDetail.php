@@ -9,6 +9,7 @@ use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
 use CipiGui\Support\AppEnv;
 use CipiGui\Support\BuildCommand;
+use CipiGui\Support\Clock;
 use CipiGui\Support\DeployLog;
 use Illuminate\Support\Carbon;
 use Livewire\Attributes\Layout;
@@ -1281,7 +1282,7 @@ class AppDetail extends Component
         $started = null;
         if (is_string($current['started_at'] ?? null) && $current['started_at'] !== '') {
             try {
-                $started = Carbon::parse($current['started_at']);
+                $started = Clock::local($current['started_at']);
             } catch (\Throwable) {
                 $started = null;
             }

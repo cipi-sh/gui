@@ -673,7 +673,7 @@
                     <div class="card-header p-5 mb-0">
                         <div>
                             <h2 class="card-title">Deploy audit</h2>
-                            <p class="card-subtitle">Hash-chained ledger of every deploy — who or what started it, and from where.</p>
+                            <p class="card-subtitle">Hash-chained ledger of every deploy — who or what started it, and from where. Times in {{ \CipiGui\Support\Clock::label() }} (<a href="{{ route('cipi-gui.settings') }}">your time zone</a>).</p>
                         </div>
                         <div class="flex items-center gap-2">
                             <select wire:model.live="auditDays" class="input-sm w-auto" aria-label="Period">
@@ -716,7 +716,7 @@
                                     @foreach($auditRecords as $record)
                                         @php
                                             $event = (string) ($record['event'] ?? '');
-                                            $ts = isset($record['ts']) ? \Illuminate\Support\Carbon::parse($record['ts']) : null;
+                                            $ts = \CipiGui\Support\Clock::local($record['ts'] ?? null);
                                             $claimed = is_array($record['claimed'] ?? null) ? array_filter($record['claimed']) : [];
                                         @endphp
                                         <tr wire:key="audit-{{ $record['seq'] ?? $loop->index }}">
@@ -1207,7 +1207,7 @@
         @if($auditLogIndex !== null)
             @php
                 $logRecord = $auditRecords[$auditLogIndex] ?? [];
-                $logTs = isset($logRecord['ts']) ? \Illuminate\Support\Carbon::parse($logRecord['ts']) : null;
+                $logTs = \CipiGui\Support\Clock::local($logRecord['ts'] ?? null);
             @endphp
             <x-cipi::modal title="Deploy log — release {{ $logRecord['release'] ?? '?' }}" subtitle="{{ ucfirst((string) ($logRecord['event'] ?? 'deploy')) }}{{ $logTs ? ' · '.$logTs->format('Y-m-d H:i') : '' }}{{ !empty($logRecord['origin']) ? ' · '.$logRecord['origin'] : '' }}" close="closeAuditLog" size="lg" data-audit-log>
                 <div class="modal-body space-y-3">

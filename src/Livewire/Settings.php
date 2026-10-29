@@ -9,10 +9,12 @@ use BaconQrCode\Writer;
 use CipiGui\Services\Access;
 use CipiGui\Services\OidcClient;
 use CipiGui\Services\TwoFactorService;
+use CipiGui\Support\Clock;
 use CipiGui\Support\Panel;
 use CipiGui\Support\Theme;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use DateTimeZone;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Layout;
@@ -26,6 +28,9 @@ class Settings extends Component
     public string $name = '';
 
     public string $email = '';
+
+    /** IANA zone every time in the panel is shown in for this account; UTC until chosen. */
+    public string $timezone = Clock::DEFAULT;
 
     public string $currentPassword = '';
 
@@ -53,6 +58,7 @@ class Settings extends Component
         $user = Auth::user();
         $this->name = (string) ($user->name ?? '');
         $this->email = (string) ($user->email ?? '');
+        $this->timezone = Clock::timezone($user);
         $this->twoFactorEnabled = (bool) ($user->two_factor_enabled ?? false);
         $this->fleetView = Panel::fleetView();
         $this->serverNav = Panel::serverNav();
@@ -83,11 +89,20 @@ class Settings extends Component
         $this->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'max:255', Rule::unique($user->getTable(), 'email')->ignore($user->getKey())],
+            'timezone' => ['required', 'string', Rule::in(DateTimeZone::listIdentifiers())],
+        ], [
+            'timezone.in' => 'Pick a time zone from the list.',
         ]);
 
-        $user->forceFill(['name' => $this->name, 'email' => $this->email])->save();
+        $user->forceFill(['name' => $this->name, 'email' => $this->email, 'timezone' => $this->timezone])->save();
         $this->dispatch('notify', type: 'success', message: 'Profile saved.');
         $this->dispatch('profile-changed'); // the header shows the name
+    }
+
+    /** @return array<string, list<string>> zones grouped by region, for the profile's select */
+    public function zones(): array
+    {
+        return Clock::zones();
     }
 
     public function changePassword(): void

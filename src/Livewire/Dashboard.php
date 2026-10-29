@@ -5,6 +5,7 @@ namespace CipiGui\Livewire;
 use CipiGui\Models\CipiServer;
 use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
+use CipiGui\Support\Clock;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -35,7 +36,7 @@ class Dashboard extends Component
         }
 
         $this->loaded = true;
-        $this->checkedAt = now()->format('H:i:s');
+        $this->checkedAt = Clock::format(now(), 'H:i:s').' '.Clock::abbreviation();
     }
 
     public function refresh(): void

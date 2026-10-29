@@ -1,5 +1,22 @@
 # Changelog
 
+## [4.1.1] — 2026-10-29
+
+From the field: in the IP tab you press Add and nothing moves until the server answers — and so on most buttons of the panel. A handful had a `wire:loading` state of their own; the other hundred and fifty went silent for the length of the round-trip, and a second click queued a second call.
+
+### Added
+
+- **A time zone per account.** Settings → Profile has a time zone next to name and email (every IANA zone, grouped by region, with a *Use my browser's* shortcut), UTC until one is chosen. Every absolute time the panel shows follows it: the deploy in progress ("Started 18:32:49"), the deploy audit and the deploy log modal, the dashboard's "Updated" clock. Each server reports its timestamps with its own offset and the panel kept showing them as they came — two servers in two zones, two clocks on one page. Now one clock, the account's, named where the times are ("Times in Europe/Rome (CET, UTC+1)"). Relative times ("3 minutes ago") are unchanged. Migration: `users.timezone`, nullable; `cipi gui update` runs it.
+
+### Changed
+
+- **Every button that calls the server shows that it is working.** The element that fired a `wire:click` or `wire:submit` — the clicked button, or the submit button of its form — ignores further clicks as soon as the request leaves, and when the answer takes longer than 150 ms its label gives way to a spinner that keeps the button's size and colours until the response arrives. One Livewire action interceptor does it for the whole panel (`partials/busy-script`, on Livewire 4's `interceptAction`); buttons that bring their own `wire:loading` keep it, polls and model updates are left alone, and a row or card that carries a `wire:click` is not a button and is not touched. A click on a busy button is cancelled before it becomes a request. Nothing changes on Livewire 3.
+- `node dev/busy-check.mjs` drives the demo panel in headless Chrome with the server's answers held back and checks all of it: the spinner after 150 ms, the cancelled second click, the cleared state after the answer, a `wire:confirm` button, a tab switch, a button with its own `wire:loading`, and polls that never mark anything busy.
+
+### Ecosystem
+
+- Cipi 5.8.5: `cipi api ip-whitelist add|remove|set|allow-all` write the list atomically and explain a read-only `/etc/cipi` instead of the `mv: inter-device move failed … Read-only file system` the IP tab showed; they also stop looking the server's public IP up (a `curl` of up to 5 seconds) when the panel calls them, so the tab answers faster.
+
 ## [4.1.0] — 2026-10-29
 
 From the field: a push to the repository deploys through the webhook, and the panel showed nothing of it — no sign that a deploy was running, nothing when it ended, the ledger updated only when the tab was next opened. Someone looking at the app while a colleague's commit went live had no way to know. Cipi 5.8.4 adds `cipi deploy <app> --status`, which says whether a deploy is running right now — whoever started it — and cipi/api 1.37.0 exposes it; the panel now follows every deploy with it. Three smaller things from the same report: the app page had no link to its own server, the audit table had no way to the log of a deploy, and a post-deploy healthcheck took a user by surprise.
