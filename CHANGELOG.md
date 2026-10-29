@@ -1,5 +1,20 @@
 # Changelog
 
+## [4.1.0] — 2026-10-29
+
+From the field: a push to the repository deploys through the webhook, and the panel showed nothing of it — no sign that a deploy was running, nothing when it ended, the ledger updated only when the tab was next opened. Someone looking at the app while a colleague's commit went live had no way to know. Cipi 5.8.4 adds `cipi deploy <app> --status`, which says whether a deploy is running right now — whoever started it — and cipi/api 1.37.0 exposes it; the panel now follows every deploy with it. Three smaller things from the same report: the app page had no link to its own server, the audit table had no way to the log of a deploy, and a post-deploy healthcheck took a user by surprise.
+
+### Added
+
+- **A deploy in progress is shown, whoever started it.** App detail polls `GET /api/apps/{name}/deploy/status` (cipi/api 1.37+, Cipi 5.8.4+; every 10 seconds, every 3 while something is on) and shows a banner under the header on every tab: *Deploying — started by a Git push* (or the command line, the panel, a rollback, cipi/agent), the branch, how long it has been running, which phase — Deployer building the release, with the release that stays live until then, or the post-deploy steps, cipi.yml and the healthcheck once the new release is live — and the last lines of the deploy log, live, in a collapsible terminal. A push the webhook accepted and the per-minute cron has not started yet shows as *Deploy queued*. While a deploy runs the Deploy buttons are off (Deployer's lock would refuse them anyway) and the Deploy tab's audit table opens with an *in progress* row. **When the run ends, a toast says how it went** — *Deploy by a Git push finished in 1m35s: release 63 is live*, or failed with the release still live — and the page reloads exactly as after one of its own jobs: the app, the ledger, the tab in view, the Logs tab. A deploy the panel itself started is reported once, by its job. A run that never wrote its end banner — a reboot, a killed process — is a warning with the Unlock action. An older API (no route) or an older Cipi (503) turns the feature off quietly: nothing is shown, nothing is polled.
+- **The log of each deploy, from the audit table.** Every row has a Log action that opens that deploy's lines of the deploy log in a modal — from its start banner to the post-deploy steps, cipi.yml apply and healthcheck verdict that followed its end banner. The panel reads the last 1000 lines of the log, and the 1000 before them when the deploy is not in the first page; an older one says so and gives the `cipi deploy <app> --log=5000` to run on the server. `CipiGui\Support\DeployLog::sections()` delimits the deploys a log holds, `matchIndexes()` joins them to the ledger as the Took column already did, `slice()` cuts one out.
+- **A link to the server** from the app page: next to the domain in the header, and *Server: <name>* in the Actions menu, both to the server's own page. The eyebrow still goes to the apps of that server.
+
+### Changed
+
+- **The HTTP healthcheck card says what enabling it means**: probed every 5 minutes *and right after every deploy*, with the deploy's verdict reporting it — a user who turned it on expecting a periodic check found a *Healthcheck FAILED* in the next deploy's log. Under the URL: Laravel answers `/up` only with the health route on (`bootstrap/app.php`: `health: '/up'`), otherwise the check gets a 404. The server page's healthcheck table says the same.
+- The demo API (`dev/demo`) answers `GET /apps/{name}/deploy/status`: running while a demo deploy or rollback job of the app is in flight, idle with the last run otherwise.
+
 ## [4.0.2] — 2026-10-28
 
 ### Added

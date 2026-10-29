@@ -40,18 +40,24 @@
                     <span class="badge">{{ $this->appRuntimeLabel($app) }}</span>
                     @if($app['force_https'] ?? false)<span class="badge"><x-cipi::icon name="lock" class="h-3 w-3" /> HTTPS</span>@endif
                     <a href="{{ $this->siteUrl() }}" target="_blank" rel="noopener" class="text-sm text-soft inline-flex items-center gap-1 ml-1">{{ $app['domain'] }} <x-cipi::icon name="external" class="h-3.5 w-3.5" /></a>
+                    @if($server)
+                        <a href="{{ route('cipi-gui.server-manage', ['serverId' => $server->id]) }}" class="text-sm text-soft inline-flex items-center gap-1 ml-1" title="Open the server this app runs on" data-server-link><x-cipi::icon name="server" class="h-3.5 w-3.5" /> {{ $server->name }}</a>
+                    @endif
                 </span>
             </x-slot:meta>
             <x-slot:actions>
                 @if(! $isNode && ! $isLaravel && $app['repository'] === '')
                     <span class="text-xs text-muted">SFTP-only app</span>
                 @elseif($can['deploy'] ?? false)
-                    <button type="button" wire:click="deploy" class="btn btn-primary"><x-cipi::icon name="rocket" /> Deploy</button>
+                    <button type="button" wire:click="deploy" @disabled($this->deployActive()) class="btn btn-primary" @if($this->deployActive()) title="A deploy is already running" @endif><x-cipi::icon name="rocket" /> Deploy</button>
                 @endif
                 <div class="dropdown" x-data="{ open: false }" x-on:click.outside="open = false" x-on:keydown.escape.window="open = false">
                     <button type="button" class="btn btn-secondary" x-on:click="open = !open" :aria-expanded="open">Actions <x-cipi::icon name="chevron-down" class="h-3.5 w-3.5" /></button>
                     <div class="dropdown-menu" x-show="open" x-cloak x-transition.opacity.duration.150ms>
                         <a href="{{ $this->siteUrl() }}" target="_blank" rel="noopener" class="dropdown-item"><x-cipi::icon name="external" /> Open site</a>
+                        @if($server)
+                            <a href="{{ route('cipi-gui.server-manage', ['serverId' => $server->id]) }}" class="dropdown-item"><x-cipi::icon name="server" /> Server: {{ $server->name }}</a>
+                        @endif
                         @if($can['edit'] ?? false)
                             @if($isSsr)
                                 <button type="button" class="dropdown-item" wire:click="restartNode" wire:confirm="Blue/green restart {{ $app['app'] }}? The new process must pass its health path before traffic switches." x-on:click="open = false"><x-cipi::icon name="refresh" /> Restart Node process</button>
@@ -71,6 +77,50 @@
                 </div>
             </x-slot:actions>
         </x-cipi::page-header>
+
+        {{-- Deploy in progress — whoever started it (API 1.37+ / Cipi 5.8.4+). Polled fast while a run is on, slowly otherwise;
+             the two spans have different keys so a changed interval re-registers the poll. --}}
+        @unless($deployStatusUnsupported)
+            @if($this->deployActive())
+                <span wire:key="deploy-poll-fast" wire:poll.3s="pollDeployStatus" aria-hidden="true"></span>
+            @else
+                <span wire:key="deploy-poll-slow" wire:poll.10s="pollDeployStatus" aria-hidden="true"></span>
+            @endif
+        @endunless
+        @if($banner = $this->deployBanner())
+            <div class="alert alert-{{ $banner['variant'] }} mb-4" role="status" data-deploy-status="{{ $banner['state'] }}">
+                @if($banner['state'] === 'interrupted')
+                    <x-cipi::icon name="warning" class="shrink-0" />
+                @else
+                    <div class="spinner shrink-0" aria-hidden="true"></div>
+                @endif
+                <div class="min-w-0 flex-1">
+                    <p class="alert-title flex flex-wrap items-center gap-2">
+                        <span>{{ $banner['title'] }}</span>
+                        @if($banner['elapsed'] !== null && $banner['state'] === 'running')
+                            <span class="badge badge-neutral tabular-nums" title="Running for"
+                                  x-data="{ start: Date.now() - {{ (int) $banner['elapsed'] }} * 1000, now: Date.now() }"
+                                  x-init="setInterval(() => now = Date.now(), 1000)"
+                                  x-text="(s => s < 60 ? s + 's' : Math.floor(s / 60) + 'm' + String(s % 60).padStart(2, '0') + 's')(Math.max(0, Math.round((now - start) / 1000)))">{{ \CipiGui\Support\DeployLog::format($banner['elapsed']) }}</span>
+                        @endif
+                        @if($banner['branch'] !== '')<span class="badge"><x-cipi::icon name="branch" class="h-3 w-3" /> {{ $banner['branch'] }}</span>@endif
+                    </p>
+                    <p class="text-sm">{{ trim($banner['detail'].' '.$banner['started_text']) }}</p>
+                    @if($deployTail !== [])
+                        <details class="mt-2" x-data="{ open: {{ $banner['state'] === 'running' ? 'true' : 'false' }} }" x-bind:open="open" x-on:toggle="open = $event.target.open">
+                            <summary class="text-xs text-muted cursor-pointer select-none">Last lines of the deploy log</summary>
+                            <div class="mt-2">@include('cipi-gui::partials.terminal', ['lines' => $deployTail, 'title' => 'deploy.log', 'subtitle' => $banner['state'] === 'running' ? 'live' : null])</div>
+                        </details>
+                    @endif
+                    @if($banner['state'] === 'interrupted' && ($can['deploy'] ?? false))
+                        <div class="mt-3 flex flex-wrap gap-2">
+                            <button type="button" wire:click="unlockDeploy" wire:confirm="Remove the deploy lock? Only do this if no deploy is running." class="btn btn-secondary btn-sm"><x-cipi::icon name="unlock" /> Unlock</button>
+                            <button type="button" wire:click="setTab('deploy')" class="btn btn-ghost btn-sm">Deploy tab</button>
+                        </div>
+                    @endif
+                </div>
+            </div>
+        @endif
 
         @unless($can['edit'] ?? false)
             <x-cipi::alert type="info" class="mb-4">Read-only: your access lets you look at this app{{ ($can['deploy'] ?? false) ? ' and deploy it' : '' }}, not change it.</x-cipi::alert>
@@ -244,7 +294,7 @@
                     <div class="card-header">
                         <div>
                             <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="heart" /> HTTP healthcheck</h2>
-                            <p class="card-subtitle">Probed every 5 minutes. Three failures in a row send the <code>health_fail</code> notification.</p>
+                            <p class="card-subtitle">Probed every 5 minutes, and right after every deploy — the deploy's verdict then says whether the new release answers. Three failures in a row send the <code>health_fail</code> notification.</p>
                         </div>
                         @if($healthEnabled)
                             @php $hs = $health['state'] ?? null; @endphp
@@ -259,6 +309,7 @@
                                 <label for="health-url">URL</label>
                                 <input id="health-url" type="text" wire:model="healthUrl" placeholder="https://{{ $app['domain'] }}/up">
                                 @error('healthUrl') <p class="field-error">{{ $message }}</p> @enderror
+                                <p class="text-xs text-muted mt-1">Laravel answers <code>/up</code> only with the health route on (<code>bootstrap/app.php</code>: <code>health: '/up'</code>); without it the check gets a 404.</p>
                             </div>
                             <div>
                                 <label for="health-expect">Expected status</label>
@@ -580,11 +631,15 @@
                     <div class="card-header"><h2 class="card-title">Deploy</h2></div>
                     <p class="text-sm text-muted mb-4">Zero-downtime release from <code>{{ $app['branch'] ?: 'main' }}</code>. Pushes deploy automatically through the webhook.</p>
                     @if($can['deploy'] ?? false)
+                        @php $deployBusy = $this->deployActive(); @endphp
                         <div class="space-y-2">
-                            <button wire:click="deploy" class="btn btn-primary w-full"><x-cipi::icon name="rocket" /> Deploy now</button>
-                            <button wire:click="rollback" wire:confirm="Roll back to the previous release?" class="btn btn-secondary w-full"><x-cipi::icon name="rollback" /> Roll back</button>
+                            <button wire:click="deploy" @disabled($deployBusy) class="btn btn-primary w-full"><x-cipi::icon name="rocket" /> Deploy now</button>
+                            <button wire:click="rollback" @disabled($deployBusy) wire:confirm="Roll back to the previous release?" class="btn btn-secondary w-full"><x-cipi::icon name="rollback" /> Roll back</button>
                             <button wire:click="unlockDeploy" wire:confirm="Remove the deploy lock? Only do this if no deploy is running." class="btn btn-ghost w-full"><x-cipi::icon name="unlock" /> Unlock a stuck deploy</button>
                         </div>
+                        @if($deployBusy)
+                            <p class="text-xs text-muted mt-2" data-deploy-busy>A deploy is already running — Deployer holds the lock until it ends, and the page follows it above.</p>
+                        @endif
                     @else
                         <p class="text-xs text-muted">Deploying needs the Deploy ability on this app.</p>
                     @endif
@@ -633,15 +688,31 @@
                         <div class="px-5 pb-5"><p class="text-muted">The audit needs API 1.31+ / Cipi 5.4.0+ and the <code>deploy-manage</code> ability.</p></div>
                     @elseif(! $auditLoaded)
                         <div class="px-5 pb-5"><div class="skeleton h-24 w-full"></div></div>
-                    @elseif(empty($auditRecords))
+                    @elseif(empty($auditRecords) && ! $this->deployBanner())
                         <div class="px-5 pb-5"><p class="text-muted">No records in this period. The ledger starts with the first deploy after Cipi 5.4.0.</p></div>
                     @else
                         <div class="table-scroll max-h-panel overflow-y-auto">
                             <table class="table-compact">
                                 <thead>
-                                    <tr><th>#</th><th>When</th><th>Event</th><th>Release</th><th class="text-right" title="From the deploy log (Cipi 5.6+)">Took</th><th>Origin</th><th title="Who started it: the login user root established, or the actor the app's own code reported (webhook pusher, MCP client)">By</th></tr>
+                                    <tr><th>#</th><th>When</th><th>Event</th><th>Release</th><th class="text-right" title="From the deploy log (Cipi 5.6+)">Took</th><th>Origin</th><th title="Who started it: the login user root established, or the actor the app's own code reported (webhook pusher, MCP client)">By</th>@if($can['logs'] ?? false)<th class="text-right"><span class="sr-only">Log</span></th>@endif</tr>
                                 </thead>
                                 <tbody>
+                                    @if($live = $this->deployBanner())
+                                        {{-- The run in flight (or left interrupted): the ledger gets its record when it ends. --}}
+                                        <tr wire:key="audit-live" data-deploy-live="{{ $live['state'] }}">
+                                            <td class="font-mono text-2xs text-subtle">—</td>
+                                            <td class="whitespace-nowrap">
+                                                <span class="text-strong">{{ $live['started']?->diffForHumans() ?? 'now' }}</span>
+                                                <span class="block text-2xs text-subtle">{{ $live['started']?->format('Y-m-d H:i') ?? '' }}</span>
+                                            </td>
+                                            <td><span class="badge {{ $live['state'] === 'interrupted' ? 'badge-amber' : 'badge-accent' }}">{{ match ($live['state']) { 'queued' => 'queued', 'interrupted' => 'interrupted', default => 'in progress' } }}</span></td>
+                                            <td class="font-mono text-xs whitespace-nowrap">{{ $live['from_release'] !== '' ? $live['from_release'].' → …' : '…' }}</td>
+                                            <td class="text-right tabular-nums text-xs text-soft">{{ $live['elapsed'] !== null && $live['state'] === 'running' ? \CipiGui\Support\DeployLog::format($live['elapsed']) : '—' }}</td>
+                                            <td class="text-xs"><span class="badge badge-neutral">{{ $live['trigger'] ?? '—' }}</span></td>
+                                            <td class="text-xs">—</td>
+                                            @if($can['logs'] ?? false)<td></td>@endif
+                                        </tr>
+                                    @endif
                                     @foreach($auditRecords as $record)
                                         @php
                                             $event = (string) ($record['event'] ?? '');
@@ -678,6 +749,9 @@
                                                 @if($operator !== '' && $claimedActor !== '')<span class="block text-2xs text-subtle" title="{{ json_encode($claimed) }}">{{ $claimedActor }} ({{ $claimedSource !== '' ? $claimedSource : 'claimed' }})</span>
                                                 @elseif($claimedActor !== '' && ($claimedSource !== '' || !empty($claimed['ip'])))<span class="block text-2xs text-subtle" title="{{ json_encode($claimed) }}">via {{ $claimedSource !== '' ? $claimedSource : 'the app' }}@if(!empty($claimed['ip'])) · <span class="font-mono">{{ $claimed['ip'] }}</span>@endif</span>@endif
                                             </td>
+                                            @if($can['logs'] ?? false)
+                                                <td class="text-right"><button type="button" wire:click="showAuditLog({{ $loop->index }})" class="btn btn-ghost btn-icon btn-sm" title="This deploy's lines of the deploy log" aria-label="Log of this deploy"><x-cipi::icon name="terminal" class="h-3.5 w-3.5" /></button></td>
+                                            @endif
                                         </tr>
                                     @endforeach
                                 </tbody>
@@ -1129,6 +1203,28 @@
         @endif
 
         @include('cipi-gui::partials.job-overlay')
+
+        @if($auditLogIndex !== null)
+            @php
+                $logRecord = $auditRecords[$auditLogIndex] ?? [];
+                $logTs = isset($logRecord['ts']) ? \Illuminate\Support\Carbon::parse($logRecord['ts']) : null;
+            @endphp
+            <x-cipi::modal title="Deploy log — release {{ $logRecord['release'] ?? '?' }}" subtitle="{{ ucfirst((string) ($logRecord['event'] ?? 'deploy')) }}{{ $logTs ? ' · '.$logTs->format('Y-m-d H:i') : '' }}{{ !empty($logRecord['origin']) ? ' · '.$logRecord['origin'] : '' }}" close="closeAuditLog" size="lg" data-audit-log>
+                <div class="modal-body space-y-3">
+                    @if($auditLogMissing)
+                        <x-cipi::alert type="info" title="Not in the part of the log the panel reads">
+                            This deploy is older than the last 2000 lines of the deploy log. On the server: <code>cipi deploy {{ $app['app'] }} --log=5000</code>.
+                        </x-cipi::alert>
+                    @else
+                        <p class="text-xs text-muted">From the start banner of this deploy to the post-deploy steps, cipi.yml apply and healthcheck verdict that followed it.</p>
+                        @include('cipi-gui::partials.terminal', ['lines' => $auditLogLines, 'title' => 'deploy.log', 'tall' => true, 'autoScroll' => false])
+                    @endif
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" wire:click="closeAuditLog">Close</button>
+                </div>
+            </x-cipi::modal>
+        @endif
 
         @if($showDeleteModal)
             <x-cipi::modal title="Delete app" close="cancelDeleteApp">

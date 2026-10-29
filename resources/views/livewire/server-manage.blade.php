@@ -382,7 +382,7 @@
 
         @elseif($activeTab === 'health')
             <div class="card card-flush">
-                <div class="card-header p-5 mb-0"><div><h2 class="card-title">HTTP healthchecks</h2><p class="card-subtitle">Every 5 minutes; three failures in a row notify <code>health_fail</code>. Configure them per app.</p></div></div>
+                <div class="card-header p-5 mb-0"><div><h2 class="card-title">HTTP healthchecks</h2><p class="card-subtitle">Every 5 minutes, and right after each app's deploys (the deploy's verdict reports it); three failures in a row notify <code>health_fail</code>. Configure them per app.</p></div></div>
                 <table>
                     <thead><tr><th>App</th><th>URL</th><th>Expect</th><th>State</th></tr></thead>
                     <tbody>

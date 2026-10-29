@@ -279,6 +279,18 @@ class CipiApiClient
         return $this->get("/apps/{$app}/deploy/audit", ['days' => $days])['data'] ?? [];
     }
 
+    /**
+     * Whether a deploy is running right now — whoever started it: the panel, `cipi
+     * deploy`, a Git push through the webhook, a rollback — queued behind the
+     * webhook's per-minute cron, or left interrupted; and how the last one ended
+     * (`cipi deploy --status --json`, API 1.37+ / Cipi ≥ 5.8.4). $tail > 0 adds
+     * the last lines of the deploy log.
+     */
+    public function deployStatus(string $app, int $tail = 0): array
+    {
+        return $this->get("/apps/{$app}/deploy/status", $tail > 0 ? ['tail' => $tail] : [])['data'] ?? [];
+    }
+
     // ── Deploy config (structured deploy.php options — API 1.31+ / Cipi ≥ 5.0.3) ──
 
     public function showDeployConfig(string $app): array

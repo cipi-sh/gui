@@ -10,6 +10,7 @@ use CipiGui\Services\CipiApiException;
 use CipiGui\Support\AppEnv;
 use CipiGui\Support\BuildCommand;
 use CipiGui\Support\DeployLog;
+use Illuminate\Support\Carbon;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -228,6 +229,28 @@ class AppDetail extends Component
     /** @var array<int, int> index in $auditRecords → seconds that deploy took, from the deploy log banners (Cipi 5.6+) */
     public array $auditTook = [];
 
+    // Deploy in progress (API 1.37+ / Cipi ≥ 5.8.4): `cipi deploy --status`, polled while the page is open
+    /** Lines of the deploy log asked for with every status read, shown live under the banner. */
+    public const DEPLOY_TAIL_LINES = 15;
+
+    /** @var array<string, mixed>|null the last status read (its tail kept apart); null before the first read */
+    public ?array $deployStatus = null;
+
+    /** The route is missing (older API), the token lacks deploy-manage, or the server's Cipi has no --status: nothing is shown or polled. */
+    public bool $deployStatusUnsupported = false;
+
+    /** @var list<string> the last lines of the deploy log while a deploy runs, waits or was left interrupted */
+    public array $deployTail = [];
+
+    // One deploy's lines of the deploy log, opened from the audit table
+    public ?int $auditLogIndex = null;
+
+    /** @var list<string> */
+    public array $auditLogLines = [];
+
+    /** The deploy is older than what the panel reads of the log (the last two pages of 1000 lines). */
+    public bool $auditLogMissing = false;
+
     // cipi.yml (API 1.35+ / Cipi ≥ 5.6.4)
     /** @var array{app: string, file: ?string, auto: bool, valid: ?bool, in_sync: ?bool, errors: list<string>, warnings: list<string>, changes: list<array{kind: string, summary: string}>, blockers: list<string>, notes: list<string>}|null */
     public ?array $yml = null;
@@ -272,6 +295,11 @@ class AppDetail extends Component
 
         if ($this->app !== null && $this->activeTab !== 'overview') {
             $this->loadTab($this->activeTab);
+        }
+
+        // A deploy may be running as the page opens: say so at once, not at the first poll.
+        if ($this->app !== null) {
+            $this->pollDeployStatus(true);
         }
     }
 
@@ -1063,22 +1091,86 @@ class AppDetail extends Component
      */
     protected function deployLogBanners(): array
     {
-        try {
-            $data = $this->client()->appLogs($this->appName, ['type' => 'deploy', 'per_page' => 1000]);
-        } catch (CipiApiException) {
-            return [];
-        }
+        return DeployLog::banners($this->deployLogPages()['lines']);
+    }
 
+    /**
+     * The newest lines of the deploy log, oldest first: page 1 of the API's log
+     * reader is the last 1000 lines, page 2 the 1000 before those. $pages > 1 reads
+     * further back when the log has that much.
+     *
+     * @return array{lines: list<string>, total_pages: int}
+     */
+    protected function deployLogPages(int $pages = 1): array
+    {
         $lines = [];
-        foreach ((array) ($data['files'] ?? []) as $file) {
-            if (is_array($file) && is_array($file['lines'] ?? null)) {
+        $totalPages = 1;
+
+        for ($page = 1; $page <= $pages && $page <= $totalPages; $page++) {
+            try {
+                $data = $this->client()->appLogs($this->appName, ['type' => 'deploy', 'per_page' => 1000, 'page' => $page]);
+            } catch (CipiApiException) {
+                break;
+            }
+
+            $older = [];
+            foreach ((array) ($data['files'] ?? []) as $file) {
+                if (! is_array($file) || ! is_array($file['lines'] ?? null)) {
+                    continue;
+                }
+                $totalPages = max($totalPages, (int) ($file['total_pages'] ?? 1));
                 foreach ($file['lines'] as $line) {
-                    $lines[] = $line;
+                    if (is_string($line)) {
+                        $older[] = $line;
+                    }
                 }
             }
+            $lines = array_merge($older, $lines);
         }
 
-        return DeployLog::banners($lines);
+        return ['lines' => $lines, 'total_pages' => $totalPages];
+    }
+
+    /**
+     * The lines of one deploy of the audit table — from its start banner to the
+     * post-deploy steps, cipi.yml apply and healthcheck verdict that follow its end
+     * banner — in a modal. The last 1000 lines of the log usually hold it; when
+     * they do not, the 1000 before them are read too.
+     */
+    public function showAuditLog(int $index): void
+    {
+        if (! $this->allowed('logs')) {
+            return;
+        }
+        if (! isset($this->auditRecords[$index])) {
+            return;
+        }
+
+        $this->auditLogIndex = $index;
+        $this->auditLogLines = [];
+        $this->auditLogMissing = false;
+
+        $pages = $this->deployLogPages();
+        $sections = DeployLog::sections($pages['lines']);
+        $matched = DeployLog::matchIndexes($this->auditRecords, $sections);
+        if (! isset($matched[$index]) && $pages['total_pages'] > 1) {
+            $pages = $this->deployLogPages(2);
+            $sections = DeployLog::sections($pages['lines']);
+            $matched = DeployLog::matchIndexes($this->auditRecords, $sections);
+        }
+
+        if (isset($matched[$index])) {
+            $this->auditLogLines = DeployLog::slice($pages['lines'], $sections[$matched[$index]]);
+        } else {
+            $this->auditLogMissing = true;
+        }
+    }
+
+    public function closeAuditLog(): void
+    {
+        $this->auditLogIndex = null;
+        $this->auditLogLines = [];
+        $this->auditLogMissing = false;
     }
 
     /**
@@ -1100,6 +1192,199 @@ class AppDetail extends Component
         }
 
         return ['last' => $seconds[0], 'average' => (int) round(array_sum($seconds) / count($seconds)), 'count' => count($seconds)];
+    }
+
+    // ── Deploy in progress — whoever started it ───────────────────────
+
+    /**
+     * `cipi deploy <app> --status` through the API (1.37+ / Cipi ≥ 5.8.4): whether a
+     * deploy is running right now — started by the panel, `cipi deploy`, a Git push
+     * through the webhook or a rollback — waiting for the webhook's per-minute
+     * cron, or left interrupted. Polled while the page is open. When a run the
+     * panel did not start ends, the page says how it went and reloads as it does
+     * after one of its own jobs. $quiet reads the status without reporting a run
+     * that ended (the page opening; a panel job that just reported it itself).
+     */
+    public function pollDeployStatus(bool $quiet = false): void
+    {
+        if ($this->deployStatusUnsupported || $this->app === null) {
+            return;
+        }
+
+        try {
+            $status = $this->client()->deployStatus($this->appName, self::DEPLOY_TAIL_LINES);
+        } catch (CipiApiException $e) {
+            // No route (older API), a token without deploy-manage, or a 503 from a
+            // server whose Cipi has no --status yet: the feature is simply off. A
+            // connection failure is transient and keeps what was shown.
+            if ($this->isUnsupported($e) || ($e->getStatusCode() === 503 && ! isset($e->getDetails()['connection']))) {
+                $this->deployStatusUnsupported = true;
+                $this->deployStatus = null;
+                $this->deployTail = [];
+            }
+
+            return;
+        }
+
+        $previous = $this->deployStatus;
+        $tail = [];
+        foreach ((array) ($status['tail'] ?? []) as $line) {
+            if (is_string($line)) {
+                $tail[] = $line;
+            }
+        }
+        unset($status['tail']);
+
+        $this->deployStatus = $status;
+        $this->deployTail = $this->deployBanner() !== null ? $tail : [];
+
+        if (! $quiet && $previous !== null && self::deployActiveIn($previous) && ! self::deployActiveIn($status)) {
+            $this->onExternalDeployFinished($previous, $status);
+        }
+    }
+
+    /** A deploy is running or about to: the buttons that would collide with it are off. */
+    public function deployActive(): bool
+    {
+        return $this->deployStatus !== null && self::deployActiveIn($this->deployStatus);
+    }
+
+    /** @param  array<string, mixed>  $status */
+    protected static function deployActiveIn(array $status): bool
+    {
+        return in_array($status['state'] ?? null, ['running', 'queued'], true);
+    }
+
+    /**
+     * What the banner under the header says while a deploy runs, waits or was left
+     * interrupted; null when idle or unknown.
+     *
+     * @return array{state: string, variant: string, title: string, detail: string, started_text: string, trigger: ?string, branch: string, from_release: string, started: ?Carbon, elapsed: ?int}|null
+     */
+    public function deployBanner(): ?array
+    {
+        $status = $this->deployStatus;
+        if ($status === null) {
+            return null;
+        }
+
+        $state = (string) ($status['state'] ?? 'idle');
+        if (! in_array($state, ['running', 'queued', 'interrupted'], true)) {
+            return null;
+        }
+
+        $current = is_array($status['current'] ?? null) ? $status['current'] : [];
+        $trigger = is_string($current['trigger'] ?? null) && $current['trigger'] !== '' ? $current['trigger'] : null;
+        $by = DeployLog::triggerLabel($trigger);
+        $branch = (string) ($current['branch'] ?? '');
+        $from = (string) ($current['from_release'] ?? '');
+        $started = null;
+        if (is_string($current['started_at'] ?? null) && $current['started_at'] !== '') {
+            try {
+                $started = Carbon::parse($current['started_at']);
+            } catch (\Throwable) {
+                $started = null;
+            }
+        }
+        $elapsed = is_numeric($current['elapsed'] ?? null) ? max(0, (int) $current['elapsed']) : null;
+
+        $title = match ($state) {
+            'queued' => 'Deploy queued — a push was received',
+            'interrupted' => 'The last deploy did not finish — started by '.$by,
+            default => ($trigger === 'rollback' ? 'Rolling back' : 'Deploying').' — started by '.$by,
+        };
+        $detail = match (true) {
+            $state === 'queued' => 'The webhook accepted it; the per-minute cron on the server starts it within a minute.',
+            $state === 'interrupted' => 'Nothing is running it any more — a reboot, a killed process. Check the log below; if the lock it left behind is stuck, unlock it.',
+            ($status['phase'] ?? null) === 'post-deploy' => 'The new release is live. The post-deploy steps, cipi.yml and the healthcheck are running.',
+            default => 'Deployer is building the release: checkout, dependencies, build, migrations.'
+                .($from !== '' && $from !== 'none' ? " Release {$from} stays live until the new one is ready." : ''),
+        };
+
+        $startedText = '';
+        if ($started !== null) {
+            $startedText = 'Started '.$started->format('H:i:s').($state === 'interrupted' ? ' on '.$started->format('Y-m-d') : '').'.';
+        }
+
+        return [
+            'state' => $state,
+            'variant' => $state === 'interrupted' ? 'warn' : 'info',
+            'title' => $title,
+            'detail' => $detail,
+            'started_text' => $startedText,
+            'trigger' => $trigger,
+            'branch' => $branch,
+            'from_release' => $from,
+            'started' => $started,
+            'elapsed' => $elapsed,
+        ];
+    }
+
+    /**
+     * A run the status was following has ended: a toast with the outcome, unless
+     * the panel's own job for it is reporting it, then the same refresh as after a
+     * finished job — the live release, the ledger, the tab in view, the Logs tab.
+     *
+     * @param  array<string, mixed>  $previous
+     * @param  array<string, mixed>  $status
+     */
+    protected function onExternalDeployFinished(array $previous, array $status): void
+    {
+        $current = is_array($previous['current'] ?? null) ? $previous['current'] : [];
+        $last = is_array($status['last'] ?? null) ? $status['last'] : [];
+        $trigger = (string) ($current['trigger'] ?? $last['trigger'] ?? '');
+
+        if (! $this->panelJobReportsThisDeploy($trigger)) {
+            [$type, $message] = $this->deployOutcomeMessage($status, $trigger);
+            $this->dispatch('notify', type: $type, message: $message);
+        }
+
+        $this->auditLoaded = false;
+        $this->loadApp();
+        match ($this->activeTab) {
+            'deploy' => $this->loadDeployTab(),
+            'yml' => $this->loadYml(),
+            default => null,
+        };
+        $this->dispatch('app-job-finished');
+    }
+
+    /**
+     * The panel started this run itself and its job is still open here: the job's
+     * own toast covers it, a second one would say the same thing twice.
+     */
+    protected function panelJobReportsThisDeploy(string $trigger): bool
+    {
+        if ($this->activeJobId === null) {
+            return false;
+        }
+
+        return ($trigger === 'panel' && str_starts_with($this->jobLabel, 'Deploy '))
+            || ($trigger === 'rollback' && str_starts_with($this->jobLabel, 'Roll back '));
+    }
+
+    /**
+     * @param  array<string, mixed>  $status
+     * @return array{0: string, 1: string} toast type and message
+     */
+    protected function deployOutcomeMessage(array $status, string $trigger): array
+    {
+        $last = is_array($status['last'] ?? null) ? $status['last'] : [];
+        $by = DeployLog::triggerLabel($trigger !== '' ? $trigger : (is_string($last['trigger'] ?? null) ? $last['trigger'] : null));
+
+        if (($status['state'] ?? '') === 'interrupted') {
+            return ['error', "The deploy started by {$by} did not finish — nothing is running it any more. Check the deploy log; unlock if the lock is stuck."];
+        }
+
+        $kind = ($last['kind'] ?? 'deploy') === 'rollback' ? 'Rollback' : 'Deploy';
+        $release = (string) ($last['release'] ?? '');
+        $took = is_numeric($last['duration'] ?? null) ? ' in '.DeployLog::format((int) $last['duration']) : '';
+
+        if (($last['result'] ?? '') === 'ok') {
+            return ['success', "{$kind} by {$by} finished{$took}".($release !== '' && $release !== '?' ? ": release {$release} is live." : '.')];
+        }
+
+        return ['error', "{$kind} by {$by} failed{$took}".($release !== '' && $release !== '?' ? " — release {$release} is still live." : '.')];
     }
 
     // ── cipi.yml: plan, apply, auto-apply ─────────────────────────────
@@ -1700,6 +1985,9 @@ class AppDetail extends Component
             default => null,
         };
 
+        // The job reported the deploy; the status must not report it a second time.
+        $this->pollDeployStatus(true);
+
         $this->dispatch('app-job-finished'); // the Logs tab is a nested component: it reloads itself
     }
 
@@ -1724,6 +2012,8 @@ class AppDetail extends Component
         if ($this->activeTab === 'deploy') {
             $this->loadDeployTab();
         }
+
+        $this->pollDeployStatus(true);
 
         $this->dispatch('app-job-finished');
     }

@@ -527,6 +527,9 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
             $records = array_values(array_filter($a['audit'] ?? [], fn ($x) => strtotime($x['ts']) >= $since));
 
             return [200, ['data' => ['app' => $name, 'records' => $records]]];
+        // `cipi deploy <app> --status --json` (API 1.37+ / Cipi 5.8.4+)
+        case $sub === '/deploy/status' && $method === 'GET':
+            return [200, ['data' => deployStatusView($state, $profile, $name, $a, max(0, min(500, (int) ($query['tail'] ?? 0))))]];
 
         // cipi.yml (API 1.35+): `cipi yml plan --json`, apply, auto on/off; `env` since 1.36
         case $sub === '/yml' && $method === 'GET':
@@ -1035,6 +1038,70 @@ function runJob(array &$s, string $type, array $p): array
     }
 
     return [true, "✓ {$type} done", null];
+}
+
+/**
+ * What `cipi deploy <app> --status --json` answers: running while a deploy or
+ * rollback job of the app is in flight (Deployer first, then the post-deploy
+ * steps), idle otherwise, with the last run from the ledger. The demo has no
+ * webhook, so a running deploy was always started by the panel.
+ */
+function deployStatusView(array $state, string $profile, string $app, array $a, int $tail): array
+{
+    $audit = $a['audit'] ?? [];
+    $branch = $a['info']['branch'] ?? 'main';
+    $tz = date('P');
+    $iso = fn (int $t): string => date('Y-m-d\TH:i:s', $t).str_replace(':', '', $tz);
+
+    $running = null;
+    foreach ($state['jobs'] ?? [] as $job) {
+        if ($job['profile'] === $profile && ! $job['finished'] && ($job['params']['app'] ?? null) === $app
+            && in_array($job['type'], ['app-deploy', 'app-deploy-rollback'], true)
+            && microtime(true) - $job['created'] < JOB_PENDING_SECONDS + JOB_RUNNING_SECONDS) {
+            $running = $job;
+        }
+    }
+
+    $last = null;
+    $lastRelease = null;
+    if ($audit !== []) {
+        $record = end($audit);
+        $release = (string) ($record['release'] ?? '?');
+        $event = $record['event'] ?? 'published';
+        $seed = abs(crc32($app.$release.$event));
+        $seconds = match ($event) { 'failed' => 18 + $seed % 40, 'rollback' => 2 + $seed % 5, default => 34 + $seed % 80 }; // as appLogs() writes it
+        $finished = strtotime((string) ($record['ts'] ?? 'now')) ?: time();
+        $lastRelease = $release;
+        $last = [
+            'result' => $event === 'failed' ? 'failed' : 'ok',
+            'kind' => $event === 'rollback' ? 'rollback' : 'deploy',
+            'release' => $release, 'duration' => $seconds, 'exit' => $event === 'failed' ? 1 : 0,
+            'trigger' => match ($record['origin'] ?? 'panel') { 'webhook' => 'webhook', 'cli' => 'cli', default => 'panel' },
+            'branch' => $branch, 'from_release' => ctype_digit($release) && (int) $release > 1 ? (string) ((int) $release - 1) : null,
+            'started_at' => $iso($finished - $seconds), 'finished_at' => $iso($finished),
+        ];
+    }
+
+    $lines = $tail > 0 ? array_slice(deployLogLines($app, $a['info'], $audit), -$tail) : [];
+    if ($running === null) {
+        return ['app' => $app, 'state' => 'idle', 'running' => false, 'phase' => null, 'queued' => false, 'locked' => false,
+            'current' => null, 'last' => $last, 'log' => "/home/{$app}/logs/deploy.log"] + ($tail > 0 ? ['tail' => $lines] : []);
+    }
+
+    $elapsed = (int) floor(microtime(true) - $running['created']);
+    $postDeploy = $elapsed >= JOB_PENDING_SECONDS + JOB_RUNNING_SECONDS * 0.7;
+    $t = '['.date('Y-m-d H:i:s').']';
+    $trigger = $running['type'] === 'app-deploy-rollback' ? 'rollback' : 'panel';
+    $live = ["{$t} ===== deploy start  app={$app} trigger={$trigger} branch={$branch} from-release=".($lastRelease ?? 'none').' =====', "{$t} task deploy:info", "{$t} task deploy:lock", "{$t} task deploy:release", "{$t} task deploy:update_code"];
+    if ($postDeploy) {
+        $live[] = "{$t} task deploy:symlink";
+        $live[] = "{$t} [{$app}] info successfully deployed!";
+        $live[] = "{$t} → Post-deploy steps (cipi.yml)...";
+    }
+
+    return ['app' => $app, 'state' => 'running', 'running' => true, 'phase' => $postDeploy ? 'post-deploy' : 'deploy', 'queued' => false, 'locked' => true,
+        'current' => ['trigger' => $trigger, 'branch' => $branch, 'from_release' => $lastRelease, 'started_at' => $iso((int) $running['created']), 'elapsed' => $elapsed, 'pids' => [random_int(20000, 29999)]],
+        'last' => $last, 'log' => "/home/{$app}/logs/deploy.log"] + ($tail > 0 ? ['tail' => array_slice($live, -$tail)] : []);
 }
 
 function auditRecord(array $records, string $app, string $event, string $release, string $commit): array
