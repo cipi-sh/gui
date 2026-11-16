@@ -71,7 +71,19 @@ trait ManagesBackups
     {
         $data = $this->client()->backupStatus();
 
-        $data['configured'] = (bool) ($data['configured'] ?? false);
+        // "Not configured" is something only the server can say. An answer
+        // without the flag — an empty body, a proxy's page, another shape — is
+        // a read that failed, and is shown as one (4.2.1: it used to be drawn
+        // as a server where `cipi backup configure` was never run).
+        if (! array_key_exists('configured', $data) || ! (is_bool($data['configured']) || in_array($data['configured'], [0, 1, '0', '1', 'true', 'false'], true))) {
+            throw new CipiApiException('GET /api/backups answered without a backup status (no "configured" in it), so the panel cannot tell whether backups are configured. Read it on the server: cipi backup status', 502);
+        }
+
+        $data['configured'] = filter_var($data['configured'], FILTER_VALIDATE_BOOLEAN);
+        // Where the answer comes from (API 1.39.1+): shown with "not configured".
+        foreach (['host', 'config_file'] as $key) {
+            $data[$key] = is_string($data[$key] ?? null) ? mb_substr($data[$key], 0, 255) : null;
+        }
         foreach (['destinations', 'profiles', 'apps', 'databases'] as $list) {
             $data[$list] = array_values(array_filter((array) ($data[$list] ?? []), fn ($item) => $list === 'apps' ? is_string($item) : is_array($item)));
         }

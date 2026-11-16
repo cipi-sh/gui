@@ -5,6 +5,7 @@
             @if($server)
                 <span class="font-mono text-xs">{{ $server->host }}</span>@if($server->ip) · <x-cipi::copyable :value="$server->ip" label="Copy IP" class="font-mono text-xs" />@endif
                 @if(!empty($status['system']['cipi'])) · Cipi {{ $status['system']['cipi'] }}@endif
+                @if(!empty($status['system']['api'])) · API {{ $status['system']['api'] }}@endif
             @else
                 Connect a server to manage PHP, Node, services, notifications and API access.
             @endif
@@ -47,6 +48,15 @@
             <x-cipi::alert type="info" class="mb-4">Read-only: your access lets you look at this server, not change it.</x-cipi::alert>
         @endunless
 
+        @if(($loaded[$activeTab] ?? false) && $activeTab !== 'backups' && ! ($unsupported[$activeTab] ?? false) && ($tabError[$activeTab] ?? '') !== '')
+            {{-- The read failed: what follows is empty because of that, not because the server has nothing. --}}
+            <x-cipi::alert type="danger" class="mb-4" title="This section could not be read" data-tab-error>
+                What is shown below is not what the server holds.
+                <p class="mt-2">The server answered: <span class="font-mono text-xs break-words">{{ $tabError[$activeTab] }}</span></p>
+                <p class="mt-3"><button type="button" wire:click="refresh" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="refresh"><x-cipi::icon name="refresh" /> Try again</button></p>
+            </x-cipi::alert>
+        @endif
+
         @if(! ($loaded[$activeTab] ?? false))
             {{-- The page is sent before the server is asked (wire:init): this is what shows meanwhile. --}}
             <div class="card" data-tab-loading aria-busy="true">
@@ -64,6 +74,19 @@
                 Run <code>cipi self-update &amp;&amp; cipi api update</code> on the server and recreate the token from
                 <a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>.
                 @if($activeTab === 'backups') (API 1.39+ / Cipi 5.9.0+, whose migration lets the panel run <code>cipi backup</code>; abilities <code>backups-view</code> and <code>backups-manage</code>) @elseif(in_array($activeTab, ['node', 'search', 'packages', 'monitor', 'zt'], true)) (API 1.31+ / Cipi 5.4.1+) @elseif($activeTab === 'disk') (API 1.33+ / Cipi 5.5.2+, whose migration lets the API run <code>cipi disk</code>) @endif
+                @if(($unsupportedReason[$activeTab] ?? '') !== '')
+                    <p class="mt-2" data-tab-reason>The server answered: <span class="font-mono text-xs break-words">{{ $unsupportedReason[$activeTab] }}</span></p>
+                @endif
+                <p class="mt-3"><button type="button" wire:click="refresh" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="refresh"><x-cipi::icon name="refresh" /> Check again</button></p>
+            </x-cipi::alert>
+        @elseif($activeTab === 'backups' && ($tabError['backups'] ?? '') !== '')
+            {{-- A read that failed is not a server without backups: no empty state here. --}}
+            <x-cipi::alert type="danger" title="The backup status could not be read" data-tab-error>
+                The server did not return its backup status, so nothing is shown rather than a guess.
+                <p class="mt-2">The server answered: <span class="font-mono text-xs break-words">{{ $tabError['backups'] }}</span></p>
+                <p class="mt-2">What the panel asks for is <code>cipi backup status --json</code>, run by the API on the server. To read the same there:
+                    <code>sudo -u www-data sudo -n /usr/local/bin/cipi backup status --json</code></p>
+                <p class="mt-3"><button type="button" wire:click="refresh" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="refresh"><x-cipi::icon name="refresh" /> Try again</button></p>
             </x-cipi::alert>
         @elseif($activeTab === 'overview')
             @php

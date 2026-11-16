@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="robots" content="noindex, nofollow">
-    <title>{{ $title ?? 'Cipi' }} — {{ config('app.name', 'Cipi') }}</title>
+    <title>{{ filled($title ?? null) && $title !== \CipiGui\Support\Theme::NAME ? $title.' — ' : '' }}{{ \CipiGui\Support\Theme::NAME }}</title>
     @include('cipi-gui::partials.favicon')
     @include('cipi-gui::partials.theme-script')
     @include('cipi-gui::partials.fonts')

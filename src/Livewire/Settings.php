@@ -214,6 +214,8 @@ class Settings extends Component
                     ? ltrim((string) \Composer\InstalledVersions::getPrettyVersion('livewire/livewire'), 'v')
                     : '—',
                 'PHP' => PHP_VERSION,
+                // What this panel is written for — not what a server runs: that is on each server's page.
+                'Built for Cipi API' => Theme::API.'+',
             ],
         ]);
     }

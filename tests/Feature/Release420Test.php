@@ -514,7 +514,7 @@ class Release420Test extends TestCase
     #[Test]
     public function the_version_is_4_2_0(): void
     {
-        $this->assertSame('4.2.0', Theme::VERSION);
+        $this->assertTrue(version_compare(Theme::VERSION, '4.2.0', '>='));
         $this->assertStringContainsString('## [4.2.0]', file_get_contents(Theme::packageRoot().'/CHANGELOG.md'));
     }
 }

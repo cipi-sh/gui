@@ -1,5 +1,24 @@
 # Changelog
 
+## [4.2.1] — 2026-11-16
+
+Three things the panel said that were not true.
+
+### Fixed
+
+- **"Backups are not configured on this server" was shown for any answer the panel could not read.** The Backups tab drew that card whenever the status it had was empty — and it was empty not only when the server said `configured: false`, but also when the read failed with anything other than a 403/404/503 (a 500, a 502 from the proxy, a 429, a 422) or when the API answered 200 with a body that carried no status. A server with backups configured could look like one where `cipi backup configure` had never been run, with the real cause in a toast that was gone in a few seconds. Now only the server can say "not configured": an answer without `configured` in it is a failed read, a failed read is shown in the tab — **The backup status could not be read**, with what the server answered, the command to read the same on the server and **Try again** — and the page drawn from empty data is not shown at all.
+- **The "not configured" card says where the answer comes from**: that it is what `cipi backup status --json` answered, on which host (API 1.39.1+), that the file it looks for is `/etc/cipi/backup.json`, and the two commands to compare on the server — `ls -l /etc/cipi/backup.json` and `sudo -u www-data sudo -n /usr/local/bin/cipi backup status --json`, the second being exactly what the panel runs. With **Check again**.
+- **"Not available on this server" shows what the server answered.** Every tab of the Server page said the same sentence for a missing route, a missing ability, an older core and an API that could not be reached; the reason the API gave (`… needs Cipi 5.9.0+ — this server runs Cipi 5.8.5`, `sudo: a password is required`, `Unable to connect to server`) is now printed under it, with **Check again**.
+- **A tab whose read failed says so above what it shows** — *This section could not be read*, with the answer and **Try again** — instead of an empty list and a toast.
+- **Settings → About showed "Cipi API 1.31 ready"**, a line typed into the view many releases ago. It now reads **Built for Cipi API 1.39+** from a constant (`Theme::API`), and says where the real number is: the Server page shows, next to the Cipi version, the API version the server reports (`system.api` in `GET /api/status`, API 1.39.1+; nothing is shown for an older API).
+- **The browser tab said "Laravel".** The title ended with `config('app.name')`, which is `Laravel` on every install where nobody set `APP_NAME` — and `cipi gui` does not set it. The title is now `<page> — Cipi`, whatever `APP_NAME` holds.
+- **A new two-factor enrolment is filed under "Cipi"** in the authenticator when `APP_NAME` is empty or still `Laravel`; an `APP_NAME` somebody chose is kept. Existing enrolments are not affected: the name is only a label in the QR code.
+
+### Tests
+
+- `tests/Feature/Release421Test.php` (15 tests): "not configured" only from the server, the three shapes of an answer without a status, four failing statuses, try again, a poll that fails, the reason of a refused section, another tab whose read fails, the API version on the Server page, Settings, the title of both layouts with `APP_NAME=Laravel`, the authenticator label.
+- `tests/standalone.php`: 15 more checks (47), among them the Backups loader run against each answer without the framework.
+
 ## [4.2.0] — 2026-11-16
 
 A security report, verified and closed in this release. It came in through the private channel of Cipi's SECURITY.md and had not been shared elsewhere; thanks to the researcher who sent it.

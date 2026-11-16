@@ -167,9 +167,9 @@
                     @foreach($versions as $label => $version)
                         <dt>{{ $label }}</dt><dd class="font-mono text-xs">{{ $version }}</dd>
                     @endforeach
-                    <dt>Cipi API</dt><dd class="font-mono text-xs">1.31 ready</dd>
                 </dl>
-                <p class="field-hint mt-4">Update with <code>cipi gui update</code> on the server that hosts the panel.</p>
+                <p class="field-hint mt-4">Each server shows the Cipi and API versions it runs at the top of its own page.</p>
+                <p class="field-hint mt-1">Update with <code>cipi gui update</code> on the server that hosts the panel.</p>
             </div>
             <div class="card">
                 <div class="card-header"><h2 class="card-title">Resources</h2></div>
