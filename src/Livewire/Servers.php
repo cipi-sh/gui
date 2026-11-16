@@ -41,7 +41,7 @@ class Servers extends Component
      * Connections hold every server's API token: admins only, on every
      * request. The route's admin middleware covers the page load alone — an
      * account that stopped being an admin could go on acting from a page it
-     * still had open (4.1.2).
+     * still had open (4.2.0).
      */
     public function boot(): void
     {

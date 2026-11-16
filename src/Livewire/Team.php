@@ -62,7 +62,7 @@ class Team extends Component
     /**
      * Every request, not only the first: the route's admin middleware covers
      * the page load, and an account that stopped being an admin could go on
-     * acting from a page it still had open (4.1.2).
+     * acting from a page it still had open (4.2.0).
      */
     public function boot(): void
     {

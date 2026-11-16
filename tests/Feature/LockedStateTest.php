@@ -21,7 +21,7 @@ use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
- * 4.1.2 — what a user may do is decided by the grants at the moment of the
+ * 4.2.0 — what a user may do is decided by the grants at the moment of the
  * request, never by the page.
  *
  * Livewire applies whatever the browser sends to every public property that is
@@ -271,9 +271,11 @@ class LockedStateTest extends TestCase
     }
 
     #[Test]
-    public function the_release_that_closed_this_is_4_1_2(): void
+    public function the_release_that_closed_this_is_4_2_0(): void
     {
-        $this->assertTrue(version_compare(Theme::VERSION, '4.1.2', '>='));
-        $this->assertStringContainsString('## [4.1.2]', file_get_contents(Theme::packageRoot().'/CHANGELOG.md'));
+        $this->assertTrue(version_compare(Theme::VERSION, '4.2.0', '>='));
+        $changelog = (string) file_get_contents(Theme::packageRoot().'/CHANGELOG.md');
+        $this->assertStringContainsString('## [4.2.0]', $changelog);
+        $this->assertStringContainsString('asked of the grants at every request', $changelog);
     }
 }

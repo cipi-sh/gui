@@ -17,7 +17,7 @@ class LogViewer extends Component
 
     private const LARAVEL_LOG_PATH = '/shared/storage/logs/';
 
-    /** The app whose logs are read, given by the page around the viewer. Locked: never set by the browser (4.1.2). */
+    /** The app whose logs are read, given by the page around the viewer. Locked: never set by the browser (4.2.0). */
     #[Locked]
     public string $appName;
 

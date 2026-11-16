@@ -2,7 +2,19 @@
 
 ## [4.2.0] — 2026-11-16
 
-What people who use the panel every day asked for. Most of it needs Cipi 5.9.0 and API 1.39.0 on the server; a server that is older keeps every page it had, and the new parts say what they need.
+A security report, verified and closed in this release. It came in through the private channel of Cipi's SECURITY.md and had not been shared elsewhere; thanks to the researcher who sent it.
+
+Livewire applies whatever the browser sends back to every public property of a component that is not locked. App detail computed what the signed-in user may do on the app once, in `mount()`, kept it in a public `$can`, and every action read it; the app's name, the server and the id of the job being polled were public properties too. So a panel user with nothing but **View** on one app could send its own page back with `can` set to every ability and `appName` set to any other app of a server it could open, and call any action: the panel then did it with its own API token — read and write `.env`, run Artisan, change repository and branch, delete the app, rotate the webhook secret. Not reachable without an account; with one, the grants an admin gave were no boundary at all on that server.
+
+The rest of the release is what people who use the panel every day asked for. Most of it needs Cipi 5.9.0 and API 1.39.0 on the server; a server that is older keeps every page it had, and the new parts say what they need.
+
+### Security
+
+- **What a user may do on an app is asked of the grants at every request, never taken from the page.** Every action of app detail checks its ability with `Access::can()` for the signed-in user, the server and the app in use; every call the page makes to a server goes through one method that requires **View** on that app first, so nothing is sent with the panel's token for an app the user may not open. `$can` is still what the view shows and hides with, read again from the grants on every request: a grant taken away stops the page the user still has open (403 once **View** is gone), a grant given appears without a reload.
+- **The browser can no longer write what identifies the target.** `appName` and `can` on app detail, `appName` on the log viewer, `serverId` on every page that talks to a server, and `activeJobId` / `jobRunning` wherever a job is polled are `#[Locked]`: a request that carries a change to one of them is refused whole and nothing is done. With the job id writable, a request could make the panel fetch any job of the server whose id it knew — and a job's output can hold one-time database and SSH passwords.
+- **The log viewer checks the Logs ability on every read.** It read with the panel's token and checked nothing: the page around it showing the tab only to users with **Logs** was all there was, and the viewer's own `appName` was writable. It now asks `Access` for **Logs** on that app before every read; a user who loses it sees the refusal in place of the lines, and the 5-second refresh stops.
+- **The server page needs a level on the server, also without an id in the URL.** `/server/{id}` already answered 403 to a user whose only grant is an app on that server; `/server` looked the server up from the session — where the app page had left it — and showed its page, read-only. The page now resolves its server only when the user has **View** or **Manage** on it, asked on every request.
+- **Team and Connections ask for an admin on every request.** The route's admin middleware covers the page load; an account that stopped being an admin could go on acting from a page it still had open.
 
 ### Added
 
@@ -18,31 +30,17 @@ What people who use the panel every day asked for. Most of it needs Cipi 5.9.0 a
 ### Changed
 
 - **Pages are sent before the servers answer.** Server and the log viewer now load like Dashboard, Apps and Databases did: the page first, its data after. What a page still asks before it renders — the app page's overview, the Server overview — is asked in one round instead of one request after the other; each is a `sudo cipi …` on the server, and the page waited for their sum.
-- The token command on Connections lists the abilities of API 1.39 (`node-runtimes-manage`, `backups-view`, `backups-manage`), and mentions `--full-access` (API 1.38+).
+- The token command on Connections lists the abilities of API 1.39 (`node-runtimes-manage`, `backups-view`, `backups-manage`), and mentions `--full-access`.
 
 ### Not cached, on purpose
 
 - What a server says is not kept between requests. A panel that shows a PHP version, a worker or a backup that is no longer there is worse than one that takes a moment; what made pages slow was asking one thing after the other and before sending the page, and that is what changed.
 
-## [4.1.2] — 2026-11-16
-
-A security report, verified and closed. It came in through the private channel of Cipi's SECURITY.md and had not been shared elsewhere; thanks to the researcher who sent it.
-
-Livewire applies whatever the browser sends back to every public property of a component that is not locked. App detail computed what the signed-in user may do on the app once, in `mount()`, kept it in a public `$can`, and every action read it; the app's name, the server and the id of the job being polled were public properties too. So a panel user with nothing but **View** on one app could send its own page back with `can` set to every ability and `appName` set to any other app of a server it could open, and call any action: the panel then did it with its own API token — read and write `.env`, run Artisan, change repository and branch, delete the app, rotate the webhook secret. Not reachable without an account; with one, the grants an admin gave were no boundary at all on that server.
-
-### Security
-
-- **What a user may do on an app is asked of the grants at every request, never taken from the page.** Every action of app detail checks its ability with `Access::can()` for the signed-in user, the server and the app in use; every call the page makes to a server goes through one method that requires **View** on that app first, so nothing is sent with the panel's token for an app the user may not open. `$can` is still what the view shows and hides with, read again from the grants on every request: a grant taken away stops the page the user still has open (403 once **View** is gone), a grant given appears without a reload.
-- **The browser can no longer write what identifies the target.** `appName` and `can` on app detail, `appName` on the log viewer, `serverId` on every page that talks to a server, and `activeJobId` / `jobRunning` wherever a job is polled are `#[Locked]`: a request that carries a change to one of them is refused whole and nothing is done. With the job id writable, a request could make the panel fetch any job of the server whose id it knew — and a job's output can hold one-time database and SSH passwords.
-- **The log viewer checks the Logs ability on every read.** It read with the panel's token and checked nothing: the page around it showing the tab only to users with **Logs** was all there was, and the viewer's own `appName` was writable. It now asks `Access` for **Logs** on that app before every read; a user who loses it sees the refusal in place of the lines, and the 5-second refresh stops.
-- **The server page needs a level on the server, also without an id in the URL.** `/server/{id}` already answered 403 to a user whose only grant is an app on that server; `/server` looked the server up from the session — where the app page had left it — and showed its page, read-only. The page now resolves its server only when the user has **View** or **Manage** on it, asked on every request.
-- **Team and Connections ask for an admin on every request.** The route's admin middleware covers the page load; an account that stopped being an admin could go on acting from a page it still had open.
-
 ### Ecosystem
 
-- No change needed in Cipi, cipi/api, cipi/sdk or cipi/agent, and none for admins or for users with **Manage** on a server: every ability they had, they have.
+- The security fix needs nothing on the servers, and changes nothing for admins or for users with **Manage** on a server: every ability they had, they have. The new pages need **Cipi 5.9.0** and **cipi/api 1.39.0** there (`cipi self-update`, `cipi api update`); a token created with a list of abilities needs `node-runtimes-manage`, `backups-view` and `backups-manage` added, or is a full-access token.
 - `cipi gui update` installs it.
-- Tests: `tests/Feature/LockedStateTest.php` — the report's request (refused, nothing sent for the other app), a grant changed while the page is open, the log viewer, the job id, `/server` without an id, a demoted admin, and the control: a user with every ability deploys and polls as before.
+- Tests: `tests/Feature/LockedStateTest.php` (the security fix) — the report's request (refused, nothing sent for the other app), a grant changed while the page is open, the log viewer, the job id, `/server` without an id, a demoted admin, and the control: a user with every ability deploys and polls as before. `tests/Feature/Release420Test.php` covers the new pages, `tests/Feature/ViewsCompileTest.php` compiles every view, and `php tests/standalone.php` runs 32 checks without `vendor/`.
 
 ## [4.1.1] — 2026-10-29
 

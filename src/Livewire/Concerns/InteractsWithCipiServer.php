@@ -15,7 +15,7 @@ trait InteractsWithCipiServer
      * The server this component talks to. Set by the component itself — the
      * route, the session, a row action that passes its server through
      * useServer() — and locked: the browser cannot point an open page at
-     * another server (4.1.2).
+     * another server (4.2.0).
      */
     #[Locked]
     public ?int $serverId = null;

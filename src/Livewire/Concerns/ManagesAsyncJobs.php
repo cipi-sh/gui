@@ -13,7 +13,7 @@ trait ManagesAsyncJobs
      * The job this component started and polls. Locked, like $jobRunning: the
      * panel reads a job with its own token, and a job's output can hold
      * one-time credentials — with the id writable, a request could make the
-     * page fetch any job of the server whose id it knew (4.1.2).
+     * page fetch any job of the server whose id it knew (4.2.0).
      */
     #[Locked]
     public ?string $activeJobId = null;

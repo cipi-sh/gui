@@ -34,7 +34,7 @@ class AppDetail extends Component
     /**
      * The app this page is about, from the route. Locked: Livewire applies what
      * the browser sends to every public property, and with this one writable a
-     * request could point an open page at another app of the server (4.1.2).
+     * request could point an open page at another app of the server (4.2.0).
      */
     #[Locked]
     public string $appName;

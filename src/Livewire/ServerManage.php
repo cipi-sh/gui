@@ -173,7 +173,7 @@ class ServerManage extends Component
      * not enough. The shared lookup accepts any server the user may open and
      * falls back to the one last looked at in the session, so a user with
      * nothing but an app on a server read that server's page at /server
-     * (4.1.2). Asked of Access on every request.
+     * (4.2.0). Asked of Access on every request.
      */
     protected function currentServer(): ?CipiServer
     {
