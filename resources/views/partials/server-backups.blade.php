@@ -80,7 +80,12 @@
                 <div class="p-5 pt-0">
                     <x-cipi::empty icon="cloud" title="No backup profile yet">
                         A profile says what is taken, how often, where it goes and how long it is kept.
-                        @if($canManage)<x-slot:actions><button type="button" wire:click="openBackupForm('')" class="btn btn-primary"><x-cipi::icon name="plus" /> Create the first profile</button></x-slot:actions>@endif
+                        {{-- The closing slot tag and the endif stay on separate lines: Blade turns that tag into its
+                             end-of-slot directive, and an endif glued to it is no longer read as a directive — its
+                             if was then never closed, and the view did not compile. --}}
+                        @if($canManage)
+                            <x-slot:actions><button type="button" wire:click="openBackupForm('')" class="btn btn-primary"><x-cipi::icon name="plus" /> Create the first profile</button></x-slot:actions>
+                        @endif
                     </x-cipi::empty>
                 </div>
             @else

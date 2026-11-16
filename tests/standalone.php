@@ -91,6 +91,16 @@ namespace {
         $check(str_contains($views[$root.'/resources/views/livewire/'.$view.'.blade.php'] ?? '', 'wire:init="'.$method.'"'), "{$view}: the page is sent first and asks its server after (wire:init=\"{$method}\")");
     }
     $check(! preg_match('/function mount\([^)]*\)[^{]*\{[^}]*\$this->loadLogs\(\)/s', (string) file_get_contents($root.'/src/Livewire/LogViewer.php')), 'the log viewer reads nothing in mount()');
+    // Blade reads "@endif" as a directive only where a word could start. A closing slot tag
+    // becomes " @endslot", so a directive right after it is glued to a word too.
+    $glued = [];
+    foreach ($views as $path => $text) {
+        $text = (string) preg_replace('/{{--(.*?)--}}/s', '', $text);
+        if (preg_match('/[A-Za-z0-9_]@(if|elseif|else|endif|foreach|endforeach|forelse|endforelse|empty|unless|endunless|error|enderror|isset|endisset|php|endphp|include|class|disabled|js|json)\b|<\/x-slot[^>]*>@\w/', $text, $g)) {
+            $glued[] = basename($path).': '.$g[0];
+        }
+    }
+    $check($glued === [], 'no Blade directive is glued to a word or to a closing slot tag (Blade would print it instead of compiling it)'.($glued ? ' — '.implode(', ', $glued) : ''));
     $routes = (string) file_get_contents($root.'/routes/web.php');
     $group = substr($routes, (int) strpos($routes, "Route::middleware(['auth', 'cipi-gui.2fa'])"));
     $check(str_contains($group, 'cipi-gui.db-uploads.start') && str_contains($group, 'cipi-gui.db-uploads.chunk') && str_contains($group, 'cipi-gui.db-uploads.cancel'), 'the upload routes are behind sign-in and two-factor');
