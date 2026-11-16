@@ -13,13 +13,16 @@ use CipiGui\Support\Clock;
 use CipiGui\Support\DeployLog;
 use Illuminate\Support\Carbon;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
 #[Layout('cipi-gui::layouts.app')]
 class AppDetail extends Component
 {
-    use InteractsWithCipiServer;
+    use InteractsWithCipiServer {
+        client as protected serverClient;
+    }
     use ManagesAsyncJobs;
 
     public const ARTISAN_PRESETS = [
@@ -32,6 +35,12 @@ class AppDetail extends Component
         'npm ci', 'npm run build', 'git status', 'du -sh current shared logs',
     ];
 
+    /**
+     * The app this page is about, from the route. Locked: Livewire applies what
+     * the browser sends to every public property, and with this one writable a
+     * request could point an open page at another app of the server (4.1.2).
+     */
+    #[Locked]
     public string $appName;
 
     public ?array $app = null;
@@ -44,7 +53,16 @@ class AppDetail extends Component
     #[Url(as: 'tab', except: 'overview')]
     public string $activeTab = 'overview';
 
-    /** @var array<string, bool> what the signed-in user may do on this app (view, deploy, edit, env, logs, run, delete) */
+    /**
+     * What the signed-in user may do on this app (view, deploy, edit, env, logs,
+     * run, delete) — for the view, which shows or hides tabs and buttons with it.
+     * Locked, and read again from the grants on every request (hydrate()): it is
+     * never the authority. Actions ask Access through allowed(), every call to
+     * the server goes through client().
+     *
+     * @var array<string, bool>
+     */
+    #[Locked]
     public array $can = [];
 
     // Edit form
@@ -282,11 +300,7 @@ class AppDetail extends Component
         }
 
         $this->ensureServerSelected();
-        $this->can = Access::appAbilityMap($this->panelUser(), (int) ($this->serverId ?? 0), $this->appName);
-
-        if (! ($this->can['view'] ?? false)) {
-            abort(403, 'Your access does not include this app.');
-        }
+        $this->refreshAbilities();
 
         $this->loadApp();
 
@@ -302,6 +316,43 @@ class AppDetail extends Component
         if ($this->app !== null) {
             $this->pollDeployStatus(true);
         }
+    }
+
+    /**
+     * Every request after the first. The page's state comes back from the
+     * browser: what is signed (the snapshot) is what the server last sent, but a
+     * grant may have changed since. The abilities are read again from the
+     * grants, and a user who can no longer view the app is out — whatever the
+     * page they still have open says.
+     */
+    public function hydrate(): void
+    {
+        $this->refreshAbilities();
+    }
+
+    /** Abilities of the signed-in user on this app, as granted right now; 403 without `view`. */
+    protected function refreshAbilities(): void
+    {
+        $this->can = Access::appAbilityMap($this->panelUser(), (int) ($this->serverId ?? 0), $this->appName);
+
+        if (! ($this->can['view'] ?? false)) {
+            abort(403, 'Your access does not include this app.');
+        }
+    }
+
+    /**
+     * The one way this page reaches a server: the panel's own token does the
+     * work, so nothing is sent for an app the signed-in user may not view on
+     * the server in use — asked of Access at the moment of the call, not taken
+     * from the page.
+     */
+    protected function client(): CipiApiClient
+    {
+        if (! Access::can($this->panelUser(), 'view', (int) ($this->serverId ?? 0), $this->appName)) {
+            abort(403, 'Your access does not include this app.');
+        }
+
+        return $this->serverClient();
     }
 
     public function loadApp(): void
@@ -2030,16 +2081,14 @@ class AppDetail extends Component
         return true;
     }
 
-    /** The signed-in user has this ability on the app; a refusal is reported in the page. */
+    /**
+     * The signed-in user has this ability on the app; a refusal is reported in
+     * the page. Asked of Access on every call: `$can` is what the view shows,
+     * not what an action may rely on.
+     */
     protected function allowed(string $ability): bool
     {
-        if ($this->can[$ability] ?? false) {
-            return true;
-        }
-
-        $this->denied();
-
-        return false;
+        return $this->appAllowed($ability, (int) ($this->serverId ?? 0), $this->appName);
     }
 
     public function siteUrl(): string

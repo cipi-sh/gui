@@ -7,9 +7,17 @@ use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
 use CipiGui\Support\AppEnv;
+use Livewire\Attributes\Locked;
 
 trait InteractsWithCipiServer
 {
+    /**
+     * The server this component talks to. Set by the component itself — the
+     * route, the session, a row action that passes its server through
+     * useServer() — and locked: the browser cannot point an open page at
+     * another server (4.1.2).
+     */
+    #[Locked]
     public ?int $serverId = null;
 
     public ?string $error = null;

@@ -5,9 +5,17 @@ namespace CipiGui\Livewire\Concerns;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
 use CipiGui\Services\JobOutputParser;
+use Livewire\Attributes\Locked;
 
 trait ManagesAsyncJobs
 {
+    /**
+     * The job this component started and polls. Locked, like $jobRunning: the
+     * panel reads a job with its own token, and a job's output can hold
+     * one-time credentials — with the id writable, a request could make the
+     * page fetch any job of the server whose id it knew (4.1.2).
+     */
+    #[Locked]
     public ?string $activeJobId = null;
 
     public ?string $activeJobType = null;
@@ -22,6 +30,7 @@ trait ManagesAsyncJobs
 
     public ?int $activeJobFinishedAt = null;
 
+    #[Locked]
     public bool $jobRunning = false;
 
     public bool $showJobOverlay = false;

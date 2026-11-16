@@ -59,6 +59,16 @@ class Team extends Component
 
     public ?int $deleteUserId = null;
 
+    /**
+     * Every request, not only the first: the route's admin middleware covers
+     * the page load, and an account that stopped being an admin could go on
+     * acting from a page it still had open (4.1.2).
+     */
+    public function boot(): void
+    {
+        abort_unless(Access::isAdmin(Auth::user()), 403, 'Only admins can open this page.');
+    }
+
     public function mount(): void
     {
         abort_unless(Access::isAdmin(Auth::user()), 403);

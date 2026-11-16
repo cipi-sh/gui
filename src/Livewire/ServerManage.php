@@ -4,6 +4,7 @@ namespace CipiGui\Livewire;
 
 use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
+use CipiGui\Models\CipiServer;
 use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
@@ -144,6 +145,24 @@ class ServerManage extends Component
         if (! ($this->loaded[$tab] ?? false)) {
             $this->loadTab($tab);
         }
+    }
+
+    /**
+     * This page needs a level on the server (view or manage): an app on it is
+     * not enough. The shared lookup accepts any server the user may open and
+     * falls back to the one last looked at in the session, so a user with
+     * nothing but an app on a server read that server's page at /server
+     * (4.1.2). Asked of Access on every request.
+     */
+    protected function currentServer(): ?CipiServer
+    {
+        $id = (int) ($this->serverId ?? 0);
+
+        if ($id === 0 || ! Access::canViewServer($this->panelUser(), $id)) {
+            return null;
+        }
+
+        return CipiServer::where('is_active', true)->find($id);
     }
 
     /** The picker on the page (Settings → Panel → server picker): open another server. */

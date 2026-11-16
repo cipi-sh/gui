@@ -3,8 +3,10 @@
 namespace CipiGui\Livewire;
 
 use CipiGui\Models\CipiServer;
+use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
@@ -34,6 +36,17 @@ class Servers extends Component
 
     /** Where the last connection test said this panel calls the API from (the server's client_ip). */
     public const PANEL_IP_CACHE_KEY = 'cipi-gui.panel_ip';
+
+    /**
+     * Connections hold every server's API token: admins only, on every
+     * request. The route's admin middleware covers the page load alone — an
+     * account that stopped being an admin could go on acting from a page it
+     * still had open (4.1.2).
+     */
+    public function boot(): void
+    {
+        abort_unless(Access::isAdmin(Auth::user()), 403, 'Only admins can open this page.');
+    }
 
     public function openAdd(): void
     {
