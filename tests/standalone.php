@@ -20,6 +20,8 @@ namespace {
     require $root.'/src/Support/DeployLog.php';
     require $root.'/src/Support/Presets.php';
     require $root.'/src/Http/Controllers/DbUploadController.php';
+    require $root.'/src/Services/CipiApiException.php';
+    require $root.'/src/Livewire/Concerns/ManagesBackups.php';
 
     use CipiGui\Http\Controllers\DbUploadController as Up;
     use CipiGui\Support\DeployLog;
@@ -104,6 +106,62 @@ namespace {
     $routes = (string) file_get_contents($root.'/routes/web.php');
     $group = substr($routes, (int) strpos($routes, "Route::middleware(['auth', 'cipi-gui.2fa'])"));
     $check(str_contains($group, 'cipi-gui.db-uploads.start') && str_contains($group, 'cipi-gui.db-uploads.chunk') && str_contains($group, 'cipi-gui.db-uploads.cancel'), 'the upload routes are behind sign-in and two-factor');
+
+    echo "--- 4.2.1: what the panel says must be what the server said\n";
+    // The Backups tab's loader, with the API's answer handed to it.
+    $page = new class
+    {
+        use \CipiGui\Livewire\Concerns\ManagesBackups;
+
+        public mixed $answer = [];
+
+        protected function client(): object
+        {
+            return new class($this->answer)
+            {
+                public function __construct(private mixed $answer) {}
+
+                public function backupStatus(): array { return $this->answer; }
+            };
+        }
+
+        /** @return int|null the status of the error the load raised, null when it loaded */
+        public function load(mixed $answer): ?int
+        {
+            $this->answer = $answer;
+            $this->backup = [];
+            try {
+                $this->loadBackups();
+            } catch (\CipiGui\Services\CipiApiException $e) {
+                return $e->getStatusCode();
+            }
+
+            return null;
+        }
+    };
+    $check($page->load(['configured' => true, 'profiles' => [['name' => 'nightly']], 'destinations' => 'junk']) === null && $page->backup['configured'] === true && count($page->backup['profiles']) === 1 && $page->backup['destinations'] === [],
+        'a configured server is loaded (and a list that is not one becomes empty, as before)');
+    $check($page->load(['configured' => false, 'host' => 'fra1', 'config_file' => '/etc/cipi/backup.json']) === null && $page->backup['configured'] === false && $page->backup['host'] === 'fra1' && $page->backup['config_file'] === '/etc/cipi/backup.json',
+        '"not configured" is taken from the server, with where it looked');
+    $check($page->load(['configured' => false]) === null && $page->backup['host'] === null && $page->backup['config_file'] === null, 'an API that does not say where it looked (1.39.0) is still read');
+    foreach (['an empty answer' => [], 'an answer without the flag' => ['profiles' => [], 'destinations' => []], 'a flag that is not one' => ['configured' => 'maybe'], 'a null flag' => ['configured' => null]] as $what => $answer) {
+        $check($page->load($answer) === 502 && $page->backup === [], "{$what} is a read that failed, never \"not configured\"");
+    }
+    $manage = $views[$root.'/resources/views/livewire/server-manage.blade.php'] ?? '';
+    $errorAt = strpos($manage, "@elseif(\$activeTab === 'backups' && (\$tabError['backups'] ?? '') !== '')");
+    $includeAt = strpos($manage, "@include('cipi-gui::partials.server-backups')");
+    $check($errorAt !== false && $includeAt !== false && $errorAt < $includeAt, 'the Backups tab shows a failed read instead of the page drawn from empty data');
+    $check(str_contains($manage, '$unsupportedReason[$activeTab]') && str_contains($manage, "\$status['system']['api']"), 'a section that is not available says what the server answered; the header shows the API version the server reports');
+    $manageClass = (string) file_get_contents($root.'/src/Livewire/ServerManage.php');
+    $check(str_contains($manageClass, '$this->unsupportedReason[$tab] = $this->apiReason($e);') && str_contains($manageClass, '$this->tabError[$tab] = $this->apiReason($e);'), 'the reason of a refused or failed read is kept for the section');
+    $check(! str_contains($all, '1.31 ready') && ! preg_match('/<dd[^>]*>\s*\d+\.\d+ ready/', $all), 'no view states an API version nobody checked');
+    foreach (['app', 'guest'] as $layout) {
+        $title = preg_match('/<title>.*<\/title>/', $views[$root.'/resources/views/layouts/'.$layout.'.blade.php'] ?? '', $t) ? $t[0] : '';
+        $check($title !== '' && ! str_contains($title, 'app.name') && str_contains($title, 'Theme::NAME'), "the {$layout} layout's title is the panel's name, not APP_NAME");
+    }
+    $theme = (string) file_get_contents($root.'/src/Support/Theme.php');
+    $check(str_contains($theme, "public const NAME = 'Cipi';") && (bool) preg_match("/public const API = '\d+\.\d+';/", $theme), 'the name and the API release the panel is written for are constants');
+    $check(! str_contains($all, "config('app.name'"), 'no view reads APP_NAME');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);

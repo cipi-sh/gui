@@ -47,6 +47,15 @@ class ServerManage extends Component
     /** @var array<string, bool> tab => endpoint missing or ability not granted */
     public array $unsupported = [];
 
+    /** @var array<string, string> tab => what the server answered when it refused (shown with "Not available") */
+    public array $unsupportedReason = [];
+
+    /**
+     * @var array<string, string> tab => why its read failed, for any other reason.
+     *                            Shown in the section: empty data is not what the server said.
+     */
+    public array $tabError = [];
+
     /** @var array<string, bool> */
     public array $loaded = [];
 
@@ -199,6 +208,8 @@ class ServerManage extends Component
     public function refresh(): void
     {
         $this->loaded = [];
+        $this->unsupportedReason = [];
+        $this->tabError = [];
         $this->loadTab($this->activeTab);
         $this->dispatch('notify', type: 'info', message: 'Refreshed.');
     }
@@ -267,21 +278,40 @@ class ServerManage extends Component
         }
     }
 
-    /** Run a loader; a missing endpoint or ability marks only that section as unsupported. */
+    /**
+     * Run a loader; a missing endpoint or ability marks only that section as
+     * unsupported. Either way the reason is kept for the section to show: a
+     * read that failed must not look like a server with nothing in it (the
+     * Backups tab read "not configured" out of an error — 4.2.1).
+     */
     protected function guard(string $tab, callable $loader): void
     {
+        unset($this->unsupportedReason[$tab], $this->tabError[$tab]);
+
         try {
             $loader();
             $this->unsupported[$tab] = false;
         } catch (CipiApiException $e) {
             if ($this->isUnsupported($e) || $e->getStatusCode() === 503) {
                 $this->unsupported[$tab] = true;
+                $this->unsupportedReason[$tab] = $this->apiReason($e);
             } else {
                 $this->handleApiError($e);
+                $this->tabError[$tab] = $this->apiReason($e);
             }
         } finally {
             $this->loaded[$tab] = true;
         }
+    }
+
+    /** The API's answer in one line, with its status: "… (HTTP 503)". */
+    protected function apiReason(CipiApiException $e): string
+    {
+        $message = trim((string) preg_replace('/\s+/', ' ', $this->friendlyApiError($e)));
+        $message = mb_strlen($message) > 400 ? mb_substr($message, 0, 400).'…' : $message;
+        $status = $e->getStatusCode();
+
+        return $status > 0 && ! str_contains($message, (string) $status) ? $message.' (HTTP '.$status.')' : $message;
     }
 
     // ── PHP / engines / services ──────────────────────────────────────

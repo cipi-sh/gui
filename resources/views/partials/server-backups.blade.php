@@ -18,10 +18,28 @@
 @endphp
 
 @if(! ($backup['configured'] ?? false))
-    <div class="card">
+    {{-- Only drawn when the server itself answered "configured: false" (ManagesBackups::loadBackups):
+         a failed or shapeless answer is an error in the tab, never this card. --}}
+    @php
+        $bkHost = $backup['host'] ?? null;
+        $bkFile = $backup['config_file'] ?? null;
+    @endphp
+    <div class="card" data-backup-unconfigured>
         <x-cipi::empty icon="cloud" title="Backups are not configured on this server">
             Run <code>cipi backup configure</code> on the server once: it asks where the archives go — a directory on the server, an S3 bucket, or both. Profiles are then managed here.
+            <x-slot:actions>
+                <button type="button" wire:click="refresh" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="refresh"><x-cipi::icon name="refresh" /> Check again</button>
+            </x-slot:actions>
         </x-cipi::empty>
+        <div class="field-hint mt-4 text-center">
+            <p>
+                This is the answer of <code>cipi backup status --json</code>@if($bkHost) on <code>{{ $bkHost }}</code>@endif: it found no <code>{{ $bkFile ?: '/etc/cipi/backup.json' }}</code>, the file <code>cipi backup configure</code> writes.
+            </p>
+            <p class="mt-1">
+                Already configured? Check that this is the server you configured, then compare there:
+                <code>ls -l {{ $bkFile ?: '/etc/cipi/backup.json' }}</code> and <code>sudo -u www-data sudo -n /usr/local/bin/cipi backup status --json</code> — the second is exactly what the panel runs.
+            </p>
+        </div>
     </div>
 @else
     <div @if($this->backupRunning()) wire:poll.10s="refreshBackups" @endif>

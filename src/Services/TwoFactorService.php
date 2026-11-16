@@ -2,6 +2,7 @@
 
 namespace CipiGui\Services;
 
+use CipiGui\Support\Theme;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Crypt;
 use PragmaRX\Google2FA\Google2FA;
@@ -19,7 +20,12 @@ class TwoFactorService
 
     public function getQrCodeUrl(Authenticatable $user, string $secret): string
     {
-        $company = config('app.name', 'Cipi GUI');
+        // The name an authenticator files the code under. Not APP_NAME: a
+        // fresh install has "Laravel" there. An APP_NAME somebody set (a
+        // company's name for its panel) is kept, so a re-enrolment lands in
+        // the same entry.
+        $appName = trim((string) config('app.name', ''));
+        $company = $appName === '' || $appName === 'Laravel' ? Theme::NAME : $appName;
 
         return $this->google2fa->getQRCodeUrl(
             $company,
