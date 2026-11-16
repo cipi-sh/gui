@@ -50,7 +50,9 @@ class LogViewer extends Component
         $this->serverId = $serverId ?? session('cipi_gui_server_id');
         $this->isCustomApp = filter_var($isCustomApp, FILTER_VALIDATE_BOOLEAN);
         $this->logType = 'all';
-        $this->loadLogs();
+        // Nothing is read here: the tab is sent at once ("Loading logs…") and
+        // wire:init in the view calls loadLogs() — a read is a `sudo cipi …`
+        // on the server, and the whole app page waited for it (4.2.0).
     }
 
     public function updatedLogType(): void

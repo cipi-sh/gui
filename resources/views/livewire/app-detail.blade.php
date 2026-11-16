@@ -60,13 +60,13 @@
                         @endif
                         @if($can['edit'] ?? false)
                             @if($isSsr)
-                                <button type="button" class="dropdown-item" wire:click="restartNode" wire:confirm="Blue/green restart {{ $app['app'] }}? The new process must pass its health path before traffic switches." x-on:click="open = false"><x-cipi::icon name="refresh" /> Restart Node process</button>
+                                <button type="button" class="dropdown-item" wire:click="restartNode" data-confirm="Blue/green restart {{ $app['app'] }}? The new process must pass its health path before traffic switches." x-on:click="open = false"><x-cipi::icon name="refresh" /> Restart Node process</button>
                             @endif
-                            <button type="button" class="dropdown-item" wire:click="fixPermissions" wire:confirm="Restore ownership and modes of /home/{{ $app['app'] }}?" x-on:click="open = false"><x-cipi::icon name="wrench" /> Fix permissions</button>
+                            <button type="button" class="dropdown-item" wire:click="fixPermissions" data-confirm="Restore ownership and modes of /home/{{ $app['app'] }}?" x-on:click="open = false"><x-cipi::icon name="wrench" /> Fix permissions</button>
                             @if($app['suspended'] ?? false)
                                 <button type="button" class="dropdown-item" wire:click="unsuspendApp" x-on:click="open = false"><x-cipi::icon name="play" /> Unsuspend</button>
                             @else
-                                <button type="button" class="dropdown-item" wire:click="suspendApp" wire:confirm="Take {{ $app['app'] }} offline with an HTTP 503 maintenance page?" x-on:click="open = false"><x-cipi::icon name="pause" /> Suspend (maintenance page)</button>
+                                <button type="button" class="dropdown-item" wire:click="suspendApp" data-confirm="Take {{ $app['app'] }} offline with an HTTP 503 maintenance page?" x-on:click="open = false"><x-cipi::icon name="pause" /> Suspend (maintenance page)</button>
                             @endif
                         @endif
                         @if($can['delete'] ?? false)
@@ -114,7 +114,7 @@
                     @endif
                     @if($banner['state'] === 'interrupted' && ($can['deploy'] ?? false))
                         <div class="mt-3 flex flex-wrap gap-2">
-                            <button type="button" wire:click="unlockDeploy" wire:confirm="Remove the deploy lock? Only do this if no deploy is running." class="btn btn-secondary btn-sm"><x-cipi::icon name="unlock" /> Unlock</button>
+                            <button type="button" wire:click="unlockDeploy" data-confirm="Remove the deploy lock? Only do this if no deploy is running." class="btn btn-secondary btn-sm"><x-cipi::icon name="unlock" /> Unlock</button>
                             <button type="button" wire:click="setTab('deploy')" class="btn btn-ghost btn-sm">Deploy tab</button>
                         </div>
                     @endif
@@ -320,7 +320,7 @@
                                 <button type="submit" class="btn btn-primary btn-sm">{{ $healthEnabled ? 'Update' : 'Enable healthcheck' }}</button>
                                 @if($healthEnabled)
                                     <button type="button" wire:click="runHealthCheck" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="runHealthCheck">Check now</button>
-                                    <button type="button" wire:click="disableHealth" wire:confirm="Disable the healthcheck for this app?" class="btn btn-ghost btn-sm danger">Disable</button>
+                                    <button type="button" wire:click="disableHealth" data-confirm="Disable the healthcheck for this app?" class="btn btn-ghost btn-sm danger">Disable</button>
                                 @endif
                                 @if($healthCheckResult)
                                     <span class="text-sm ml-auto {{ ($healthCheckResult['ok'] ?? false) ? 'text-success' : 'text-danger' }}">
@@ -355,7 +355,7 @@
                                 @if($this->searchEnabledForApp() && !empty($searchStatus['apps'][$appName]['prefix'])) · indexes <code>{{ $searchStatus['apps'][$appName]['prefix'] }}*</code>@endif
                             </p>
                             @if($this->searchEnabledForApp())
-                                <button type="button" wire:click="disableSearch" wire:confirm="Disable Meilisearch for this app? The previous SCOUT_DRIVER is restored." class="btn btn-ghost btn-sm danger">Disable search</button>
+                                <button type="button" wire:click="disableSearch" data-confirm="Disable Meilisearch for this app? The previous SCOUT_DRIVER is restored." class="btn btn-ghost btn-sm danger">Disable search</button>
                             @else
                                 <button type="button" wire:click="enableSearch" @disabled(empty($searchStatus['running'])) class="btn btn-primary btn-sm">Enable search</button>
                             @endif
@@ -366,7 +366,7 @@
                         <div class="card-header">
                             <h2 class="card-title">Node runtime</h2>
                             @if($isSsr)
-                                <button type="button" wire:click="restartNode" wire:confirm="Blue/green restart {{ $app['app'] }}?" class="btn btn-secondary btn-sm"><x-cipi::icon name="refresh" /> Restart</button>
+                                <button type="button" wire:click="restartNode" data-confirm="Blue/green restart {{ $app['app'] }}?" class="btn btn-secondary btn-sm"><x-cipi::icon name="refresh" /> Restart</button>
                             @endif
                         </div>
                         <dl class="kv">
@@ -402,7 +402,7 @@
                         @foreach($aliases as $alias)
                             <li class="list-row" wire:key="alias-{{ $alias }}">
                                 <span>{{ $alias }}</span>
-                                <button type="button" wire:click="removeAlias(@js($alias))" wire:confirm="Remove alias {{ $alias }}?" class="btn btn-ghost btn-sm danger">Remove</button>
+                                <button type="button" wire:click="removeAlias(@js($alias))" data-confirm="Remove alias {{ $alias }}?" class="btn btn-ghost btn-sm danger">Remove</button>
                             </li>
                         @endforeach
                     </ul>
@@ -460,7 +460,7 @@
                             <button wire:click="wwwForceToRoot" class="btn btn-sm {{ $mode === 'to-root' ? 'btn-primary' : 'btn-secondary' }}">www → apex</button>
                             <button wire:click="wwwForceFromRoot" class="btn btn-sm {{ $mode === 'from-root' ? 'btn-primary' : 'btn-secondary' }}">apex → www</button>
                             @if($mode)
-                                <button wire:click="wwwClear" wire:confirm="Serve both hostnames without a redirect?" class="btn btn-ghost btn-sm danger">Clear redirect</button>
+                                <button wire:click="wwwClear" data-confirm="Serve both hostnames without a redirect?" class="btn btn-ghost btn-sm danger">Clear redirect</button>
                             @endif
                         </div>
                     @endif
@@ -509,7 +509,7 @@
                                 <button type="submit" class="btn btn-primary btn-sm">Save redirect</button>
                                 @if($appRedirect)
                                     <button type="button" wire:click="toggleAppRedirect" class="btn btn-secondary btn-sm">{{ !empty($appRedirect['enabled']) ? 'Disable' : 'Enable' }}</button>
-                                    <button type="button" wire:click="removeAppRedirect" wire:confirm="Remove the whole-app redirect?" class="btn btn-ghost btn-sm danger">Remove</button>
+                                    <button type="button" wire:click="removeAppRedirect" data-confirm="Remove the whole-app redirect?" class="btn btn-ghost btn-sm danger">Remove</button>
                                 @endif
                             </div>
                         </form>
@@ -532,7 +532,7 @@
                                             <p class="font-mono text-xs break-words"><span class="text-strong">{{ $rule['from'] ?? '' }}</span> <span class="text-subtle">→</span> {{ $rule['to'] ?? '' }}</p>
                                             <p class="text-2xs text-subtle mt-0.5">{{ $rule['code'] ?? 301 }}{{ !empty($rule['keep_path']) ? ' · keeps path' : '' }}</p>
                                         </div>
-                                        <button type="button" wire:click="removePathRedirect(@js($rule['from'] ?? ''))" wire:confirm="Remove this redirect?" class="btn btn-ghost btn-sm danger">Remove</button>
+                                        <button type="button" wire:click="removePathRedirect(@js($rule['from'] ?? ''))" data-confirm="Remove this redirect?" class="btn btn-ghost btn-sm danger">Remove</button>
                                     </li>
                                 @endforeach
                             </ul>
@@ -591,7 +591,7 @@
                                                         @if(!array_key_exists('buffering', $proxy) || $proxy['buffering'])<span class="badge">buffered</span>@else<span class="badge">streaming</span>@endif
                                                     </div>
                                                 </td>
-                                                <td class="text-right"><button type="button" wire:click="removeProxy(@js($proxy['prefix'] ?? ''))" wire:confirm="Remove this proxy?" class="btn btn-ghost btn-sm danger">Remove</button></td>
+                                                <td class="text-right"><button type="button" wire:click="removeProxy(@js($proxy['prefix'] ?? ''))" data-confirm="Remove this proxy?" class="btn btn-ghost btn-sm danger">Remove</button></td>
                                             </tr>
                                         @endforeach
                                     </tbody>
@@ -634,8 +634,8 @@
                         @php $deployBusy = $this->deployActive(); @endphp
                         <div class="space-y-2">
                             <button wire:click="deploy" @disabled($deployBusy) class="btn btn-primary w-full"><x-cipi::icon name="rocket" /> Deploy now</button>
-                            <button wire:click="rollback" @disabled($deployBusy) wire:confirm="Roll back to the previous release?" class="btn btn-secondary w-full"><x-cipi::icon name="rollback" /> Roll back</button>
-                            <button wire:click="unlockDeploy" wire:confirm="Remove the deploy lock? Only do this if no deploy is running." class="btn btn-ghost w-full"><x-cipi::icon name="unlock" /> Unlock a stuck deploy</button>
+                            <button wire:click="rollback" @disabled($deployBusy) data-confirm="Roll back to the previous release?" class="btn btn-secondary w-full"><x-cipi::icon name="rollback" /> Roll back</button>
+                            <button wire:click="unlockDeploy" data-confirm="Remove the deploy lock? Only do this if no deploy is running." class="btn btn-ghost w-full"><x-cipi::icon name="unlock" /> Unlock a stuck deploy</button>
                         </div>
                         @if($deployBusy)
                             <p class="text-xs text-muted mt-2" data-deploy-busy>A deploy is already running — Deployer holds the lock until it ends, and the page follows it above.</p>
@@ -662,8 +662,8 @@
                             <p class="font-medium text-strong mb-1">Git webhook</p>
                             <p class="text-xs text-muted mb-3">Recreate the GitHub/GitLab hook, or rotate <code>CIPI_WEBHOOK_TOKEN</code>.</p>
                             <div class="btn-group">
-                                <button type="button" wire:click="recreateWebhook(false)" wire:confirm="Recreate the provider webhook?" class="btn btn-secondary btn-sm">Recreate</button>
-                                <button type="button" wire:click="recreateWebhook(true)" wire:confirm="Rotate the webhook secret? The old one stops working immediately." class="btn btn-ghost btn-sm">Rotate secret</button>
+                                <button type="button" wire:click="recreateWebhook(false)" data-confirm="Recreate the provider webhook?" class="btn btn-secondary btn-sm">Recreate</button>
+                                <button type="button" wire:click="recreateWebhook(true)" data-confirm="Rotate the webhook secret? The old one stops working immediately." class="btn btn-ghost btn-sm">Rotate secret</button>
                             </div>
                         </div>
                     @endif
@@ -979,9 +979,9 @@
                             </x-cipi::alert>
                         @endif
                         @if($yml['auto'])
-                            <button type="button" wire:click="disableYmlAuto" wire:confirm="Turn off auto-apply for {{ $app['app'] }}? Deploys keep the server settings as they are; cipi.yml is applied only when you apply it." class="btn btn-secondary">Turn off</button>
+                            <button type="button" wire:click="disableYmlAuto" data-confirm="Turn off auto-apply for {{ $app['app'] }}? Deploys keep the server settings as they are; cipi.yml is applied only when you apply it." class="btn btn-secondary">Turn off</button>
                         @else
-                            <button type="button" wire:click="enableYmlAuto" wire:confirm="Turn on auto-apply for {{ $app['app'] }}? cipi.yml will be applied after every successful deploy (CLI, panel and Git webhook): anyone who can commit to the repository can then change this app's aliases, PHP settings, limits, workers, deploy branch and recipe, scheduled commands, databases and backup schedule{{ $nodeExtra }}." class="btn btn-primary">Turn on</button>
+                            <button type="button" wire:click="enableYmlAuto" data-confirm="Turn on auto-apply for {{ $app['app'] }}? cipi.yml will be applied after every successful deploy (CLI, panel and Git webhook): anyone who can commit to the repository can then change this app's aliases, PHP settings, limits, workers, deploy branch and recipe, scheduled commands, databases and backup schedule{{ $nodeExtra }}." class="btn btn-primary">Turn on</button>
                         @endif
                     </div>
                 </div>
@@ -1078,7 +1078,7 @@
                         <p class="text-xs text-subtle">{{ $authJsonExists ? 'Saving replaces the whole file.' : 'Edit the template, then create the file.' }}</p>
                         <div class="btn-group">
                             @if($authJsonExists)
-                                <button wire:click="deleteAuthJson" wire:confirm="Delete shared/auth.json for this app?" class="btn btn-ghost danger">Delete</button>
+                                <button wire:click="deleteAuthJson" data-confirm="Delete shared/auth.json for this app?" class="btn btn-ghost danger">Delete</button>
                             @endif
                             <button wire:click="saveAuthJson" class="btn btn-primary">{{ $authJsonExists ? 'Save' : 'Create auth.json' }}</button>
                         </div>
@@ -1095,11 +1095,7 @@
                         <p class="card-subtitle">Runs as the app user in the current release. Interactive commands like <code>tinker</code> are refused.</p>
                     </div>
                 </div>
-                <div class="flex flex-wrap gap-1.5 mb-4">
-                    @foreach($artisanPresets as $preset)
-                        <button type="button" wire:click="useArtisanPreset(@js($preset))" class="btn btn-secondary btn-xs font-mono">{{ $preset }}</button>
-                    @endforeach
-                </div>
+                @include('cipi-gui::partials.preset-list', ['kind' => 'artisan', 'presets' => $artisanPresets, 'use' => 'useArtisanPreset', 'canEdit' => $canEditPresets, 'editing' => $presetEditing === 'artisan', 'custom' => $presetsCustom['artisan']])
                 <form wire:submit="runArtisan">
                     <div class="input-group">
                         <span class="input-addon">php artisan</span>
@@ -1122,11 +1118,7 @@
                 @if($runUnsupported)
                     <p class="text-muted">Needs API 1.14+ / Cipi 5.0.3+ and the <code>apps-run</code> ability.</p>
                 @else
-                    <div class="flex flex-wrap gap-1.5 mb-4">
-                        @foreach($runPresets as $preset)
-                            <button type="button" wire:click="useRunPreset(@js($preset))" class="btn btn-secondary btn-xs font-mono">{{ $preset }}</button>
-                        @endforeach
-                    </div>
+                    @include('cipi-gui::partials.preset-list', ['kind' => 'run', 'presets' => $runPresets, 'use' => 'useRunPreset', 'canEdit' => $canEditPresets, 'editing' => $presetEditing === 'run', 'custom' => $presetsCustom['run']])
                     <form wire:submit="runAppCommand">
                         <div class="input-group">
                             <span class="input-addon">$</span>
@@ -1173,7 +1165,7 @@
                             <x-cipi::secret label="Password" :value="$generatedPassword" />
                         </div>
                     @endif
-                    <button wire:click="disableBasicAuth" wire:confirm="Remove the password prompt from this site?" class="btn btn-danger">Disable basic auth</button>
+                    <button wire:click="disableBasicAuth" data-confirm="Remove the password prompt from this site?" class="btn btn-danger">Disable basic auth</button>
                 @else
                     <form wire:submit="enableBasicAuth" class="space-y-4">
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">

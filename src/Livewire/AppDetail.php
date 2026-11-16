@@ -11,6 +11,7 @@ use CipiGui\Support\AppEnv;
 use CipiGui\Support\BuildCommand;
 use CipiGui\Support\Clock;
 use CipiGui\Support\DeployLog;
+use CipiGui\Support\Presets;
 use Illuminate\Support\Carbon;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
@@ -25,15 +26,10 @@ class AppDetail extends Component
     }
     use ManagesAsyncJobs;
 
-    public const ARTISAN_PRESETS = [
-        'about', 'migrate:status', 'migrate --force', 'optimize', 'optimize:clear', 'cache:clear',
-        'config:cache', 'queue:restart', 'schedule:list', 'storage:link',
-    ];
+    /** The lists the panel ships with; what the tabs show is Presets::get(), which an admin can edit. */
+    public const ARTISAN_PRESETS = Presets::DEFAULTS[Presets::ARTISAN];
 
-    public const RUN_PRESETS = [
-        'composer install --no-dev --no-interaction', 'composer dump-autoload --optimize',
-        'npm ci', 'npm run build', 'git status', 'du -sh current shared logs',
-    ];
+    public const RUN_PRESETS = Presets::DEFAULTS[Presets::RUN];
 
     /**
      * The app this page is about, from the route. Locked: Livewire applies what
@@ -248,6 +244,9 @@ class AppDetail extends Component
     /** @var array<int, int> index in $auditRecords → seconds that deploy took, from the deploy log banners (Cipi 5.6+) */
     public array $auditTook = [];
 
+    /** The server has no `cipi deploy --history` (before API 1.39 / Cipi 5.9.0): durations come from deploy.log alone. */
+    public bool $deployHistoryUnsupported = false;
+
     // Deploy in progress (API 1.37+ / Cipi ≥ 5.8.4): `cipi deploy --status`, polled while the page is open
     /** Lines of the deploy log asked for with every status read, shown live under the banner. */
     public const DEPLOY_TAIL_LINES = 15;
@@ -302,20 +301,53 @@ class AppDetail extends Component
         $this->ensureServerSelected();
         $this->refreshAbilities();
 
-        $this->loadApp();
+        // What the page asks the server before it can render goes out together
+        // (CipiApiClient::prefetch): the deploy status with the overview's lists.
+        $this->prefetchDeployStatus = true;
+        try {
+            $this->loadApp();
 
-        if ($this->app !== null && ! array_key_exists($this->activeTab, $this->tabs())) {
-            $this->activeTab = 'overview';
+            if ($this->app !== null && ! array_key_exists($this->activeTab, $this->tabs())) {
+                $this->activeTab = 'overview';
+            }
+
+            if ($this->app !== null && $this->activeTab !== 'overview') {
+                $this->loadTab($this->activeTab);
+            }
+
+            // A deploy may be running as the page opens: say so at once, not at the first poll.
+            if ($this->app !== null) {
+                $this->pollDeployStatus(true);
+            }
+        } finally {
+            $this->prefetchDeployStatus = false;
+            CipiApiClient::forgetPrefetched();
+        }
+    }
+
+    /** Set by mount() only (not a public property: the browser cannot reach it). */
+    protected bool $prefetchDeployStatus = false;
+
+    /**
+     * The GET paths the loaders of the overview are about to ask, for this
+     * kind of app — exactly those, so every prefetched answer is taken.
+     *
+     * @return list<string|array{0: string, 1: array<string, mixed>}>
+     */
+    protected function overviewPaths(): array
+    {
+        $paths = ['/php', '/node', "/apps/{$this->appName}/health"];
+        if ($this->isNodeApp($this->app ?? [])) {
+            $paths[] = "/apps/{$this->appName}/node";
+        }
+        if ($this->isLaravelApp($this->app ?? [])) {
+            $paths[] = '/search';
+        }
+        if ($this->prefetchDeployStatus) {
+            $paths[] = ["/apps/{$this->appName}/deploy/status", ['tail' => self::DEPLOY_TAIL_LINES]];
         }
 
-        if ($this->app !== null && $this->activeTab !== 'overview') {
-            $this->loadTab($this->activeTab);
-        }
-
-        // A deploy may be running as the page opens: say so at once, not at the first poll.
-        if ($this->app !== null) {
-            $this->pollDeployStatus(true);
-        }
+        return $paths;
     }
 
     /**
@@ -374,6 +406,9 @@ class AppDetail extends Component
             $this->editDomain = $this->app['domain'];
             $this->editNodeMode = (string) ($this->app['node_mode'] ?? '');
             $this->editNodeVersion = (string) ($this->app['node_version'] ?? '');
+            // Asked at once instead of one after the other: each is a `sudo cipi …`
+            // on the server, and the page waited for their sum.
+            $this->client()->prefetch($this->overviewPaths());
             $this->loadInstalledPhpVersions();
             $this->loadNodeRuntimes();
             $this->loadNodeStatus();
@@ -385,6 +420,9 @@ class AppDetail extends Component
             $this->handleApiError($e);
         } finally {
             $this->loading = false;
+            if (! $this->prefetchDeployStatus) {
+                CipiApiClient::forgetPrefetched();
+            }
         }
     }
 
@@ -1135,15 +1173,43 @@ class AppDetail extends Component
     }
 
     /**
-     * The end banners of the deploy log — how long each deploy took. The ledger has
-     * no duration of its own; Cipi 5.6+ writes one per deploy to the log. The most
-     * recent 1000 lines cover the last deploys; older records show no time.
+     * How long each deploy took. The ledger has no duration of its own; Cipi
+     * 5.6+ writes one per deploy to the deploy log, in its end banner.
+     *
+     * On API 1.39+ / Cipi 5.9.0+ the banners come from `cipi deploy --history`,
+     * which reads the rotated logs too. Before that the panel read deploy.log
+     * itself — and that file is rotated every night, so a deploy kept its time
+     * until the first rotation only: one started by a Git push, looked at the
+     * day after, never showed any. That reading is still what an older server
+     * gets (the most recent 1000 lines of today's file).
      *
      * @return list<array{event: string, release: string, seconds: int}>
      */
     protected function deployLogBanners(): array
     {
-        return DeployLog::banners($this->deployLogPages()['lines']);
+        return $this->deployHistoryBanners() ?? DeployLog::banners($this->deployLogPages()['lines']);
+    }
+
+    /** @return list<array{event: string, release: string, seconds: int}>|null null when the server has no deploy history */
+    protected function deployHistoryBanners(): ?array
+    {
+        if ($this->deployHistoryUnsupported) {
+            return null;
+        }
+
+        try {
+            $runs = $this->client()->deployHistory($this->appName, 500);
+        } catch (CipiApiException) {
+            $runs = null;
+        }
+
+        if ($runs === null) {
+            $this->deployHistoryUnsupported = true;
+
+            return null;
+        }
+
+        return DeployLog::bannersFromRuns($runs);
     }
 
     /**
@@ -1909,6 +1975,79 @@ class AppDetail extends Component
         $this->artisanCommand = $command;
     }
 
+    // The one-click commands above each input: a list for the whole panel,
+    // which its admins edit here (Support\Presets) — the defaults included.
+
+    /** Which list is being edited: '' (none), 'artisan' or 'run'. */
+    public string $presetEditing = '';
+
+    public string $presetDraft = '';
+
+    public function editPresets(string $kind): void
+    {
+        if (! Access::isAdmin($this->panelUser()) || ! Presets::isKind($kind)) {
+            return;
+        }
+
+        $this->resetErrorBag('presetDraft');
+        $this->presetDraft = '';
+        $this->presetEditing = $this->presetEditing === $kind ? '' : $kind;
+    }
+
+    /** Save the command in the box below the list — or, with nothing typed there, the one in the tab's input. */
+    public function addPreset(string $kind): void
+    {
+        if (! $this->presetsAllowed($kind)) {
+            return;
+        }
+
+        $command = trim($this->presetDraft) !== '' ? $this->presetDraft : ($kind === Presets::ARTISAN ? $this->artisanCommand : $this->runCommand);
+        if ($error = Presets::error($kind, $command)) {
+            $this->addError('presetDraft', $error);
+
+            return;
+        }
+
+        $this->resetErrorBag('presetDraft');
+        Presets::add($kind, $command);
+        $this->presetDraft = '';
+        $this->dispatch('notify', type: 'success', message: 'Saved to the list — for every app and everyone on the panel.');
+    }
+
+    public function removePreset(string $kind, string $command): void
+    {
+        if (! $this->presetsAllowed($kind)) {
+            return;
+        }
+
+        Presets::remove($kind, $command);
+    }
+
+    public function resetPresets(string $kind): void
+    {
+        if (! $this->presetsAllowed($kind)) {
+            return;
+        }
+
+        Presets::reset($kind);
+        $this->dispatch('notify', type: 'success', message: 'The list is back to the panel\'s defaults.');
+    }
+
+    /** Editing the lists is for admins of the panel: they are shared by every app and every user. */
+    protected function presetsAllowed(string $kind): bool
+    {
+        if (! Presets::isKind($kind)) {
+            return false;
+        }
+        if (! Access::isAdmin($this->panelUser())) {
+            $this->denied();
+
+            return false;
+        }
+
+        return true;
+    }
+
     public function runArtisan(): void
     {
         if (! $this->allowed('run')) {
@@ -2117,8 +2256,10 @@ class AppDetail extends Component
             'phpVersions' => $this->installedPhpVersions !== [] ? $this->installedPhpVersions : config('cipi-gui.php_versions'),
             'server' => $server,
             'tabs' => $this->app ? $this->tabs() : [],
-            'artisanPresets' => self::ARTISAN_PRESETS,
-            'runPresets' => self::RUN_PRESETS,
+            'artisanPresets' => Presets::get(Presets::ARTISAN),
+            'runPresets' => Presets::get(Presets::RUN),
+            'presetsCustom' => [Presets::ARTISAN => Presets::isCustom(Presets::ARTISAN), Presets::RUN => Presets::isCustom(Presets::RUN)],
+            'canEditPresets' => Access::isAdmin($this->panelUser()),
             'envSuggestions' => AppEnv::SUGGESTIONS,
             'envMaxLength' => AppEnv::MAX_LENGTH,
         ])->title($this->appName.($server ? ' · '.$server->name : ''));

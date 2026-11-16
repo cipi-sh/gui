@@ -410,6 +410,60 @@ table.table-plain th { background: transparent; }
 .modal-title { font-family: var(--font-display); font-size: 1.0625rem; font-weight: 600; }
 .modal-body { padding: 1.25rem; }
 .modal-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; padding: 0.875rem 1.25rem; border-top: 1px solid var(--border-subtle); background: var(--bg-raised); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+/* ── Backups (partials/server-backups) ─────────────────────────────────── */
+
+/* A matrix: one column per profile, one row per app and per database. The header of a
+   column is the profile itself — its facts and its actions — so it is not a table label:
+   no uppercase, normal weight, wrapping text. The first column stays in view when the
+   table scrolls sideways. */
+.backup-dest { min-width: 11rem; max-width: 18rem; padding: 0.625rem 0.75rem; border: 1px solid var(--border-subtle); border-radius: var(--radius); background: var(--bg-raised); }
+.backup-matrix { table-layout: auto; }
+.backup-matrix th { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 0.8125rem; color: var(--text); white-space: normal; vertical-align: top; }
+.backup-matrix thead th { background: var(--bg-raised); }
+.backup-matrix-corner { width: 1%; min-width: 11rem; }
+.backup-matrix-profile { min-width: 13.5rem; border-left: 1px solid var(--border-subtle); }
+.backup-matrix-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.125rem 0.625rem; margin-top: 0.5rem; font-size: 0.75rem; }
+.backup-matrix-facts dt { color: var(--text-subtle); }
+.backup-matrix-facts dd { color: var(--text-soft); overflow-wrap: anywhere; }
+.backup-matrix tbody th { position: sticky; left: 0; z-index: 1; background: var(--bg-elevated); white-space: nowrap; border-bottom: 1px solid var(--border-subtle); padding: 0.5rem 1rem; }
+.backup-matrix-section th { position: static; background: var(--bg-raised); font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-subtle); padding: 0.375rem 1rem; }
+.backup-matrix-cell { text-align: center; border-left: 1px solid var(--border-subtle); padding: 0.5rem 1rem; }
+.backup-matrix-bare td { background: var(--warn-bg); }
+/* The sticky first cell needs an opaque base under the tint, or the scrolled cells show through. */
+.backup-matrix tbody tr.backup-matrix-bare th { background: linear-gradient(var(--warn-bg), var(--warn-bg)), var(--bg-elevated); }
+.backup-mark { display: inline-flex; align-items: center; justify-content: center; width: 1.375rem; height: 1.375rem; border-radius: 9999px; color: var(--success); background: var(--success-bg); }
+.backup-mark svg { width: 0.8125rem; height: 0.8125rem; stroke-width: 2.5; }
+.backup-mark.is-off { color: var(--text-subtle); background: var(--bg-hover); }
+.backup-runs { border: 1px solid var(--border-subtle); border-radius: var(--radius); }
+.backup-runs li { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.3125rem 0.625rem; border-bottom: 1px solid var(--border-subtle); }
+.backup-runs li:last-child { border-bottom: 0; }
+.btn-icon.btn-xs { width: 1.375rem; min-height: 1.375rem; }
+
+/* Two ways into one dialog (Restore: a file on the server | upload a dump). */
+.modal-tabs { display: flex; gap: 0.25rem; padding: 0.5rem 1.25rem 0; border-bottom: 1px solid var(--border-subtle); }
+.modal-tab { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.5rem 0.75rem; margin-bottom: -1px; border-bottom: 2px solid transparent; font-size: 0.8125rem; font-weight: 500; color: var(--text-muted); }
+.modal-tab:hover { color: var(--text); }
+.modal-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.modal-tab svg { width: 0.875rem; height: 0.875rem; }
+/* Progress of a dump upload. */
+.upload-bar { height: 0.375rem; border-radius: 9999px; background: var(--bg-hover); overflow: hidden; }
+.upload-bar-fill { height: 100%; width: 0; border-radius: 9999px; background: var(--accent); transition: width 0.2s ease; }
+
+/* Saved commands in edit mode (partials/preset-list): a chip with its own remove button. */
+.preset-chip { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.125rem 0.125rem 0.125rem 0.5rem; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); font-size: 0.75rem; color: var(--text); background: var(--bg-raised); }
+.preset-chip-remove { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; border-radius: var(--radius-sm); color: var(--text-subtle); }
+.preset-chip-remove:hover, .preset-chip-remove:focus-visible { color: var(--danger); background: var(--danger-bg); }
+.preset-chip-remove svg { width: 0.75rem; height: 0.75rem; }
+.preset-editor { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--border-subtle); }
+
+/* The panel's confirmation dialog (partials/confirm-dialog): above every other modal and the
+   job overlay, below the toasts. [hidden] must win over the overlay's display:flex. */
+.confirm-overlay { z-index: 65; align-items: center; }
+.confirm-overlay[hidden] { display: none; }
+.confirm-dialog { max-width: 26rem; }
+.confirm-dialog .modal-body { padding: 1.25rem 1.25rem 1rem; }
+.confirm-text { margin-top: 0.5rem; font-size: 0.875rem; line-height: 1.5; color: var(--text-muted); overflow-wrap: anywhere; }
+.confirm-text[hidden] { display: none; }
 
 /* ── Toasts ────────────────────────────────────────────────────────────── */
 
@@ -626,6 +680,12 @@ table.table-plain th { background: transparent; }
 .pr-1 { padding-right: 0.25rem; }
 
 .w-full { width: 100%; }
+.w-16 { width: 4rem; }
+.w-40 { width: 10rem; }
+.w-1\/2 { width: 50%; }
+.w-3\/4 { width: 75%; }
+.mt-1\.5 { margin-top: 0.375rem; }
+.pt-0 { padding-top: 0; }
 .w-auto { width: auto; }
 .w-3 { width: 0.75rem; }
 .w-3\.5 { width: 0.875rem; }

@@ -88,7 +88,7 @@
         <div class="card-header">
             <div>
                 <h2 class="card-title">Create a token on the server</h2>
-                <p class="card-subtitle">Run this on each Cipi server (as root). It grants the {{ $abilityCount }} abilities the panel uses with API 1.31.</p>
+                <p class="card-subtitle">Run this on each Cipi server (as root). It grants the {{ $abilityCount }} abilities the panel uses with API 1.39. On API 1.38+ <code>cipi api token create --name=gui --full-access</code> grants them all, and the ones later versions add.</p>
             </div>
             <x-cipi::copy :value="$tokenCommand" label="Copy command" />
         </div>

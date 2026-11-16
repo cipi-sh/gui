@@ -210,7 +210,7 @@ class AppYmlTest extends TestCase
     public function turning_auto_apply_on_asks_for_confirmation_with_the_warning(): void
     {
         $component = $this->ymlTab()
-            ->assertSeeHtml('wire:click="enableYmlAuto" wire:confirm="Turn on auto-apply for shop?')
+            ->assertSeeHtml('wire:click="enableYmlAuto" data-confirm="Turn on auto-apply for shop?')
             ->assertSee('anyone who can commit to the repository can then change this app')
             ->assertSee('deploy branch and recipe, scheduled commands, databases and backup schedule');
 

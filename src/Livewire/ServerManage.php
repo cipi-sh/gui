@@ -4,6 +4,7 @@ namespace CipiGui\Livewire;
 
 use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
+use CipiGui\Livewire\Concerns\ManagesBackups;
 use CipiGui\Models\CipiServer;
 use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
@@ -18,6 +19,7 @@ class ServerManage extends Component
 {
     use InteractsWithCipiServer;
     use ManagesAsyncJobs;
+    use ManagesBackups;
 
     public const TABS = [
         'overview' => 'Overview',
@@ -25,6 +27,7 @@ class ServerManage extends Component
         'php' => 'PHP',
         'node' => 'Node',
         'engines' => 'Databases',
+        'backups' => 'Backups',
         'services' => 'Services',
         'health' => 'Health',
         'monitor' => 'Monitor',
@@ -87,6 +90,15 @@ class ServerManage extends Component
 
     public array $nodeRuntimes = [];
 
+    /** Node major to install (Node tab; API 1.39+ / Cipi ≥ 5.9.0). */
+    public string $nodeInstallMajor = '';
+
+    /** Move the SSR apps to the new binary right after an upgrade (blue/green, no downtime). */
+    public bool $nodeUpgradeRestart = true;
+
+    /** Even majors offered for install, newest first; what is installed is left out. */
+    public const NODE_MAJORS = ['26', '24', '22', '20'];
+
     public array $packages = [];
 
     public array $monitor = [];
@@ -130,7 +142,16 @@ class ServerManage extends Component
             $this->activeTab = 'overview';
         }
 
-        $this->loadTab($this->activeTab);
+        // Nothing is asked of the server here: the page is sent at once and
+        // init() (wire:init in the view) loads the tab in view.
+    }
+
+    /** Called by wire:init so the page paints before the server answers. */
+    public function init(): void
+    {
+        if (! ($this->loaded[$this->activeTab] ?? false)) {
+            $this->loadTab($this->activeTab);
+        }
         $this->loading = false;
     }
 
@@ -192,10 +213,16 @@ class ServerManage extends Component
 
         $loader = match ($tab) {
             'overview' => function () {
-                $this->status = $this->client()->getStatus();
-                $this->guard('services', fn () => $this->services = $this->client()->listServices());
-                $this->guard('monitor', fn () => $this->monitor = $this->client()->monitorStatus());
-                $this->guard('health', fn () => $this->healthChecks = $this->client()->listHealth());
+                // Four answers, each a `sudo cipi …` on the server: asked together.
+                $this->client()->prefetch(['/status', '/services', '/monitor', '/health']);
+                try {
+                    $this->status = $this->client()->getStatus();
+                    $this->guard('services', fn () => $this->services = $this->client()->listServices());
+                    $this->guard('monitor', fn () => $this->monitor = $this->client()->monitorStatus());
+                    $this->guard('health', fn () => $this->healthChecks = $this->client()->listHealth());
+                } finally {
+                    CipiApiClient::forgetPrefetched();
+                }
             },
             'disk' => function () {
                 $this->disk = $this->client()->diskUsage();
@@ -214,7 +241,14 @@ class ServerManage extends Component
                 $candidates = array_values(array_diff($this->phpData['installable'] ?: ['8.3', '8.4', '8.5'], $installed));
                 $this->phpInstallVersion = $candidates[0] ?? '';
             },
-            'node' => fn () => $this->nodeRuntimes = array_values(array_filter($this->client()->listNodeRuntimes(), fn ($r) => is_array($r) && ! empty($r['major']))),
+            'node' => function () {
+                $this->nodeRuntimes = array_values(array_filter($this->client()->listNodeRuntimes(), fn ($r) => is_array($r) && ! empty($r['major'])));
+                $installable = $this->nodeInstallable();
+                if (! in_array($this->nodeInstallMajor, $installable, true)) {
+                    $this->nodeInstallMajor = $installable[0] ?? '';
+                }
+            },
+            'backups' => fn () => $this->loadBackups(),
             'engines' => fn () => $this->enginesData = $this->client()->listDatabaseEngines() + ['default' => null, 'engines' => []],
             'services' => fn () => $this->services = $this->client()->listServices(),
             'health' => fn () => $this->healthChecks = $this->client()->listHealth(),
@@ -280,6 +314,72 @@ class ServerManage extends Component
         }
 
         $this->startJob('Restart '.$name, fn (CipiApiClient $api) => $api->restartService($name));
+    }
+
+    // ── Node runtimes (API 1.39+ / Cipi ≥ 5.9.0) ──────────────────────
+
+    /** @return list<string> majors that can still be installed */
+    public function nodeInstallable(): array
+    {
+        $installed = array_map(fn ($r) => (string) ($r['major'] ?? ''), $this->nodeRuntimes);
+
+        return array_values(array_diff(self::NODE_MAJORS, $installed));
+    }
+
+    public function installNode(): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
+        $this->validate(['nodeInstallMajor' => ['required', 'in:'.implode(',', $this->nodeInstallable())]], ['nodeInstallMajor.required' => 'Choose a Node major to install.', 'nodeInstallMajor.in' => 'Choose a Node major to install.']);
+
+        $major = $this->nodeInstallMajor;
+        $this->startJob('Install Node '.$major, fn (CipiApiClient $api) => $api->nodeInstall($major));
+    }
+
+    public function upgradeNode(string $major = ''): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || ! $this->nodeMajorKnown($major, allowEmpty: true)) {
+            return;
+        }
+
+        $restart = $this->nodeUpgradeRestart;
+        $this->startJob($major !== '' ? 'Upgrade Node '.$major : 'Upgrade every Node runtime', fn (CipiApiClient $api) => $api->nodeUpgrade($major !== '' ? $major : null, $restart));
+    }
+
+    public function setNodeDefault(string $major): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || ($major !== 'system' && ! $this->nodeMajorKnown($major))) {
+            return;
+        }
+
+        $this->startJob($major === 'system' ? 'Server default: system Node' : 'Server default: Node '.$major, fn (CipiApiClient $api) => $api->nodeSetDefault($major));
+    }
+
+    public function removeNode(string $major): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || ! $this->nodeMajorKnown($major)) {
+            return;
+        }
+
+        $this->startJob('Remove Node '.$major, fn (CipiApiClient $api) => $api->nodeRemove($major));
+    }
+
+    /** The major is one of the runtimes the page lists (never a value the request made up). */
+    protected function nodeMajorKnown(string $major, bool $allowEmpty = false): bool
+    {
+        if ($major === '') {
+            return $allowEmpty;
+        }
+
+        foreach ($this->nodeRuntimes as $runtime) {
+            if ((string) ($runtime['major'] ?? '') === $major && $major !== 'system') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // ── SSH keys ──────────────────────────────────────────────────────

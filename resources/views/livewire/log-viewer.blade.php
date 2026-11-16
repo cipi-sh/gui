@@ -1,4 +1,4 @@
-<div @if($autoRefresh) wire:poll.5s="polledRefresh" @endif>
+<div wire:init="loadLogs" @if($autoRefresh) wire:poll.5s="polledRefresh" @endif>
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div class="segmented" role="tablist" aria-label="Log type">
             @foreach($this->logTypeOptions() as $type)

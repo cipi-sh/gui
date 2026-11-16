@@ -210,7 +210,8 @@ class LockedStateTest extends TestCase
     {
         Access::replaceGrants($this->user->id, [], [$this->prod->id => ['shop' => ['logs'], 'blog' => ['view']]]);
 
-        $viewer = Livewire::test(LogViewer::class, ['app' => 'shop', 'serverId' => $this->prod->id])->assertSee('deploy OK');
+        // The viewer reads after it is on the page (4.2.0): loadLogs() is what wire:init calls.
+        $viewer = Livewire::test(LogViewer::class, ['app' => 'shop', 'serverId' => $this->prod->id])->call('loadLogs')->assertSee('deploy OK');
 
         $this->assertLocked($viewer, 'appName', 'blog');
         $this->assertLocked($viewer, 'serverId', $this->staging->id);
@@ -218,6 +219,7 @@ class LockedStateTest extends TestCase
 
         // `view` on blog is not `logs` on blog: a viewer on it reads nothing.
         Livewire::test(LogViewer::class, ['app' => 'blog', 'serverId' => $this->prod->id])
+            ->call('loadLogs')
             ->assertSet('error', self::DENIED)
             ->assertSet('files', [])
             ->assertDontSee('blog secret line');
@@ -238,12 +240,16 @@ class LockedStateTest extends TestCase
         // The app page leaves its server in the session; /server used to pick it up from there.
         $this->withSession(['cipi_gui_server_id' => $this->prod->id])->get('/server')
             ->assertOk()->assertSee('No server selected')->assertDontSee('fra1');
+        // The page loads its data after it is sent (wire:init → init()): that call asks nothing either.
+        session(['cipi_gui_server_id' => $this->prod->id]);
+        Livewire::test(ServerManage::class)->call('init')->assertSee('No server selected')->assertDontSee('fra1');
         Http::assertNotSent(fn (Request $r) => str_ends_with((string) parse_url($r->url(), PHP_URL_PATH), '/api/status'));
 
         // A level on the server still opens it, with or without the id in the URL.
         Access::replaceGrants($this->user->id, [$this->prod->id => 'view'], []);
-        $this->withSession(['cipi_gui_server_id' => $this->prod->id])->get('/server')->assertOk()->assertSee('fra1');
-        $page = Livewire::test(ServerManage::class, ['serverId' => $this->prod->id])->assertSee('fra1');
+        // The page is sent before the server is asked (4.2.0): its data arrives with init().
+        $this->withSession(['cipi_gui_server_id' => $this->prod->id])->get('/server')->assertOk()->assertSeeHtml('wire:init="init"');
+        $page = Livewire::test(ServerManage::class, ['serverId' => $this->prod->id])->call('init')->assertSee('fra1');
         $this->assertLocked($page, 'serverId', $this->staging->id);
     }
 
@@ -265,9 +271,9 @@ class LockedStateTest extends TestCase
     }
 
     #[Test]
-    public function the_version_is_4_1_2(): void
+    public function the_release_that_closed_this_is_4_1_2(): void
     {
-        $this->assertSame('4.1.2', Theme::VERSION);
+        $this->assertTrue(version_compare(Theme::VERSION, '4.1.2', '>='));
         $this->assertStringContainsString('## [4.1.2]', file_get_contents(Theme::packageRoot().'/CHANGELOG.md'));
     }
 }

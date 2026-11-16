@@ -1,5 +1,29 @@
 # Changelog
 
+## [4.2.0] — 2026-11-16
+
+What people who use the panel every day asked for. Most of it needs Cipi 5.9.0 and API 1.39.0 on the server; a server that is older keeps every page it had, and the new parts say what they need.
+
+### Added
+
+- **A confirmation dialog of the panel's own.** The thirty questions the panel asked with the browser's `confirm()` — an unstyled box that names the site, cannot say what it is about to do and that some browsers let you silence for good — are asked in a dialog: the question as the title, the consequence below it, the action's own word on the button ("Remove", "Restart", "Roll back"), red when it destroys something, and then the focus is on Cancel so Enter does not confirm by reflex. A button asks with `data-confirm="…"`; the click is held and, once confirmed, goes through as it was.
+- **The last deploy in the app list** — when, how it went (OK, failed, a rollback), with release, duration and who started it in the tooltip. Asked after the list is on the page, of every server at once.
+- **Deploy durations that stay.** The Deploy tab took them from `deploy.log`, which the server rotates every night: a deploy kept its time until the first rotation, and one started by a Git push — looked at the day after — never showed any. They come from the server's deploy history now (rotated logs included). An older server gets what it got before.
+- **Backups** (Server → Backups): a matrix of every app and database against the backup profiles — what each profile takes, where it sends it, how long it keeps it, when it last ran and how, whether it is overdue or running — with the rows nobody backs up marked. Create, edit, pause, run now (in the background on the server), verify and delete profiles; test the destinations; list the stored runs. Buckets are added on the server (`cipi backup destination add`): their secret key does not go through the panel.
+- **Node runtimes** (Server → Node): install a major, upgrade to the latest patch (the SSR apps move to the new binary blue/green, without downtime), choose the server default, remove one nothing uses.
+- **A dump from your computer** in the Restore dialog, next to "a file on the server": `.sql` or `.sql.gz`, cut into chunks in the browser and handed on to the server one at a time — the panel keeps nothing, so a dump of any size passes through request limits that were never meant for it — up to the size the server allows, with a progress bar and a Stop. A chunk that fails is tried again; a stopped upload is deleted on the server.
+- **Databases belong to apps.** The Databases page shows the app of each database — the one it was created with, or the one it is linked to — and links or unlinks one from its row; "Create database" takes an app. A WordPress on a custom app has its database in the app list.
+- **Saved commands.** The one-click commands above the Artisan and Commands inputs are a list the panel's admins edit from the tab: add the commands the team runs (or the one in the input), remove the ones it never does — the defaults included — and go back to the defaults. One list for every app and everyone.
+
+### Changed
+
+- **Pages are sent before the servers answer.** Server and the log viewer now load like Dashboard, Apps and Databases did: the page first, its data after. What a page still asks before it renders — the app page's overview, the Server overview — is asked in one round instead of one request after the other; each is a `sudo cipi …` on the server, and the page waited for their sum.
+- The token command on Connections lists the abilities of API 1.39 (`node-runtimes-manage`, `backups-view`, `backups-manage`), and mentions `--full-access` (API 1.38+).
+
+### Not cached, on purpose
+
+- What a server says is not kept between requests. A panel that shows a PHP version, a worker or a backup that is no longer there is worse than one that takes a moment; what made pages slow was asking one thing after the other and before sending the page, and that is what changed.
+
 ## [4.1.2] — 2026-11-16
 
 A security report, verified and closed. It came in through the private channel of Cipi's SECURITY.md and had not been shared elsewhere; thanks to the researcher who sent it.

@@ -4,6 +4,7 @@ namespace CipiGui\Tests\Feature;
 
 use CipiGui\Livewire\Apps;
 use CipiGui\Livewire\Databases;
+use CipiGui\Livewire\ServerManage;
 use CipiGui\Tests\TestCase;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
@@ -61,8 +62,10 @@ class PanelPagesTest extends TestCase
         Livewire::test(Apps::class)->call('loadApps')->assertSee('shop.example.com')->assertSee('Custom PHP');
         $this->get('/databases')->assertOk()->assertSeeHtml('wire:init="loadDatabases"');
         Livewire::test(Databases::class)->call('loadDatabases')->assertSee('MariaDB')->assertSee('shop');
-        $this->get('/server')->assertOk()->assertSee('fra1');
-        $this->get('/server?tab=disk')->assertOk()
+        // The Server page is sent before the server is asked (4.2.0), like Apps and Databases.
+        $this->get('/server')->assertOk()->assertSeeHtml('wire:init="init"')->assertSeeHtml('data-tab-loading');
+        Livewire::test(ServerManage::class)->call('init')->assertSee('fra1')->assertDontSeeHtml('data-tab-loading');
+        Livewire::withQueryParams(['tab' => 'disk'])->test(ServerManage::class)->call('init')
             ->assertSee('Everything else')->assertSee('13.22 GB')->assertSee('20 GB · 66%')->assertSee('2 GB · 117% · over')
             ->assertSee('1 over the limit')->assertSee('Valkey')->assertSee('1,204')->assertSee('12.3 MB');
         $this->get('/servers')->assertOk()->assertSee('cipi api token create');
@@ -80,7 +83,9 @@ class PanelPagesTest extends TestCase
         ]);
         $this->server();
 
-        $this->actingAs($this->admin())->get('/server?tab=disk')->assertOk()->assertSee('Not available on this server')->assertSee('Cipi 5.5.2+')->assertDontSee('Everything else');
+        $this->actingAs($this->admin());
+        Livewire::withQueryParams(['tab' => 'disk'])->test(ServerManage::class)->call('init')
+            ->assertSee('Not available on this server')->assertSee('Cipi 5.5.2+')->assertDontSee('Everything else');
     }
 
     #[Test]

@@ -22,6 +22,37 @@ final class DeployLog
     private const BANNER = '/^(?:\[([^\]]*)\]\s*)?===== deploy (ROLLBACK )?(OK|FAILED)\s+app=\S+ release=(\S+) duration=(\d+)s exit=-?\d+ =====/';
 
     /**
+     * The runs of `cipi deploy --history` (API 1.39+ / Cipi ≥ 5.9.0), newest
+     * first, as the banners banners() reads from a log: oldest first, with the
+     * ledger's word for the event. That command reads the rotated deploy logs
+     * too, which the log endpoint does not: deploy.log is rotated every night,
+     * and its banners go with it.
+     *
+     * @param  iterable<mixed>  $runs
+     * @return list<array{event: string, release: string, seconds: int}>
+     */
+    public static function bannersFromRuns(iterable $runs): array
+    {
+        $banners = [];
+        foreach ($runs as $run) {
+            if (! is_array($run) || ! is_numeric($run['duration'] ?? null)) {
+                continue;
+            }
+            $release = (string) ($run['release'] ?? '');
+            if ($release === '') {
+                continue;
+            }
+            $banners[] = [
+                'event' => ($run['kind'] ?? '') === 'rollback' ? 'rollback' : (($run['result'] ?? '') === 'ok' ? 'published' : 'failed'),
+                'release' => $release,
+                'seconds' => max(0, (int) $run['duration']),
+            ];
+        }
+
+        return array_reverse($banners);
+    }
+
+    /**
      * Every end banner of a deploy log, oldest first.
      *
      * @param  iterable<mixed>  $lines

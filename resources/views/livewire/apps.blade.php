@@ -116,6 +116,10 @@
                 </x-cipi::empty>
             </div>
         @else
+            {{-- The last deploy of each app is asked once the list is on the page (and again after a reload). --}}
+            @if(! $deploysLoaded)
+                <div wire:init="loadLastDeploys" wire:key="last-deploys-{{ count($apps) }}" hidden></div>
+            @endif
             {{-- Phones: compact cards --}}
             <div class="space-y-2 md:hidden">
                 @foreach($visibleApps as $app)
@@ -152,6 +156,7 @@
                                 <th>Runtime</th>
                                 <th>Database</th>
                                 <th>Branch</th>
+                                @if(! $deploysLoaded || $deploysSupported)<th title="The last finished deploy or rollback, whoever started it (Cipi 5.9.0+)">Last deploy</th>@endif
                                 <th>Status</th>
                                 <th class="text-right">Actions</th>
                             </tr>
@@ -194,8 +199,31 @@
                                             @endif
                                         @endif
                                     </td>
-                                    <td class="text-muted">{{ $kind === 'laravel' ? $this->engineLabel($app['engine']) : '—' }}</td>
+                                    <td class="text-muted">
+                                        @php $linkedDbs = $app['databases'] ?? []; @endphp
+                                        @if($kind === 'laravel')
+                                            {{ $this->engineLabel($app['engine']) }}@if($linkedDbs) <span class="badge badge-mono ml-1" title="Linked: {{ implode(', ', array_column($linkedDbs, 'name')) }}" data-linked-dbs>+{{ count($linkedDbs) }}</span>@endif
+                                        @elseif($linkedDbs)
+                                            <span class="font-mono text-xs" title="Linked with cipi db link: {{ implode(', ', array_map(fn ($d) => $d['name'].' ('.$this->engineLabel($d['engine']).')', $linkedDbs)) }}" data-linked-dbs>{{ $linkedDbs[0]['name'] }}@if(count($linkedDbs) > 1) <span class="text-subtle">+{{ count($linkedDbs) - 1 }}</span>@endif</span>
+                                        @else
+                                            —
+                                        @endif
+                                    </td>
                                     <td class="text-muted font-mono text-xs">{{ $app['branch'] ?: '—' }}</td>
+                                    @if(! $deploysLoaded || $deploysSupported)
+                                        <td class="whitespace-nowrap text-xs" data-last-deploy>
+                                            @if(! $deploysLoaded)
+                                                <span class="skeleton inline-block h-3 w-16"></span>
+                                            @elseif($cell = $this->lastDeployCell($app))
+                                                <span class="inline-flex items-center gap-1.5 {{ $cell['state'] === 'none' ? 'text-subtle' : 'text-soft' }}" title="{{ $cell['title'] }}">
+                                                    @if($cell['state'] !== 'none')<span class="dot {{ $cell['state'] === 'failed' ? 'dot-red' : ($cell['state'] === 'rollback' ? 'dot-amber' : 'dot-green') }}" style="width:.4rem;height:.4rem;box-shadow:none"></span>@endif
+                                                    {{ $cell['when'] }}@if($cell['state'] === 'failed') <span class="text-danger">failed</span>@elseif($cell['state'] === 'rollback') <span class="text-muted">rollback</span>@endif
+                                                </span>
+                                            @else
+                                                <span class="text-subtle" title="This server does not report it (needs Cipi 5.9.0 and API 1.39)">—</span>
+                                            @endif
+                                        </td>
+                                    @endif
                                     <td>
                                         <div class="flex flex-wrap gap-1">
                                             @if($app['suspended'] ?? false)
@@ -231,7 +259,7 @@
                                                     @if($can['edit'] ?? false)
                                                         <button type="button" class="dropdown-item" x-on:click="open = false"
                                                                 wire:click="toggleSuspend('{{ $app['app'] }}', {{ ($app['suspended'] ?? false) ? 'true' : 'false' }}, {{ $app['server_id'] }})"
-                                                                wire:confirm="{{ ($app['suspended'] ?? false) ? 'Bring '.$app['app'].' back online?' : 'Take '.$app['app'].' offline with an HTTP 503 maintenance page?' }}">
+                                                                data-confirm="{{ ($app['suspended'] ?? false) ? 'Bring '.$app['app'].' back online?' : 'Take '.$app['app'].' offline with an HTTP 503 maintenance page?' }}">
                                                             <x-cipi::icon :name="($app['suspended'] ?? false) ? 'play' : 'pause'" /> {{ ($app['suspended'] ?? false) ? 'Unsuspend' : 'Suspend' }}
                                                         </button>
                                                     @endif

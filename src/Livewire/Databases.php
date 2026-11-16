@@ -20,7 +20,13 @@ class Databases extends Component
     use InteractsWithCipiServer;
     use ManagesAsyncJobs;
 
-    /** @var array<int, array{name: string, size: ?string, engine: ?string, user: ?string, server_id: int, server_name: string, can_manage: bool}> */
+    /**
+     * `app` and `link` say which app a database belongs to (API 1.39+ / Cipi ≥
+     * 5.9.0): linked (cipi db link), own (created with a Laravel app) or
+     * namespace (<app>_…). `linkable` is false on a server that does not report it.
+     *
+     * @var array<int, array{name: string, size: ?string, engine: ?string, user: ?string, app: ?string, link: ?string, linkable: bool, server_id: int, server_name: string, can_manage: bool}>
+     */
     public array $databases = [];
 
     /** @var array<int, list<array{engine: string, status?: string, port?: int|null, default?: bool}>> server id => installed engines */
@@ -59,6 +65,28 @@ class Databases extends Component
 
     public string $dbEngine = '';
 
+    /** App the new database is shown as belonging to ('' = none) — API 1.39+ / Cipi ≥ 5.9.0. */
+    public string $dbApp = '';
+
+    /**
+     * What a server can do beyond the list, asked when a dialog needs it:
+     * server id → ['uploads' => limits of a dump upload, or null] — null on a
+     * server before API 1.39 / Cipi 5.9.0, which also has no links.
+     *
+     * @var array<int, array{uploads: ?array{max_size: int, chunk_size: int}}>
+     */
+    public array $features = [];
+
+    /** @var array<int, list<string>> server id → its app names, for the dialogs that link a database */
+    public array $appsByServer = [];
+
+    // Link to an app
+    public ?string $linkName = null;
+
+    public ?string $linkEngine = null;
+
+    public string $linkApp = '';
+
     // Restore
     public ?string $restoreName = null;
 
@@ -67,6 +95,9 @@ class Databases extends Component
     public string $restoreFile = '';
 
     public string $restoreConfirmation = '';
+
+    /** file (a dump already on the server) | upload (one sent from this computer) */
+    public string $restoreMode = 'file';
 
     /** Pending backup job: the file it returns is remembered for restore. */
     public ?string $pendingBackup = null;
@@ -143,6 +174,9 @@ class Databases extends Component
                     'size' => isset($db['size']) ? (string) $db['size'] : null,
                     'engine' => isset($db['engine']) && is_string($db['engine']) && $db['engine'] !== '' ? $db['engine'] : null,
                     'user' => isset($db['user']) ? (string) $db['user'] : null,
+                    'app' => isset($db['app']) && is_string($db['app']) && $db['app'] !== '' ? $db['app'] : null,
+                    'link' => isset($db['link']) && is_string($db['link']) && $db['link'] !== '' ? $db['link'] : null,
+                    'linkable' => array_key_exists('link', $db),
                     'server_id' => $id,
                     'server_name' => $server->name,
                     'can_manage' => $canManage,
@@ -171,7 +205,7 @@ class Databases extends Component
 
     public function openCreate(): void
     {
-        $this->reset(['dbName']);
+        $this->reset(['dbName', 'dbApp']);
         $this->resetErrorBag();
         $this->error = null;
 
@@ -210,6 +244,74 @@ class Databases extends Component
 
         $engines = array_column($this->enginesByServer[$server->id] ?? [], 'engine');
         $this->dbEngine = in_array($this->dbEngine, $engines, true) ? $this->dbEngine : (string) ($this->defaultEngineByServer[$server->id] ?? ($engines[0] ?? ''));
+
+        // "Belongs to app": only where the server can keep the link.
+        if ($this->linksSupported($server->id)) {
+            $this->loadAppsOf($server->id);
+        }
+        if (! in_array($this->dbApp, $this->appsByServer[$server->id] ?? [], true)) {
+            $this->dbApp = '';
+        }
+    }
+
+    /**
+     * What the action server offers beyond the list (dump upload, links), asked
+     * once per page: one request, answered from the API's config.
+     *
+     * @return array{uploads: ?array{max_size: int, chunk_size: int}}
+     */
+    protected function featuresOf(int $serverId): array
+    {
+        if (! isset($this->features[$serverId])) {
+            $limits = null;
+            try {
+                $data = $this->client()->dbUploadLimits();
+                if ($data !== null) {
+                    $limits = ['max_size' => (int) $data['max_size'], 'chunk_size' => (int) $data['chunk_size']];
+                }
+            } catch (CipiApiException) {
+                // No route (API before 1.39), a 503 (Cipi before 5.9.0), a token without dbs-manage: not offered.
+            }
+            $this->features[$serverId] = ['uploads' => $limits];
+        }
+
+        return $this->features[$serverId];
+    }
+
+    /** The server keeps database ↔ app links: its list says so, or its API is 1.39+ on Cipi 5.9.0+. */
+    protected function linksSupported(int $serverId): bool
+    {
+        foreach ($this->databases as $db) {
+            if ((int) $db['server_id'] === $serverId && $db['linkable']) {
+                return true;
+            }
+        }
+
+        return $this->featuresOf($serverId)['uploads'] !== null;
+    }
+
+    /** App names of the action server, for a select. The user sees only the apps they may view. */
+    protected function loadAppsOf(int $serverId): void
+    {
+        if (isset($this->appsByServer[$serverId])) {
+            return;
+        }
+
+        $names = [];
+        try {
+            $user = $this->panelUser();
+            $seesAll = Access::seesAllAppsOn($user, $serverId);
+            foreach ($this->client()->listApps() as $app) {
+                $name = is_array($app) ? (string) ($app['app'] ?? '') : '';
+                if ($name !== '' && ($seesAll || Access::can($user, 'view', $serverId, $name))) {
+                    $names[] = $name;
+                }
+            }
+            sort($names);
+        } catch (CipiApiException) {
+            // The dialog works without the select.
+        }
+        $this->appsByServer[$serverId] = $names;
     }
 
     /** Engines of one server, for the create dialog when the list was loaded for another scope. */
@@ -251,8 +353,77 @@ class Databases extends Component
         $name = $this->dbName;
         $engine = $this->dbEngine !== '' ? $this->dbEngine : null;
 
-        if ($this->startJob("Create database {$name}".$this->jobServerSuffix(), fn (CipiApiClient $api) => $api->createDatabase($name, $engine))) {
+        // The app comes from the list the dialog offered, never from the request alone.
+        $app = $this->dbApp !== '' && in_array($this->dbApp, $this->appsByServer[$this->createServerId] ?? [], true) ? $this->dbApp : null;
+        if ($this->dbApp !== '' && $app === null) {
+            $this->addError('dbApp', 'Choose one of the apps of this server.');
+
+            return;
+        }
+
+        $label = "Create database {$name}".($app !== null ? " for {$app}" : '').$this->jobServerSuffix();
+        if ($this->startJob($label, fn (CipiApiClient $api) => $api->createDatabase($name, $engine, $app))) {
             $this->showCreateModal = false;
+        }
+    }
+
+    // ── link to an app ────────────────────────────────────────────────
+
+    public function openLink(string $name, string $engine = '', int $serverId = 0): void
+    {
+        if (! $this->useServer($serverId) || ! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
+        $this->resetErrorBag();
+        $this->loadAppsOf((int) $this->serverId);
+        $this->linkName = $name;
+        $this->linkEngine = $engine !== '' ? $engine : null;
+        $this->linkApp = '';
+        foreach ($this->databases as $db) {
+            if ($db['name'] === $name && (int) $db['server_id'] === (int) $this->serverId && ($db['engine'] ?? '') === $engine && $db['link'] === 'linked') {
+                $this->linkApp = (string) $db['app'];
+            }
+        }
+    }
+
+    public function closeLink(): void
+    {
+        $this->linkName = null;
+    }
+
+    public function saveLink(): void
+    {
+        if ($this->linkName === null || ! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
+        $apps = $this->appsByServer[(int) $this->serverId] ?? [];
+        $this->validate(['linkApp' => ['required', 'in:'.implode(',', $apps)]], ['linkApp.required' => 'Choose one of the apps of this server.', 'linkApp.in' => 'Choose one of the apps of this server.']);
+
+        try {
+            $this->client()->linkDatabase($this->linkName, $this->linkApp, $this->linkEngine);
+            $this->dispatch('notify', type: 'success', message: "{$this->linkName} is now shown as a database of {$this->linkApp}.");
+            $this->linkName = null;
+            $this->loadDatabases();
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function unlink(string $name, string $engine = '', int $serverId = 0): void
+    {
+        if (! $this->useServer($serverId) || ! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
+        try {
+            $this->client()->unlinkDatabase($name, $engine !== '' ? $engine : null);
+            $this->dispatch('notify', type: 'success', message: "{$name} is no longer linked to an app. The database itself is untouched.");
+            $this->linkName = null;
+            $this->loadDatabases();
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
         }
     }
 
@@ -279,6 +450,47 @@ class Databases extends Component
         $this->restoreEngine = $engine !== '' ? $engine : null;
         $this->restoreFile = $this->rememberedBackups()[$name] ?? '/home/cipi/backups/';
         $this->restoreConfirmation = '';
+        $this->restoreMode = 'file';
+        $this->featuresOf((int) $this->serverId); // can this server take an upload?
+    }
+
+    public function setRestoreMode(string $mode): void
+    {
+        $this->resetErrorBag();
+        $this->restoreMode = $mode === 'upload' && ($this->features[(int) $this->serverId]['uploads'] ?? null) !== null ? 'upload' : 'file';
+    }
+
+    /**
+     * Restore from a dump the browser has just finished uploading (the Restore
+     * dialog sends it in chunks through DbUploadController, then calls this
+     * with the id the server gave). Same confirmation, same permission.
+     */
+    public function restoreFromUpload(string $uploadId): void
+    {
+        if ($this->restoreName === null) {
+            return;
+        }
+        if (! preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $uploadId)) {
+            $this->addError('restoreUpload', 'The upload did not finish. Choose the file again.');
+
+            return;
+        }
+
+        $this->validate(
+            ['restoreConfirmation' => ['required', 'in:'.$this->restoreName]],
+            ['restoreConfirmation.in' => 'Type the database name to confirm.', 'restoreConfirmation.required' => 'Type the database name to confirm.'],
+        );
+
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
+        $name = (string) $this->restoreName;
+        $engine = $this->restoreEngine;
+
+        if ($this->startJob("Restore {$name} from the uploaded dump".$this->jobServerSuffix(), fn (CipiApiClient $api) => $api->restoreDatabaseFromUpload($name, $uploadId, $engine))) {
+            $this->restoreName = null;
+        }
     }
 
     public function closeRestore(): void
@@ -423,6 +635,12 @@ class Databases extends Component
             'createServer' => $createServers->firstWhere('id', $this->createServerId),
             'createEngines' => $this->enginesByServer[$this->createServerId] ?? [],
             'createDefaultEngine' => $this->defaultEngineByServer[$this->createServerId] ?? null,
+            'createApps' => $this->showCreateModal ? ($this->appsByServer[$this->createServerId] ?? []) : [],
+            'linkApps' => $this->linkName !== null ? ($this->appsByServer[(int) $this->serverId] ?? []) : [],
+            'showAppColumn' => (bool) array_filter($scoped, fn (array $db) => $db['linkable']),
+            'restoreUpload' => $this->restoreName !== null ? ($this->features[(int) $this->serverId]['uploads'] ?? null) : null,
+            'actionServerId' => (int) ($this->serverId ?? 0),
+            'uploadChunkBytes' => \CipiGui\Http\Controllers\DbUploadController::panelChunkBytes(),
             'isAdmin' => Access::isAdmin($this->panelUser()),
         ])->title($scopeServer ? 'Databases · '.$scopeServer->name : 'Databases');
     }

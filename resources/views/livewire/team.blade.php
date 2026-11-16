@@ -67,7 +67,7 @@
                                 <td>
                                     <div class="btn-actions">
                                         <x-cipi::copy :value="route('cipi-gui.invite', ['token' => $invite->token])" label="Copy link" />
-                                        <button type="button" wire:click="revokeInvite({{ $invite->id }})" wire:confirm="Revoke this invite? The link stops working." class="btn btn-ghost btn-sm danger">Revoke</button>
+                                        <button type="button" wire:click="revokeInvite({{ $invite->id }})" data-confirm="Revoke this invite? The link stops working." class="btn btn-ghost btn-sm danger">Revoke</button>
                                     </div>
                                 </td>
                             </tr>
