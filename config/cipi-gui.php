@@ -42,7 +42,7 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Token abilities (Cipi API 1.35)
+    | Token abilities (Cipi API 1.39)
     |--------------------------------------------------------------------------
     |
     | Everything the panel calls. Shown on the Connections page as a ready-made
@@ -54,12 +54,13 @@ return [
         'apps-env', 'apps-auth', 'apps-artisan', 'apps-run', 'apps-deploy-config',
         'aliases-view', 'aliases-create', 'aliases-delete', 'www-manage',
         'redirects-view', 'redirects-manage', 'proxies-view', 'proxies-manage',
-        'node-view', 'node-manage', 'search-view', 'search-manage',
+        'node-view', 'node-manage', 'node-runtimes-manage', 'search-view', 'search-manage',
         'deploy-manage', 'ssl-manage', 'dbs-view', 'dbs-create', 'dbs-manage',
         'php-view', 'php-manage', 'ssh-view', 'ssh-manage', 'services-view', 'services-manage',
         'smtp-view', 'smtp-manage', 'health-view', 'health-manage',
         'packages-view', 'monitor-view', 'zt-view', 'disk-view', 'yml-view', 'yml-manage',
         'ip-whitelist-view', 'ip-whitelist-manage', 'status-view',
+        'backups-view', 'backups-manage',
     ],
 
     /*
@@ -80,6 +81,20 @@ return [
     'http_connect_timeout' => (int) env('CIPI_GUI_HTTP_CONNECT_TIMEOUT', 10),
     // GET /api/disk and /api/disk/dbs measure every app home when asked (API 1.33+).
     'http_disk_timeout' => (int) env('CIPI_GUI_HTTP_DISK_TIMEOUT', 180),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Database dump upload (Restore dialog — API 1.39+ / Cipi ≥ 5.9.0)
+    |--------------------------------------------------------------------------
+    |
+    | A dump goes from the browser to the panel, and from the panel to the
+    | server, in chunks of this many megabytes — never more than this PHP
+    | accepts in one request (upload_max_filesize, post_max_size) or than the
+    | server asks for. How large a dump may be is the server's to say
+    | (db_upload.max_mb in its API config, 2 GB by default).
+    |
+    */
+    'db_upload_chunk_mb' => (int) env('CIPI_GUI_DB_UPLOAD_CHUNK_MB', 4),
 
     /*
     |--------------------------------------------------------------------------

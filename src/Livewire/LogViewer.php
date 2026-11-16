@@ -4,6 +4,7 @@ namespace CipiGui\Livewire;
 
 use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Services\CipiApiException;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
@@ -16,6 +17,8 @@ class LogViewer extends Component
 
     private const LARAVEL_LOG_PATH = '/shared/storage/logs/';
 
+    /** The app whose logs are read, given by the page around the viewer. Locked: never set by the browser (4.2.0). */
+    #[Locked]
     public string $appName;
 
     public string $logType = 'all';
@@ -47,7 +50,9 @@ class LogViewer extends Component
         $this->serverId = $serverId ?? session('cipi_gui_server_id');
         $this->isCustomApp = filter_var($isCustomApp, FILTER_VALIDATE_BOOLEAN);
         $this->logType = 'all';
-        $this->loadLogs();
+        // Nothing is read here: the tab is sent at once ("Loading logs…") and
+        // wire:init in the view calls loadLogs() — a read is a `sudo cipi …`
+        // on the server, and the whole app page waited for it (4.2.0).
     }
 
     public function updatedLogType(): void
@@ -101,6 +106,19 @@ class LogViewer extends Component
         $this->loading = true;
         $this->error = null;
         $this->hint = null;
+
+        // The viewer reads with the panel's token: the `logs` ability on this app,
+        // on this server, is asked of Access at every read — the page around the
+        // viewer checking it once, when it rendered the tab, is not enough.
+        if (! $this->appAllowed('logs', (int) ($this->serverId ?? 0), $this->appName)) {
+            $this->files = [];
+            $this->availableTypes = [];
+            $this->warnings = [];
+            $this->autoRefresh = false;
+            $this->loading = false;
+
+            return;
+        }
 
         try {
             $data = $this->fetchLogs($this->logType);

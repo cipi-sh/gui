@@ -159,6 +159,28 @@ class DeployLogTest extends TestCase
     }
 
     #[Test]
+    public function the_runs_of_the_deploy_history_become_banners(): void
+    {
+        // GET /apps/{app}/deploy/history (API 1.39+): newest first, rotated logs included.
+        $banners = DeployLog::bannersFromRuns([
+            ['result' => 'ok', 'kind' => 'deploy', 'release' => '31', 'duration' => 76, 'trigger' => 'webhook'],
+            ['result' => 'ok', 'kind' => 'rollback', 'release' => '29', 'duration' => 9],
+            ['result' => 'failed', 'kind' => 'deploy', 'release' => '30', 'duration' => '40'],
+            ['result' => 'ok', 'kind' => 'deploy', 'release' => null, 'duration' => 5],   // no release: nothing to join it to
+            ['result' => 'ok', 'kind' => 'deploy', 'release' => '28'],                    // no duration
+            'not a run',
+        ]);
+
+        // Oldest first, like the banners read from a log, with the ledger's word for the event.
+        $this->assertSame([
+            ['event' => 'failed', 'release' => '30', 'seconds' => 40],
+            ['event' => 'rollback', 'release' => '29', 'seconds' => 9],
+            ['event' => 'published', 'release' => '31', 'seconds' => 76],
+        ], $banners);
+        $this->assertSame([], DeployLog::bannersFromRuns([]));
+    }
+
+    #[Test]
     public function seconds_are_formatted_like_the_cli(): void
     {
         $this->assertSame('54s', DeployLog::format(54));

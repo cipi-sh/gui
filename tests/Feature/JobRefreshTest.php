@@ -132,7 +132,8 @@ class JobRefreshTest extends TestCase
         $databases->call('pollJob')->assertSet('activeJobStatus', 'failed')->assertSet('pendingBackup', null);
         $this->assertSame($reads + 1, $this->reads('/api/dbs'));
 
-        $server = Livewire::withQueryParams(['tab' => 'php'])->test(ServerManage::class, ['serverId' => $this->server->id])->assertSet('phpInstallVersion', '8.3')->call('installPhp');
+        // The Server page asks nothing at mount (4.2.0): init() is what wire:init calls.
+        $server = Livewire::withQueryParams(['tab' => 'php'])->test(ServerManage::class, ['serverId' => $this->server->id])->call('init')->assertSet('phpInstallVersion', '8.3')->call('installPhp');
         $reads = $this->reads('/api/php');
         $server->call('pollJob')->assertSet('activeJobStatus', 'failed');
         $this->assertSame($reads + 1, $this->reads('/api/php'));
@@ -172,7 +173,7 @@ class JobRefreshTest extends TestCase
     #[Test]
     public function the_log_viewer_reloads_when_a_job_of_the_app_finishes(): void
     {
-        $viewer = Livewire::test(LogViewer::class, ['app' => 'shop', 'serverId' => $this->server->id])->assertSee('deploy OK');
+        $viewer = Livewire::test(LogViewer::class, ['app' => 'shop', 'serverId' => $this->server->id])->call('loadLogs')->assertSee('deploy OK');
         $reads = $this->reads('/api/apps/shop/logs');
 
         $viewer->dispatch('app-job-finished');

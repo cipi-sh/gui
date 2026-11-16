@@ -34,9 +34,9 @@ class BusyFeedbackTest extends TestCase
     }
 
     #[Test]
-    public function the_version_is_4_1_1(): void
+    public function the_changelog_has_the_4_1_1_entry(): void
     {
-        $this->assertSame('4.1.1', Theme::VERSION);
+        // The version itself is asserted by the test of the current release.
         $this->assertStringContainsString('## [4.1.1]', file_get_contents(Theme::packageRoot().'/CHANGELOG.md'));
     }
 }

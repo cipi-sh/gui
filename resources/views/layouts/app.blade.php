@@ -52,6 +52,8 @@
         </template>
     </div>
 
+    @include('cipi-gui::partials.confirm-dialog')
+
     @if(session('cipi_gui_flash'))
         <div x-data x-init="$nextTick(() => $dispatch('notify', @js(session('cipi_gui_flash'))))"></div>
     @endif

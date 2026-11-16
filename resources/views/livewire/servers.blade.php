@@ -88,12 +88,12 @@
         <div class="card-header">
             <div>
                 <h2 class="card-title">Create a token on the server</h2>
-                <p class="card-subtitle">Run this on each Cipi server (as root). It grants the {{ $abilityCount }} abilities the panel uses with API 1.31.</p>
+                <p class="card-subtitle">Run this on each Cipi server (as root). It grants the {{ $abilityCount }} abilities the panel uses with API 1.39. On API 1.39+ <code>cipi api token create --name=gui --full-access</code> grants them all, and the ones later versions add.</p>
             </div>
             <x-cipi::copy :value="$tokenCommand" label="Copy command" />
         </div>
         @include('cipi-gui::partials.terminal', ['lines' => ['$ '.$tokenCommand], 'title' => 'root@your-server', 'autoScroll' => false, 'stripPrompt' => true])
-        <p class="field-hint">Needs <code>cipi api</code> installed on that server. Restrict who can call the API with <code>cipi api ip-whitelist</code> and keep this panel on it@if($panelIp): it calls from <x-cipi::copyable :value="$panelIp" label="Copy IP" /> — <code>cipi api ip-whitelist add {{ $panelIp }}</code> when you restrict a list that is still open@endif. When a list is already restricted, a successful connection test adds the panel's address by itself.</p>
+        <p class="field-hint">Needs <code>cipi api</code> installed on that server. Restrict who can call the API with <code>cipi api ip-whitelist</code> and keep this panel on it.@if($panelIp) It calls from <x-cipi::copyable :value="$panelIp" label="Copy IP" /> — <code>cipi api ip-whitelist add {{ $panelIp }}</code> when you restrict a list that is still open.@endif When a list is already restricted, a successful connection test adds the panel's address by itself.</p>
     </div>
 
     @if($showFormModal)

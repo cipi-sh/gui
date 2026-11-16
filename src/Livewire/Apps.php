@@ -42,6 +42,20 @@ class Apps extends Component
 
     public bool $loading = true;
 
+    /**
+     * "<server id>:<app>" → the app's last finished deploy, null when it was
+     * never deployed (API 1.39+ / Cipi ≥ 5.9.0). Filled after the list is on
+     * the page: one more round to the servers, which the list does not wait for.
+     *
+     * @var array<string, array{result: string, kind: string, release: ?string, duration: ?int, finished_at: ?string, trigger: ?string}|null>
+     */
+    public array $lastDeploys = [];
+
+    public bool $deploysLoaded = false;
+
+    /** At least one server in the list reports last deploys: the column is worth showing. */
+    public bool $deploysSupported = false;
+
     /** Server whose apps are shown — 0 for every connected server (`?server=` in the URL). */
     #[Url(as: 'server', except: 0)]
     public int $scopeServerId = 0;
@@ -140,6 +154,9 @@ class Apps extends Component
         $this->error = null;
         $this->apps = [];
         $this->serverErrors = [];
+        $this->lastDeploys = [];
+        $this->deploysLoaded = false;
+        $this->deploysSupported = false;
 
         $servers = $this->fleet ? $this->activeServers() : collect(array_filter([$this->currentServer()]));
 
@@ -182,6 +199,80 @@ class Apps extends Component
         usort($this->apps, fn (array $a, array $b) => strcmp($a['app'], $b['app']) ?: strcmp($a['server_name'], $b['server_name']));
         $this->apps = $this->applySessionAppPatches($this->apps);
         $this->loading = false;
+    }
+
+    /**
+     * When each app was last deployed and how it went — asked once the list is
+     * shown (wire:init in the view), of the servers whose apps are in it. A
+     * server without the endpoint (older API or Cipi) simply has no answer.
+     */
+    public function loadLastDeploys(): void
+    {
+        $this->deploysLoaded = true;
+        $this->lastDeploys = [];
+        $this->deploysSupported = false;
+
+        $serverIds = array_values(array_unique(array_map(fn (array $app) => (int) $app['server_id'], $this->apps)));
+        if ($serverIds === []) {
+            return;
+        }
+
+        $servers = $this->activeServers()->whereIn('id', $serverIds);
+        if ($servers->isEmpty()) {
+            return;
+        }
+
+        $answers = CipiApiClient::lastDeploysForMany($servers);
+        foreach ($this->apps as $app) {
+            $serverId = (int) $app['server_id'];
+            if (! is_array($answers[$serverId] ?? null)) {
+                continue;
+            }
+            $this->deploysSupported = true;
+            $run = $answers[$serverId][$app['app']] ?? null;
+            $this->lastDeploys[$serverId.':'.$app['app']] = is_array($run) ? [
+                'result' => ($run['result'] ?? '') === 'failed' ? 'failed' : 'ok',
+                'kind' => ($run['kind'] ?? '') === 'rollback' ? 'rollback' : 'deploy',
+                'release' => is_scalar($run['release'] ?? null) ? (string) $run['release'] : null,
+                'duration' => is_numeric($run['duration'] ?? null) ? (int) $run['duration'] : null,
+                'finished_at' => is_string($run['finished_at'] ?? null) ? $run['finished_at'] : null,
+                'trigger' => is_string($run['trigger'] ?? null) ? $run['trigger'] : null,
+            ] : null;
+        }
+    }
+
+    /**
+     * The cell of the Last deploy column: a state dot, a relative time and the
+     * full story as a tooltip. Null when the server has no answer for the app.
+     *
+     * @param  array<string, mixed>  $app
+     * @return array{state: string, when: string, title: string}|null
+     */
+    public function lastDeployCell(array $app): ?array
+    {
+        $key = (int) $app['server_id'].':'.$app['app'];
+        if (! array_key_exists($key, $this->lastDeploys)) {
+            return null;
+        }
+
+        $run = $this->lastDeploys[$key];
+        if ($run === null) {
+            return ['state' => 'none', 'when' => 'never', 'title' => 'No deploy recorded yet'];
+        }
+
+        $at = \CipiGui\Support\Clock::local($run['finished_at']);
+        $what = $run['kind'] === 'rollback' ? 'Rollback' : 'Deploy';
+        $title = $what.($run['result'] === 'failed' ? ' failed' : ' OK')
+            .($run['release'] !== null ? ' · release '.$run['release'] : '')
+            .($run['duration'] !== null ? ' · took '.\CipiGui\Support\DeployLog::format($run['duration']) : '')
+            .($run['trigger'] !== null ? ' · by '.\CipiGui\Support\DeployLog::triggerLabel($run['trigger']) : '')
+            .($at ? ' · '.$at->format('Y-m-d H:i').' '.\CipiGui\Support\Clock::abbreviation() : '');
+
+        return [
+            'state' => $run['result'] === 'failed' ? 'failed' : ($run['kind'] === 'rollback' ? 'rollback' : 'ok'),
+            'when' => $at ? $at->diffForHumans(['short' => true, 'parts' => 1]) : '—',
+            'title' => $title,
+        ];
     }
 
     /** Show one server's apps (0 = every server). A filter on the loaded list, kept in the URL. */

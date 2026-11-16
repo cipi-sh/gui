@@ -5,6 +5,7 @@ use CipiGui\Http\Controllers\Auth\InviteController;
 use CipiGui\Http\Controllers\Auth\LoginController;
 use CipiGui\Http\Controllers\Auth\SsoController;
 use CipiGui\Http\Controllers\Auth\TwoFactorController;
+use CipiGui\Http\Controllers\DbUploadController;
 use CipiGui\Http\Controllers\ServerSwitchController;
 use CipiGui\Livewire\AppDetail;
 use CipiGui\Livewire\Apps;
@@ -62,5 +63,9 @@ Route::middleware(['auth', 'cipi-gui.2fa'])->group(function () {
     Route::get('/apps', Apps::class)->name('cipi-gui.apps');
     Route::get('/apps/{name}', AppDetail::class)->name('cipi-gui.apps.show');
     Route::get('/databases', Databases::class)->name('cipi-gui.databases');
+    // A dump from the browser to a server, in chunks (Restore dialog; API 1.39+ / Cipi ≥ 5.9.0).
+    Route::post('/databases/uploads', [DbUploadController::class, 'start'])->name('cipi-gui.db-uploads.start');
+    Route::post('/databases/uploads/{id}/chunks', [DbUploadController::class, 'chunk'])->name('cipi-gui.db-uploads.chunk')->whereUuid('id');
+    Route::delete('/databases/uploads/{id}', [DbUploadController::class, 'cancel'])->name('cipi-gui.db-uploads.cancel')->whereUuid('id');
     Route::get('/settings', Settings::class)->name('cipi-gui.settings');
 });

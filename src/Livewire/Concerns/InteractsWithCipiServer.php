@@ -7,9 +7,17 @@ use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
 use CipiGui\Support\AppEnv;
+use Livewire\Attributes\Locked;
 
 trait InteractsWithCipiServer
 {
+    /**
+     * The server this component talks to. Set by the component itself — the
+     * route, the session, a row action that passes its server through
+     * useServer() — and locked: the browser cannot point an open page at
+     * another server (4.2.0).
+     */
+    #[Locked]
     public ?int $serverId = null;
 
     public ?string $error = null;
@@ -202,6 +210,15 @@ trait InteractsWithCipiServer
         $app['redirects'] = is_array($app['redirects'] ?? null) ? array_values($app['redirects']) : [];
         $app['proxies'] = is_array($app['proxies'] ?? null) ? array_values($app['proxies']) : [];
         $app['aliases'] = is_array($app['aliases'] ?? null) ? array_values($app['aliases']) : [];
+
+        // Databases linked to the app with `cipi db link` / `db create --app=` (API 1.39+ / Cipi ≥ 5.9.0).
+        $linked = [];
+        foreach (is_array($app['databases'] ?? null) ? $app['databases'] : [] as $db) {
+            if (is_array($db) && is_string($db['name'] ?? null) && $db['name'] !== '') {
+                $linked[] = ['name' => $db['name'], 'engine' => is_string($db['engine'] ?? null) && $db['engine'] !== '' ? $db['engine'] : 'mariadb'];
+            }
+        }
+        $app['databases'] = $linked;
 
         foreach (['php', 'branch', 'repository', 'domain', 'created_at'] as $key) {
             $app[$key] = is_scalar($app[$key] ?? null) ? (string) $app[$key] : '';

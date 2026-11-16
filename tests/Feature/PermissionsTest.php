@@ -92,7 +92,7 @@ class PermissionsTest extends TestCase
     {
         Access::replaceGrants($this->user->id, [$this->prod->id => 'view', $this->staging->id => 'manage'], []);
 
-        $page = Livewire::test(ServerManage::class, ['serverId' => $this->prod->id])
+        $page = Livewire::test(ServerManage::class, ['serverId' => $this->prod->id])->call('init')
             ->assertSee('fra1')->assertDontSee('Restart');
         $page->call('restartService', 'nginx');
         Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/services/'));

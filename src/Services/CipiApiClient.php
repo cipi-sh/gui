@@ -11,6 +11,14 @@ use Illuminate\Support\Facades\Http;
 
 class CipiApiClient
 {
+    /**
+     * Answers asked ahead with prefetch(), by "<server id> <path>[?query]" —
+     * each is used by the next get() of that path, once.
+     *
+     * @var array<string, Response|\Throwable>
+     */
+    protected static array $prefetched = [];
+
     public function __construct(
         protected CipiServer $server,
     ) {}
@@ -24,10 +32,11 @@ class CipiApiClient
      * GET the same path on many servers concurrently (dashboard, fleet-wide app list).
      *
      * @param  iterable<CipiServer>  $servers
+     * @param  bool  $markErrors  false for an optional extra: a server that fails it keeps its connection state
      * @return array<int, array{data: mixed, error: ?string, status: ?int}> keyed by server id —
      *                                                                        `data` is the `data` of the answer, null when the server failed
      */
-    public static function getForMany(iterable $servers, string $path): array
+    public static function getForMany(iterable $servers, string $path, bool $markErrors = true): array
     {
         $servers = collect($servers)->keyBy('id');
         if ($servers->isEmpty()) {
@@ -45,8 +54,18 @@ class CipiApiClient
 
             if (! $response instanceof Response) {
                 $message = $response instanceof \Throwable ? $response->getMessage() : 'No response';
-                $server->markError('Connection failed: '.$message);
+                if ($markErrors) {
+                    $server->markError('Connection failed: '.$message);
+                }
                 $results[$id] = ['data' => null, 'error' => 'Unable to connect to server. Check the URL and network.', 'status' => 503];
+
+                continue;
+            }
+
+            // An optional extra (a column of a list): its failure says nothing
+            // about the connection the main request has just established.
+            if (! $markErrors && ! $response->successful()) {
+                $results[$id] = ['data' => null, 'error' => 'HTTP '.$response->status(), 'status' => $response->status()];
 
                 continue;
             }
@@ -87,6 +106,65 @@ class CipiApiClient
             fn (array $result) => ['apps' => is_array($result['data']) ? array_values($result['data']) : null, 'error' => $result['error'], 'status' => $result['status']],
             self::getForMany($servers, '/apps'),
         );
+    }
+
+    /**
+     * Ask several GET paths of this server at once and keep the answers for the
+     * calls that follow: the next get() of one of these paths takes its answer
+     * from here instead of going out again. A page that needs five answers
+     * before it can render then waits for the slowest of them, not for their
+     * sum — each is a `sudo cipi …` on the server.
+     *
+     * Nothing else changes for the caller: an answer is used once, by the same
+     * method that would have asked for it, and its errors surface there. Call
+     * forgetPrefetched() when the block that needs them is over, so an answer
+     * nobody took is not served to a later call.
+     *
+     * @param  list<string|array{0: string, 1?: array<string, mixed>}>  $paths  a path, or [path, query]
+     */
+    public function prefetch(array $paths): void
+    {
+        $requests = [];
+        foreach ($paths as $entry) {
+            [$path, $query] = is_array($entry) ? [(string) $entry[0], (array) ($entry[1] ?? [])] : [(string) $entry, []];
+            $requests[$this->prefetchKey($path, $query)] = [$path, $query];
+        }
+        if (count($requests) < 2) {
+            return; // one request gains nothing from a pool
+        }
+
+        $server = $this->server;
+        try {
+            $responses = Http::pool(function (Pool $pool) use ($requests, $server) {
+                $out = [];
+                foreach ($requests as $key => [$path, $query]) {
+                    $out[] = self::configure($pool->as($key), $server)->get($server->api_url.$path, $query);
+                }
+
+                return $out;
+            });
+        } catch (\Throwable) {
+            return; // the calls go out one by one, as they did before
+        }
+
+        foreach ($requests as $key => $_) {
+            $response = $responses[$key] ?? null;
+            if ($response instanceof Response || $response instanceof \Throwable) {
+                self::$prefetched[$key] = $response;
+            }
+        }
+    }
+
+    /** Drop what prefetch() fetched and nobody used. */
+    public static function forgetPrefetched(): void
+    {
+        self::$prefetched = [];
+    }
+
+    /** @param  array<string, mixed>  $query */
+    protected function prefetchKey(string $path, array $query = []): string
+    {
+        return $this->server->id.' '.$path.($query !== [] ? '?'.http_build_query($query) : '');
     }
 
     // ── Apps ──────────────────────────────────────────────────────────
@@ -291,6 +369,41 @@ class CipiApiClient
         return $this->get("/apps/{$app}/deploy/status", $tail > 0 ? ['tail' => $tail] : [])['data'] ?? [];
     }
 
+    /**
+     * Past deploys and rollbacks of an app, newest first, with their duration
+     * (`cipi deploy --history`, API 1.39+ / Cipi ≥ 5.9.0) — from the deploy log
+     * and its rotated files, so a deploy of last week still has one. Null when
+     * the server does not have the endpoint or answers something else.
+     *
+     * @return list<array<string, mixed>>|null
+     */
+    public function deployHistory(string $app, int $limit = 100): ?array
+    {
+        $data = $this->get("/apps/{$app}/deploy/history", ['limit' => max(1, min(500, $limit))])['data'] ?? null;
+        if (! is_array($data) || ! is_array($data['runs'] ?? null)) {
+            return null;
+        }
+
+        return array_values(array_filter($data['runs'], 'is_array'));
+    }
+
+    /**
+     * GET /api/deploys/last on many servers at once (API 1.39+ / Cipi ≥ 5.9.0):
+     * every app's last finished deploy, for the apps list.
+     *
+     * @param  iterable<CipiServer>  $servers
+     * @return array<int, array<string, array<string, mixed>|null>|null> server id → app → run (null: never deployed); null for a server without the endpoint
+     */
+    public static function lastDeploysForMany(iterable $servers): array
+    {
+        $out = [];
+        foreach (self::getForMany($servers, '/deploys/last', markErrors: false) as $id => $result) {
+            $out[$id] = is_array($result['data']) && $result['error'] === null ? $result['data'] : null;
+        }
+
+        return $out;
+    }
+
     // ── Deploy config (structured deploy.php options — API 1.31+ / Cipi ≥ 5.0.3) ──
 
     public function showDeployConfig(string $app): array
@@ -470,6 +583,35 @@ class CipiApiClient
         return $this->post("/apps/{$app}/node/restart");
     }
 
+    // Node runtimes on the server (API 1.39+ / Cipi ≥ 5.9.0) — async jobs.
+
+    public function nodeInstall(string $major): array
+    {
+        return $this->post('/node/install', ['major' => $major]);
+    }
+
+    /** Latest patch of one major, or of every installed one; $restart moves SSR apps to it blue/green. */
+    public function nodeUpgrade(?string $major = null, bool $restart = false): array
+    {
+        $payload = ['restart' => $restart];
+        if ($major !== null && $major !== '') {
+            $payload['major'] = $major;
+        }
+
+        return $this->post('/node/upgrade', $payload);
+    }
+
+    /** @param  string  $major  an installed major, or `system` */
+    public function nodeSetDefault(string $major): array
+    {
+        return $this->put('/node/default', ['major' => $major]);
+    }
+
+    public function nodeRemove(string $major): array
+    {
+        return $this->delete('/node/'.rawurlencode($major));
+    }
+
     // ── Meilisearch / Laravel Scout (API 1.31+ / Cipi ≥ 5.2.2) ────────
 
     public function searchStatus(): array
@@ -645,6 +787,9 @@ class CipiApiClient
         $normalized = [];
 
         foreach ($data as $item) {
+            $app = null;
+            $link = null;
+            $linkable = false;
             if (is_string($item)) {
                 $name = $item;
                 $size = null;
@@ -655,6 +800,10 @@ class CipiApiClient
                 $size = $item['size'] ?? null;
                 $dbEngine = $item['engine'] ?? null;
                 $user = $item['user'] ?? null;
+                // API 1.39+ / Cipi ≥ 5.9.0: the app a database belongs to.
+                $app = $item['app'] ?? null;
+                $link = $item['link'] ?? null;
+                $linkable = array_key_exists('link', $item);
             } else {
                 continue;
             }
@@ -672,20 +821,168 @@ class CipiApiClient
                 'size' => is_string($size) ? $size : null,
                 'engine' => is_string($dbEngine) && $dbEngine !== '' ? $dbEngine : null,
                 'user' => is_string($user) && $user !== '' ? $user : null,
+                'app' => is_string($app) && $app !== '' ? $app : null,
+                // linked (cipi db link) | own (created with a Laravel app) | namespace (<app>_…)
+                'link' => is_string($link) && $link !== '' ? $link : null,
+                // false on a server that does not report links (before API 1.39 / Cipi 5.9.0)
+                'linkable' => $linkable,
             ];
         }
 
         return $normalized;
     }
 
-    public function createDatabase(string $name, ?string $engine = null): array
+    /** @param  ?string  $app  show the database as this app's (API 1.39+ / Cipi ≥ 5.9.0) */
+    public function createDatabase(string $name, ?string $engine = null, ?string $app = null): array
     {
         $payload = ['name' => $name];
         if ($engine !== null && $engine !== '') {
             $payload['engine'] = $engine;
         }
+        if ($app !== null && $app !== '') {
+            $payload['app'] = $app;
+        }
 
         return $this->post('/dbs', $payload);
+    }
+
+    /** Show a database as an app's (`cipi db link`, API 1.39+ / Cipi ≥ 5.9.0). Synchronous. */
+    public function linkDatabase(string $name, string $app, ?string $engine = null): array
+    {
+        $payload = ['app' => $app];
+        if ($engine !== null && $engine !== '') {
+            $payload['engine'] = $engine;
+        }
+
+        return $this->post("/dbs/{$name}/link", $payload)['data'] ?? [];
+    }
+
+    public function unlinkDatabase(string $name, ?string $engine = null): array
+    {
+        return $this->delete("/dbs/{$name}/link", $engine !== null && $engine !== '' ? ['engine' => $engine] : [])['data'] ?? [];
+    }
+
+    // Dump upload in chunks (API 1.39+ / Cipi ≥ 5.9.0): start → chunks in order → restore with the upload id.
+
+    /** @return array{max_size: int, chunk_size: int, extensions: list<string>}|null null when the server has no upload */
+    public function dbUploadLimits(): ?array
+    {
+        $data = $this->get('/dbs/uploads/limits')['data'] ?? null;
+
+        return is_array($data) && isset($data['max_size'], $data['chunk_size']) ? $data : null;
+    }
+
+    /** @return array{upload_id: string, size: int, chunk_size: int, chunks: int, max_size: int} */
+    public function startDbUpload(string $filename, int $size): array
+    {
+        return $this->post('/dbs/uploads', ['filename' => $filename, 'size' => $size])['data'] ?? [];
+    }
+
+    /**
+     * Send one chunk (multipart). $contents is the chunk itself: a few
+     * megabytes, never the whole dump.
+     *
+     * @return array{upload_id: string, received: int, size: int, next: int, complete: bool}
+     */
+    public function sendDbUploadChunk(string $uploadId, int $index, string $contents): array
+    {
+        $url = $this->server->api_url.'/dbs/uploads/'.rawurlencode($uploadId).'/chunks';
+
+        try {
+            $response = self::configure(Http::createPendingRequest(), $this->server)
+                ->timeout(max(120, (int) config('cipi-gui.http_timeout', 30)))
+                ->attach('chunk', $contents, 'chunk.bin')
+                ->post($url, ['index' => (string) $index]);
+        } catch (ConnectionException $e) {
+            throw new CipiApiException('Unable to connect to server. Check the URL and network.', 503, ['connection' => $e->getMessage()], $e);
+        }
+
+        return $this->handle($response)['data'] ?? [];
+    }
+
+    public function cancelDbUpload(string $uploadId): void
+    {
+        $this->delete('/dbs/uploads/'.rawurlencode($uploadId));
+    }
+
+    /** Restore a database from a dump uploaded with startDbUpload()/sendDbUploadChunk() (async job). */
+    public function restoreDatabaseFromUpload(string $name, string $uploadId, ?string $engine = null): array
+    {
+        $payload = ['upload_id' => $uploadId];
+        if ($engine !== null && $engine !== '') {
+            $payload['engine'] = $engine;
+        }
+
+        return $this->post("/dbs/{$name}/restore", $payload);
+    }
+
+    // ── Backups (API 1.39+ / Cipi ≥ 5.9.0) ────────────────────────────
+
+    /**
+     * Destinations (never their keys), profiles with what each covers, last
+     * run, overdue, running, and what no enabled profile takes.
+     */
+    public function backupStatus(): array
+    {
+        return $this->get('/backups')['data'] ?? [];
+    }
+
+    /**
+     * Runs each destination holds, per profile. Lists the buckets: slower than
+     * the rest, so it gets the long timeout.
+     *
+     * @return array{profiles: array<string, list<array{run: string, destinations: list<string>}>>, errors: list<string>}
+     */
+    public function backupRuns(?string $profile = null): array
+    {
+        $data = $this->get('/backups/runs', $profile !== null && $profile !== '' ? ['profile' => $profile] : [], $this->diskTimeout())['data'] ?? [];
+
+        return [
+            'profiles' => is_array($data['profiles'] ?? null) ? $data['profiles'] : [],
+            'errors' => array_values(array_filter((array) ($data['errors'] ?? []), 'is_string')),
+        ];
+    }
+
+    /** Start a run in the background: one profile, or every enabled one. Returns at once. */
+    public function backupRun(?string $profile = null): array
+    {
+        return $this->post('/backups/run', $profile !== null && $profile !== '' ? ['profile' => $profile] : [])['data'] ?? [];
+    }
+
+    /** Read the newest run back and check that it opens (async job). */
+    public function backupVerify(?string $profile = null): array
+    {
+        return $this->post('/backups/verify', $profile !== null && $profile !== '' ? ['profile' => $profile] : []);
+    }
+
+    /** @param  array<string, mixed>  $payload */
+    public function createBackupProfile(array $payload): array
+    {
+        return $this->post('/backups/profiles', $payload)['data'] ?? [];
+    }
+
+    /** @param  array<string, mixed>  $payload */
+    public function updateBackupProfile(string $name, array $payload): array
+    {
+        return $this->put('/backups/profiles/'.rawurlencode($name), $payload)['data'] ?? [];
+    }
+
+    public function deleteBackupProfile(string $name): array
+    {
+        return $this->delete('/backups/profiles/'.rawurlencode($name))['data'] ?? [];
+    }
+
+    public function toggleBackupProfile(string $name, bool $enabled): array
+    {
+        return $this->post('/backups/profiles/'.rawurlencode($name).'/'.($enabled ? 'enable' : 'disable'))['data'] ?? [];
+    }
+
+    /** @return array{ok: bool, output: string} */
+    public function testBackupDestinations(?string $name = null): array
+    {
+        $data = $this->post('/backups/destinations/test', $name !== null && $name !== '' ? ['name' => $name] : [])['data'] ?? [];
+
+        return ['ok' => (bool) ($data['ok'] ?? false), 'output' => (string) ($data['output'] ?? '')];
     }
 
     public function backupDatabase(string $name, ?string $engine = null): array
@@ -890,6 +1187,25 @@ class CipiApiClient
     {
         $url = $this->server->api_url.$path;
 
+        // An answer asked ahead with prefetch(): taken once, handled like any other.
+        if ($method === 'get' && self::$prefetched !== []) {
+            $key = $this->prefetchKey($path, $query);
+            if (isset(self::$prefetched[$key])) {
+                $ahead = self::$prefetched[$key];
+                unset(self::$prefetched[$key]);
+                if ($ahead instanceof Response) {
+                    return $this->handle($ahead);
+                }
+                $this->server->markError('Connection failed: '.$ahead->getMessage());
+                throw new CipiApiException(
+                    'Unable to connect to server. Check the URL and network.',
+                    503,
+                    ['connection' => $ahead->getMessage()],
+                    $ahead instanceof \Exception ? $ahead : null,
+                );
+            }
+        }
+
         try {
             $pending = self::configure(Http::createPendingRequest(), $this->server);
             if ($timeout !== null) {
@@ -945,7 +1261,9 @@ class CipiApiClient
 
         // 4xx answers such as 404/409/422 prove the server is reachable; only
         // auth failures and server errors flag the connection as broken.
-        if ($status === 401 || ($status === 403 && str_contains((string) ($body['error'] ?? ''), 'IP not allowed')) || $status >= 500) {
+        // So does a 503 that only says the server's Cipi is older than a feature needs.
+        $needsNewerCipi = $status === 503 && is_array($body) && str_contains((string) ($body['error'] ?? ''), ' needs Cipi ');
+        if ($status === 401 || ($status === 403 && str_contains((string) ($body['error'] ?? ''), 'IP not allowed')) || ($status >= 500 && ! $needsNewerCipi)) {
             $this->server->markError($body['error'] ?? $body['message'] ?? "HTTP {$status}");
         } else {
             $this->server->markConnected();

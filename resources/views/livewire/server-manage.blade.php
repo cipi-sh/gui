@@ -1,4 +1,4 @@
-<div>
+<div wire:init="init">
     <x-cipi::page-header :title="$server?->name ?? 'Server'">
         <x-slot:eyebrow><x-cipi::icon name="server" class="h-3.5 w-3.5" /> Server</x-slot:eyebrow>
         <x-slot:meta>
@@ -47,12 +47,23 @@
             <x-cipi::alert type="info" class="mb-4">Read-only: your access lets you look at this server, not change it.</x-cipi::alert>
         @endunless
 
-        @if($unsupported[$activeTab] ?? false)
+        @if(! ($loaded[$activeTab] ?? false))
+            {{-- The page is sent before the server is asked (wire:init): this is what shows meanwhile. --}}
+            <div class="card" data-tab-loading aria-busy="true">
+                <div class="space-y-3">
+                    <div class="skeleton h-4 w-40"></div>
+                    <div class="skeleton h-4 w-full"></div>
+                    <div class="skeleton h-4 w-3/4"></div>
+                    <div class="skeleton h-4 w-1/2"></div>
+                </div>
+                <p class="sr-only">Loading {{ $tabs[$activeTab] ?? 'this section' }} from the server…</p>
+            </div>
+        @elseif($unsupported[$activeTab] ?? false)
             <x-cipi::alert type="warn" title="Not available on this server">
                 This section needs a newer Cipi API or a token with the matching abilities.
                 Run <code>cipi self-update &amp;&amp; cipi api update</code> on the server and recreate the token from
                 <a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>.
-                @if(in_array($activeTab, ['node', 'search', 'packages', 'monitor', 'zt'], true)) (API 1.31+ / Cipi 5.4.1+) @elseif($activeTab === 'disk') (API 1.33+ / Cipi 5.5.2+, whose migration lets the API run <code>cipi disk</code>) @endif
+                @if($activeTab === 'backups') (API 1.39+ / Cipi 5.9.0+, whose migration lets the panel run <code>cipi backup</code>; abilities <code>backups-view</code> and <code>backups-manage</code>) @elseif(in_array($activeTab, ['node', 'search', 'packages', 'monitor', 'zt'], true)) (API 1.31+ / Cipi 5.4.1+) @elseif($activeTab === 'disk') (API 1.33+ / Cipi 5.5.2+, whose migration lets the API run <code>cipi disk</code>) @endif
             </x-cipi::alert>
         @elseif($activeTab === 'overview')
             @php
@@ -130,7 +141,7 @@
                                     <tr>
                                         <td class="font-mono text-xs text-strong"><span class="dot {{ ($svc['status'] ?? '') === 'running' ? 'dot-green' : 'dot-red' }} mr-2"></span>{{ $svc['name'] }}</td>
                                         <td class="text-xs text-muted">{{ $svc['status'] ?? '' }}@if(!empty($svc['since'])) · since {{ $svc['since'] }}@endif</td>
-                                        <td class="text-right">@if($canManage)<button type="button" wire:click="restartService(@js($svc['name']))" wire:confirm="Restart {{ $svc['name'] }}?" class="btn btn-ghost btn-xs" @disabled(($svc['status'] ?? '') === 'not_installed')>Restart</button>@endif</td>
+                                        <td class="text-right">@if($canManage)<button type="button" wire:click="restartService(@js($svc['name']))" data-confirm="Restart {{ $svc['name'] }}?" class="btn btn-ghost btn-xs" @disabled(($svc['status'] ?? '') === 'not_installed')>Restart</button>@endif</td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -308,32 +319,88 @@
             </div>
 
         @elseif($activeTab === 'node')
+            @php
+                $nodeDefault = collect($nodeRuntimes)->firstWhere('default', true);
+                $nodeInstallable = $this->nodeInstallable();
+                $nodeManaged = array_values(array_filter($nodeRuntimes, fn ($r) => ($r['major'] ?? '') !== 'system'));
+            @endphp
             <div class="card card-flush">
-                <div class="card-header p-5 mb-0"><div><h2 class="card-title">Node runtimes</h2><p class="card-subtitle">Read-only: install, upgrade or change the default with <code>cipi node</code> on the host.</p></div></div>
-                <table>
-                    <thead><tr><th>Major</th><th>Version</th><th>Apps</th><th></th></tr></thead>
-                    <tbody>
-                        @forelse($nodeRuntimes as $runtime)
-                            <tr>
-                                <td class="font-semibold text-strong">Node {{ $runtime['major'] }}</td>
-                                <td class="font-mono text-xs">{{ $runtime['version'] ?? '—' }}</td>
-                                <td>
-                                    <div class="flex flex-wrap gap-1">
-                                        @forelse((array) ($runtime['apps'] ?? []) as $nodeApp)
-                                            <a href="{{ route('cipi-gui.apps.show', ['name' => $nodeApp, 'server' => $server->id]) }}" class="badge badge-neutral">{{ $nodeApp }}</a>
-                                        @empty
-                                            <span class="text-subtle text-xs">—</span>
-                                        @endforelse
-                                    </div>
-                                </td>
-                                <td class="text-right">@if(!empty($runtime['default']))<span class="badge badge-accent">Server default</span>@endif</td>
-                            </tr>
-                        @empty
-                            <tr><td colspan="4" class="text-muted">No Node runtimes installed.</td></tr>
-                        @endforelse
-                    </tbody>
-                </table>
+                <div class="card-header p-5 mb-0">
+                    <div>
+                        <h2 class="card-title">Node runtimes</h2>
+                        <p class="card-subtitle">Official builds, one directory per major, side by side. The server default is what Laravel asset builds and <code>cipi app run npm</code> use; a Node app keeps the major it was given.</p>
+                    </div>
+                    @if($canManage && count($nodeManaged) > 0)
+                        <div class="flex items-center gap-3">
+                            <label class="flex items-center gap-1.5 text-xs text-muted" title="After an upgrade, move the SSR apps to the new binary — blue/green, with no downtime. Unticked, each takes it at its next deploy."><input type="checkbox" wire:model="nodeUpgradeRestart"> restart SSR apps</label>
+                            <button type="button" wire:click="upgradeNode('')" data-confirm="Upgrade every Node runtime to its latest patch?" data-confirm-label="Upgrade all" class="btn btn-secondary btn-sm"><x-cipi::icon name="bolt" /> Upgrade all</button>
+                        </div>
+                    @endif
+                </div>
+                <div class="table-scroll">
+                    <table>
+                        <thead><tr><th>Major</th><th>Version</th><th>Apps</th><th></th>@if($canManage)<th class="text-right">Actions</th>@endif</tr></thead>
+                        <tbody>
+                            @forelse($nodeRuntimes as $runtime)
+                                @php $major = (string) $runtime['major']; $isSystem = $major === 'system'; $inUse = count((array) ($runtime['apps'] ?? [])) > 0; @endphp
+                                <tr wire:key="node-{{ $major }}">
+                                    <td class="font-semibold text-strong">{{ $isSystem ? 'System Node' : 'Node '.$major }}@if($isSystem)<span class="block text-2xs text-subtle font-normal">the NodeSource package</span>@endif</td>
+                                    <td class="font-mono text-xs">{{ $runtime['version'] ?? '—' }}</td>
+                                    <td>
+                                        <div class="flex flex-wrap gap-1">
+                                            @forelse((array) ($runtime['apps'] ?? []) as $nodeApp)
+                                                <a href="{{ route('cipi-gui.apps.show', ['name' => $nodeApp, 'server' => $server->id]) }}" class="badge badge-neutral">{{ $nodeApp }}</a>
+                                            @empty
+                                                <span class="text-subtle text-xs">—</span>
+                                            @endforelse
+                                        </div>
+                                    </td>
+                                    <td class="text-right">@if(!empty($runtime['default']))<span class="badge badge-accent">Server default</span>@endif</td>
+                                    @if($canManage)
+                                        <td>
+                                            <div class="btn-actions">
+                                                @if(empty($runtime['default']))
+                                                    <button type="button" wire:click="setNodeDefault(@js($major))" data-confirm="Make {{ $isSystem ? 'the system Node' : 'Node '.$major }} the server default? Laravel asset builds and cipi app run use it from their next run; Node apps keep their own version." data-confirm-label="Set as default" class="btn btn-ghost btn-sm">Set as default</button>
+                                                @endif
+                                                @unless($isSystem)
+                                                    <button type="button" wire:click="upgradeNode(@js($major))" class="btn btn-ghost btn-sm" title="Latest patch of Node {{ $major }}"><x-cipi::icon name="bolt" /> Upgrade</button>
+                                                    <button type="button" wire:click="removeNode(@js($major))" data-confirm="Remove Node {{ $major }} from this server?" data-confirm-label="Remove" class="btn btn-ghost btn-sm danger" @disabled($inUse || ! empty($runtime['default'])) title="{{ $inUse ? 'Used by: '.implode(', ', (array) $runtime['apps']) : (! empty($runtime['default']) ? 'It is the server default: choose another default first' : 'Remove Node '.$major) }}">Remove</button>
+                                                @endunless
+                                            </div>
+                                        </td>
+                                    @endif
+                                </tr>
+                            @empty
+                                <tr><td colspan="{{ $canManage ? 5 : 4 }}" class="text-muted">No Node runtimes installed.</td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
             </div>
+            @if($canManage)
+                <div class="card mt-4 max-w-xl">
+                    <div class="card-header"><div><h2 class="card-title">Install a Node major</h2><p class="card-subtitle">From nodejs.org, checked against the release's checksums. Needs Cipi 5.9.0 and API 1.39 on the server.</p></div></div>
+                    @if(count($nodeInstallable) > 0)
+                        <form wire:submit="installNode" class="flex items-end gap-2">
+                            <div class="flex-1">
+                                <label for="node-major">Major</label>
+                                <select id="node-major" wire:model="nodeInstallMajor">
+                                    @foreach($nodeInstallable as $candidate)
+                                        <option value="{{ $candidate }}">Node {{ $candidate }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary"><x-cipi::icon name="download" /> Install</button>
+                        </form>
+                        @error('nodeInstallMajor') <p class="field-error">{{ $message }}</p> @enderror
+                    @else
+                        <p class="text-sm text-muted">Every major the panel offers is installed. Another one: <code>cipi node install &lt;major&gt;</code> on the server.</p>
+                    @endif
+                </div>
+            @endif
+
+        @elseif($activeTab === 'backups')
+            @include('cipi-gui::partials.server-backups')
 
         @elseif($activeTab === 'engines')
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -351,7 +418,7 @@
                             </div>
                         </div>
                         @if(! $ready && $canManage)
-                            <button type="button" wire:click="installEngine('{{ $engine['engine'] }}')" wire:confirm="Install {{ $this->engineLabel($engine['engine']) }} on this server?" class="btn btn-primary btn-sm mt-4">Install</button>
+                            <button type="button" wire:click="installEngine('{{ $engine['engine'] }}')" data-confirm="Install {{ $this->engineLabel($engine['engine']) }} on this server?" class="btn btn-primary btn-sm mt-4">Install</button>
                         @endif
                     </div>
                 @empty
@@ -371,7 +438,7 @@
                                 <td class="font-mono text-strong">{{ $svc['name'] }}</td>
                                 <td><span class="badge {{ $state === 'running' ? 'badge-green' : ($state === 'not_installed' ? 'badge-gray' : 'badge-red') }}">{{ str_replace('_', ' ', $state) }}</span></td>
                                 <td class="text-xs text-muted">{{ $svc['since'] ?? '—' }}</td>
-                                <td class="text-right">@if($canManage)<button type="button" wire:click="restartService(@js($svc['name']))" wire:confirm="Restart {{ $svc['name'] }}?" class="btn btn-secondary btn-sm" @disabled($state === 'not_installed')><x-cipi::icon name="refresh" /> Restart</button>@endif</td>
+                                <td class="text-right">@if($canManage)<button type="button" wire:click="restartService(@js($svc['name']))" data-confirm="Restart {{ $svc['name'] }}?" class="btn btn-secondary btn-sm" @disabled($state === 'not_installed')><x-cipi::icon name="refresh" /> Restart</button>@endif</td>
                             </tr>
                         @empty
                             <tr><td colspan="4" class="text-muted">No services returned.</td></tr>
@@ -496,7 +563,7 @@
                             @else
                                 <button type="button" wire:click="enableSmtp" class="btn btn-primary w-full">Resume notifications</button>
                             @endif
-                            <button type="button" wire:click="deleteSmtp" wire:confirm="Remove the SMTP configuration from this server?" class="btn btn-ghost danger w-full">Remove configuration</button>
+                            <button type="button" wire:click="deleteSmtp" data-confirm="Remove the SMTP configuration from this server?" class="btn btn-ghost danger w-full">Remove configuration</button>
                         </div>
                     @else
                         <p class="text-muted">Save a configuration first.</p>
@@ -521,7 +588,7 @@
                                         @if(!empty($key['current_session']))
                                             <span class="badge badge-accent" title="Used by the current SSH session — cannot be removed from here">In use</span>
                                         @elseif($canManage)
-                                            <button type="button" wire:click="removeSshKey({{ (int) $key['id'] }})" wire:confirm="Remove the key {{ $key['comment'] ?: '#'.$key['id'] }}?" class="btn btn-ghost btn-sm danger">Remove</button>
+                                            <button type="button" wire:click="removeSshKey({{ (int) $key['id'] }})" data-confirm="Remove the key {{ $key['comment'] ?: '#'.$key['id'] }}?" class="btn btn-ghost btn-sm danger">Remove</button>
                                         @endif
                                     </td>
                                 </tr>
@@ -626,7 +693,7 @@
                             <li class="list-row">
                                 <span class="font-mono text-strong">{{ $entry }}@if(($ipWhitelist['client_ip'] ?? null) === $entry)<span class="badge badge-accent ml-2">this panel</span>@endif</span>
                                 @if($canManage && $entry !== '*' && ($ipWhitelist['client_ip'] ?? null) !== $entry)
-                                    <button type="button" wire:click="removeIpWhitelistEntry(@js($entry))" wire:confirm="Remove {{ $entry }}?" class="btn btn-ghost btn-sm danger">Remove</button>
+                                    <button type="button" wire:click="removeIpWhitelistEntry(@js($entry))" data-confirm="Remove {{ $entry }}?" class="btn btn-ghost btn-sm danger">Remove</button>
                                 @endif
                             </li>
                         @empty
@@ -646,7 +713,7 @@
                         <p class="text-muted">Changing the whitelist needs Manage access to this server.</p>
                     @endif
                     @if($canManage && !empty($entries) && empty($ipWhitelist['allow_all']))
-                        <button type="button" wire:click="allowAllIpWhitelist" wire:confirm="Allow every client IP to call the API?" class="btn btn-ghost w-full mt-3">Allow all IPs</button>
+                        <button type="button" wire:click="allowAllIpWhitelist" data-confirm="Allow every client IP to call the API?" class="btn btn-ghost w-full mt-3">Allow all IPs</button>
                     @endif
                     <p class="field-hint mt-3">Stored in <code>{{ $ipWhitelist['file'] ?? '/etc/cipi/api-ip-whitelist' }}</code>.</p>
                 </div>
