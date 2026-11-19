@@ -132,7 +132,7 @@ Artisan commands: `cipi:seed-gui-user` (create or `--reset` the admin), `cipi:gu
 
 `dev/demo/api` is a stateful stand-in for `cipi api` 1.36: three fictional servers (production, client hosting, staging) with Laravel, Node and custom apps, databases, monitor checks, a deploy ledger and logs. Async jobs go from pending to completed with CLI-like output, and changes persist until `./dev/demo.sh --reset`. Domains and IPs are reserved documentation ranges. Details in [`dev/README.md`](dev/README.md).
 
-Tests (Orchestra Testbench + PHPUnit) and the CI matrix (PHP 8.3–8.5 × Laravel 12/13 × Livewire 3/4):
+Tests (Orchestra Testbench + PHPUnit) and the CI matrix (PHP 8.3–8.6 × Laravel 12/13 × Livewire 3/4):
 
 ```bash
 composer install

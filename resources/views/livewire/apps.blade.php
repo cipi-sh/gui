@@ -434,6 +434,9 @@
                                     @endforeach
                                 </select>
                                 <p class="field-hint">Versions installed on {{ $createServer?->name ?? 'this server' }} · <a href="{{ route('cipi-gui.server-manage', ['serverId' => $createServerId ?: null]) }}?tab=php" class="text-link">install another</a></p>
+                                @if($legacyPhpVersions !== [])
+                                    <p class="field-hint" data-php-legacy>PHP {{ implode(', ', $legacyPhpVersions) }} {{ count($legacyPhpVersions) === 1 ? 'is' : 'are' }} installed too, but legacy: not available to a new app.</p>
+                                @endif
                                 @error('php') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
                             @if($appKind === 'laravel' && count($availableEngines) > 0)

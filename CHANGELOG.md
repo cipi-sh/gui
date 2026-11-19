@@ -1,5 +1,34 @@
 # Changelog
 
+## [4.2.2] — 2026-11-19
+
+PHP 8.6, and the legacy versions a server may still have.
+
+The panel keeps no list of PHP versions of its own. What can be installed on the Server page is the `installable` list of `GET /api/php`, and what an app can run on is what the server has installed — a server on Cipi 5.9.1 with API 1.39.2 lists 8.6, and the panel shows it. Nothing had to change for that.
+
+What did have to change is the other end of the list. A server installed before Cipi 4.5.4 can still have PHP 7.4–8.2, with apps on it; Cipi lists those versions and neither installs them nor gives them to an app any more (Deployer 8 needs PHP 8.3). The panel offered every installed version alike.
+
+### Fixed
+
+- **A legacy version is not offered to an app.** The PHP select of the new-app form and of an app's configuration listed everything installed, 8.1 next to 8.5; choosing it ended in the API's `422`. Only the versions the server still gives to apps are offered. A version is legacy when it is installed and older than everything in `installable` — `CipiGui\Support\PhpVersions`, no version written in the panel.
+- **A new app is not proposed a legacy default.** On a server whose `php` command is still 8.2 the form opened on 8.2. It opens on the newest version an app can use, and says which installed ones are legacy.
+- **An app on a legacy version keeps it, and can be edited.** Its configuration form shows `PHP 8.1 (legacy)` as the current choice, with a line on what that means (it keeps running; a server with Deployer 8 refuses to deploy it; once moved it cannot go back). Saving a branch or a domain leaves the PHP alone — `php` is sent only when it changes, and is no longer checked when it does not. Moving the app to another legacy version is refused in the form, with the versions to pick from.
+- **Server → PHP marks legacy versions** with a badge and a note under the table: what they are, that the apps on them can be moved from their configuration, and the command that removes one no app uses (`cipi php remove`, on the host as before).
+
+An API that sends no `installable` list (before 1.15) is shown as before: every installed version, nothing called legacy.
+
+### Tests
+
+- `tests/Feature/LegacyPhpTest.php` (8 tests): what counts as legacy; the Server page; the new-app form on a server whose default is legacy; an app on 8.1 edited, moved to 8.5, refused 8.2; an app on a current version; a server without the list.
+- `tests/Feature/Php86Test.php` (4 tests): the Server page offers and installs 8.6 when the server lists it and does not when it doesn't; the reason an older core gives (`PHP 8.6 needs Cipi 5.9.1+ …`) is shown; a new app keeps the server's default PHP when 8.6 is installed next to it, and can be put on 8.6.
+- CI matrix: PHP 8.6 next to 8.3–8.5.
+- The suite passes on PHP 8.6.0RC5 (the build at hand when 8.6.0 came out; it was not run on 8.6.0) with Laravel 13 and Livewire 4, both with the locked dependencies and with freshly resolved ones. A lock older than 20 October 2026 does not install on 8.6 (`nette/schema` < 1.3.7 and `nette/utils` < 4.1.6 allow PHP up to 8.5): `composer update` resolves it.
+
+### Left as they are
+
+- `php_versions` in `config/cipi-gui.php` (`8.4`, `8.5`) and the `8.3, 8.4, 8.5` the Server page falls back to: both are used only when the server's API cannot list its versions, and such an API does not accept 8.6.
+- Removing a PHP version and changing the server's default stay on the host (`cipi php remove`, `cipi php switch`): the API has no route for either.
+
 ## [4.2.1] — 2026-11-16
 
 Three things the panel said that were not true.

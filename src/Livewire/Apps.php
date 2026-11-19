@@ -11,6 +11,7 @@ use CipiGui\Services\CipiApiException;
 use CipiGui\Support\AppEnv;
 use CipiGui\Support\BuildCommand;
 use CipiGui\Support\Panel;
+use CipiGui\Support\PhpVersions;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
@@ -131,8 +132,11 @@ class Apps extends Component
     /** @var array<int, array{engine: string, status?: string, port?: int|null, default?: bool}> */
     public array $availableEngines = [];
 
-    /** @var list<string> */
+    /** @var list<string> The installed versions a new app can use (legacy ones left out). */
     public array $installedPhpVersions = [];
+
+    /** @var list<string> Installed too, and not offered: 7.4–8.2 on a server set up before Cipi 4.5.4. */
+    public array $legacyPhpVersions = [];
 
     public ?string $defaultPhpVersion = null;
 
@@ -438,6 +442,7 @@ class Apps extends Component
     protected function loadInstalledPhpVersions(): void
     {
         $this->installedPhpVersions = (array) config('cipi-gui.php_versions', ['8.4', '8.5']);
+        $this->legacyPhpVersions = [];
         $this->defaultPhpVersion = null;
 
         try {
@@ -445,12 +450,11 @@ class Apps extends Component
             if (isset($data['default']) && is_string($data['default']) && $data['default'] !== '') {
                 $this->defaultPhpVersion = $data['default'];
             }
-            $versions = [];
-            foreach ($data['versions'] ?? [] as $row) {
-                if (is_array($row) && ! empty($row['version'])) {
-                    $versions[] = (string) $row['version'];
-                }
-            }
+            // A legacy version is installed and cannot host a new app: the API
+            // refuses it, so it is not offered (nor proposed as the default,
+            // on a server whose `php` command is still one).
+            $versions = PhpVersions::assignable($data);
+            $this->legacyPhpVersions = PhpVersions::legacy($data);
             if ($versions !== []) {
                 $this->installedPhpVersions = $versions;
             }
@@ -783,6 +787,7 @@ class Apps extends Component
             'counts' => $counts,
             'createServer' => $servers->firstWhere('id', $this->createServerId),
             'phpVersions' => $this->installedPhpVersions !== [] ? $this->installedPhpVersions : config('cipi-gui.php_versions'),
+            'legacyPhpVersions' => $this->legacyPhpVersions,
             'presets' => self::NODE_PRESETS,
             'buildPlaceholder' => BuildCommand::PLACEHOLDER,
             'buildMaxLength' => BuildCommand::MAX_LENGTH,

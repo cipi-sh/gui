@@ -11,6 +11,7 @@ use CipiGui\Support\AppEnv;
 use CipiGui\Support\BuildCommand;
 use CipiGui\Support\Clock;
 use CipiGui\Support\DeployLog;
+use CipiGui\Support\PhpVersions;
 use CipiGui\Support\Presets;
 use Illuminate\Support\Carbon;
 use Livewire\Attributes\Layout;
@@ -91,8 +92,11 @@ class AppDetail extends Component
     /** @var list<array{major: string, version: ?string, default: bool, apps?: list<string>}> */
     public array $nodeRuntimes = [];
 
-    /** @var list<string> */
+    /** @var list<string> The installed versions the app can be moved to (legacy ones left out). */
     public array $installedPhpVersions = [];
+
+    /** @var list<string> Installed too, and not assignable: 7.4–8.2 on a server set up before Cipi 4.5.4. */
+    public array $legacyPhpVersions = [];
 
     public bool $phpListUnsupported = false;
 
@@ -504,16 +508,16 @@ class AppDetail extends Component
     protected function loadInstalledPhpVersions(): void
     {
         $this->phpListUnsupported = false;
+        $this->legacyPhpVersions = [];
         $fallback = (array) config('cipi-gui.php_versions', ['8.4', '8.5']);
 
         try {
-            $versions = [];
-            foreach ($this->client()->listPhp()['versions'] ?? [] as $row) {
-                if (is_array($row) && ! empty($row['version'])) {
-                    $versions[] = (string) $row['version'];
-                }
-            }
-            $this->installedPhpVersions = $versions !== [] ? $versions : $fallback;
+            $data = $this->client()->listPhp();
+            // The app keeps a legacy version it already runs on (the form shows
+            // it as the current one); no app can be moved to one.
+            $versions = PhpVersions::assignable($data);
+            $this->legacyPhpVersions = PhpVersions::legacy($data);
+            $this->installedPhpVersions = $versions !== [] || $this->legacyPhpVersions !== [] ? $versions : $fallback;
         } catch (CipiApiException $e) {
             $this->phpListUnsupported = $this->isUnsupported($e);
             $this->installedPhpVersions = $fallback;
@@ -678,8 +682,15 @@ class AppDetail extends Component
             'editEnv.max' => AppEnv::message(),
         ]);
 
-        if (! $isNode && $this->installedPhpVersions !== [] && ! in_array($this->editPhp, $this->installedPhpVersions, true)) {
-            $this->addError('editPhp', 'PHP '.$this->editPhp.' is not installed on this server. Install it from Server → PHP, or pick: '.implode(', ', $this->installedPhpVersions).'.');
+        // Unchanged is always fine — an app on a legacy version keeps it while
+        // its branch or domain is edited. A change has to be to a version the
+        // server has and still gives to apps.
+        $phpChanged = ! $isNode && $this->editPhp !== (string) $this->app['php'];
+        if ($phpChanged && ($this->installedPhpVersions !== [] || $this->legacyPhpVersions !== []) && ! in_array($this->editPhp, $this->installedPhpVersions, true)) {
+            $pick = $this->installedPhpVersions !== [] ? 'pick: '.implode(', ', $this->installedPhpVersions) : 'install a current version from Server → PHP';
+            $this->addError('editPhp', in_array($this->editPhp, $this->legacyPhpVersions, true)
+                ? 'PHP '.$this->editPhp.' is a legacy version: an app cannot be moved to it. '.ucfirst($pick).'.'
+                : 'PHP '.$this->editPhp.' is not installed on this server. Install it from Server → PHP, or '.$pick.'.');
 
             return;
         }
@@ -2253,7 +2264,8 @@ class AppDetail extends Component
         $server = $this->currentServer();
 
         return view('cipi-gui::livewire.app-detail', [
-            'phpVersions' => $this->installedPhpVersions !== [] ? $this->installedPhpVersions : config('cipi-gui.php_versions'),
+            'phpVersions' => $this->installedPhpVersions !== [] || $this->legacyPhpVersions !== [] ? $this->installedPhpVersions : config('cipi-gui.php_versions'),
+            'legacyPhpVersions' => $this->legacyPhpVersions,
             'server' => $server,
             'tabs' => $this->app ? $this->tabs() : [],
             'artisanPresets' => Presets::get(Presets::ARTISAN),

@@ -302,6 +302,7 @@
             </div>
 
         @elseif($activeTab === 'php')
+            @php $legacyPhp = \CipiGui\Support\PhpVersions::legacy($phpData); @endphp
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div class="card card-flush lg:col-span-2">
                     <div class="card-header p-5 mb-0"><div><h2 class="card-title">Installed PHP versions</h2><p class="card-subtitle">Each app picks its own version; switching is per app from its configuration.</p></div></div>
@@ -310,7 +311,7 @@
                         <tbody>
                             @forelse($phpData['versions'] as $row)
                                 <tr>
-                                    <td class="font-semibold text-strong">PHP {{ $row['version'] }}</td>
+                                    <td class="font-semibold text-strong">PHP {{ $row['version'] }}@if(in_array((string) $row['version'], $legacyPhp, true)) <span class="badge badge-gray" title="Installed before Cipi 4.5.4. Apps on it keep running; no app can be created on it or moved to it." data-php-legacy="{{ $row['version'] }}">legacy</span>@endif</td>
                                     <td><span class="badge {{ ($row['status'] ?? '') === 'running' ? 'badge-green' : 'badge-amber' }}">{{ $row['status'] ?? 'unknown' }}</span></td>
                                     <td class="tabular-nums">{{ $row['apps'] ?? 0 }}</td>
                                     <td class="text-right">@if(!empty($row['default']) || ($phpData['default'] ?? null) === $row['version'])<span class="badge badge-accent">CLI default</span>@endif</td>
@@ -320,6 +321,9 @@
                             @endforelse
                         </tbody>
                     </table>
+                    @if($legacyPhp !== [])
+                        <p class="field-hint p-5 pt-3">PHP {{ implode(', ', $legacyPhp) }}: legacy, installed before Cipi 4.5.4. The apps on {{ count($legacyPhp) === 1 ? 'it' : 'them' }} keep running and can be moved to a current version from their configuration; no app can be created on or moved to a legacy version, and a server with Deployer 8 refuses to deploy one that is. Remove a version no app uses on the host: <code>cipi php remove &lt;version&gt;</code>.</p>
+                    @endif
                 </div>
                 <div class="card">
                     <div class="card-header"><div><h2 class="card-title">Install PHP</h2><p class="card-subtitle">FPM, CLI and the extensions Laravel needs. Takes a few minutes.</p></div></div>

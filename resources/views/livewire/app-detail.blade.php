@@ -257,17 +257,27 @@
                             @else
                                 <div>
                                     <label for="edit-php">PHP version</label>
+                                    @php
+                                        // The version the app runs on stays selectable even when it is not
+                                        // one of those on offer: a legacy one, or one the list does not have.
+                                        $currentPhp = (string) ($app['php'] ?? '');
+                                        $extraPhp = array_values(array_unique(array_filter([$currentPhp, $editPhp], fn ($v) => $v !== '' && ! in_array($v, $phpVersions, true))));
+                                        $appOnLegacyPhp = in_array($currentPhp, $legacyPhpVersions, true);
+                                    @endphp
                                     <select id="edit-php" wire:model="editPhp">
+                                        @foreach($extraPhp as $ver)
+                                            <option value="{{ $ver }}">PHP {{ $ver }} {{ in_array($ver, $legacyPhpVersions, true) ? '(legacy)' : '(not installed?)' }}</option>
+                                        @endforeach
                                         @foreach($phpVersions as $ver)
                                             <option value="{{ $ver }}">PHP {{ $ver }}</option>
                                         @endforeach
-                                        @if($editPhp !== '' && ! in_array($editPhp, $phpVersions, true))
-                                            <option value="{{ $editPhp }}">PHP {{ $editPhp }} (not installed?)</option>
-                                        @endif
                                     </select>
                                     <p class="field-hint">
                                         @if($phpListUnsupported) PHP list unavailable — showing local hints. @else Installed on this server · <a href="{{ route('cipi-gui.server-manage') }}?tab=php" class="text-link">manage PHP</a> @endif
                                     </p>
+                                    @if($appOnLegacyPhp)
+                                        <p class="field-hint" data-php-legacy>PHP {{ $currentPhp }} is a legacy version. The app keeps running on it, but a server with Deployer 8 refuses to deploy it, and once moved to a current version it cannot go back.</p>
+                                    @endif
                                     @error('editPhp') <p class="field-error">{{ $message }}</p> @enderror
                                 </div>
                                 @if($isLaravel)
