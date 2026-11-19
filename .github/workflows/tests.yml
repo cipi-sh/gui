@@ -14,6 +14,12 @@ jobs:
         php: ['8.3', '8.4', '8.5', '8.6']
         laravel: ['12', '13']
         livewire: ['3', '4']
+        exclude:
+          # Laravel 12 is not PHP 8.6-compatible upstream (12.73.0: the
+          # ArraySessionHandler lacks create_sid(), spl_object_hash() is
+          # deprecated in Container) — Laravel 12 jobs run on 8.3–8.5 only.
+          - php: '8.6'
+            laravel: '12'
         include:
           - laravel: '12'
             testbench: '^10.0'

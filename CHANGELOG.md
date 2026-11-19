@@ -21,7 +21,7 @@ An API that sends no `installable` list (before 1.15) is shown as before: every 
 
 - `tests/Feature/LegacyPhpTest.php` (8 tests): what counts as legacy; the Server page; the new-app form on a server whose default is legacy; an app on 8.1 edited, moved to 8.5, refused 8.2; an app on a current version; a server without the list.
 - `tests/Feature/Php86Test.php` (4 tests): the Server page offers and installs 8.6 when the server lists it and does not when it doesn't; the reason an older core gives (`PHP 8.6 needs Cipi 5.9.1+ …`) is shown; a new app keeps the server's default PHP when 8.6 is installed next to it, and can be put on 8.6.
-- CI matrix: PHP 8.6 next to 8.3–8.5.
+- CI matrix: PHP 8.6 next to 8.3–8.5, with Laravel 13 only. Laravel 12 (12.73.0, the last of the line when this was written) is not PHP 8.6-compatible upstream — its `ArraySessionHandler` lacks the `create_sid()` PHP 8.6 requires of `SessionHandlerInterface` implementations and its container still calls the deprecated `spl_object_hash()` — so the 8.6 × Laravel 12 jobs errored on the first test that resolved a session (`AppEnvTest`, by test order) while every other combination passed. Those two jobs are excluded rather than the deprecations silenced: a user on Laravel 12 + PHP 8.6 would hit the same upstream errors outside the test suite.
 - The suite passes on PHP 8.6.0RC5 (the build at hand when 8.6.0 came out; it was not run on 8.6.0) with Laravel 13 and Livewire 4, both with the locked dependencies and with freshly resolved ones. A lock older than 20 October 2026 does not install on 8.6 (`nette/schema` < 1.3.7 and `nette/utils` < 4.1.6 allow PHP up to 8.5): `composer update` resolves it.
 
 ### Left as they are
