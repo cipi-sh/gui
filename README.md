@@ -1,3 +1,12 @@
+<p align="center">
+  <a href="https://cipi.sh">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://cipi.sh/brand/cipi-logo-dark.svg">
+      <img src="https://cipi.sh/brand/cipi-logo.svg" alt="Cipi" height="56">
+    </picture>
+  </a>
+</p>
+
 # Cipi GUI
 
 The optional web control panel for [Cipi](https://cipi.sh): manage one or many Cipi servers from the browser through the [Cipi REST API](https://github.com/cipi-sh/api) — apps, deploys, domains, routing, databases, PHP and Node runtimes, monitoring and API access.

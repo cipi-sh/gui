@@ -147,7 +147,7 @@ hr { border: 0; border-top: 1px solid var(--border); }
 }
 .cipi-gui-main { flex: 1 1 0%; width: 100%; max-width: 88rem; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
 .sidebar-brand { display: flex; align-items: center; gap: 0.75rem; height: 3.75rem; padding: 0 1rem; border-bottom: 1px solid var(--border); }
-.brand-name { font-family: var(--font-display); font-weight: 600; font-size: 1rem; letter-spacing: -0.01em; }
+.brand-name { font-family: var(--font-display); font-weight: 700; font-size: 1.125rem; letter-spacing: -0.04em; }
 .brand-tag { font-family: var(--font-mono); font-size: 0.625rem; color: var(--text-subtle); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.05rem 0.3rem; }
 .nav-section { padding: 0.75rem 0.75rem 0.25rem; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-subtle); }
 .nav-link {
@@ -544,10 +544,11 @@ table.table-plain th { background: transparent; }
 [data-theme="light"] .theme-icon-sun { display: none; }
 [data-theme="light"] .theme-icon-moon { display: block; }
 
-.logo-mark { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 2rem; height: 2rem; border-radius: var(--radius); background: var(--accent); color: var(--accent-fg); }
-.logo-mark .logo-icon { width: 1.4rem; height: 1.4rem; }
-.logo-mark-lg { width: 3rem; height: 3rem; border-radius: var(--radius-lg); }
-.logo-mark-lg .logo-icon { width: 2.1rem; height: 2.1rem; }
+.logo-mark { display: flex; align-items: center; justify-content: center; flex-shrink: 0; width: 2rem; height: 2rem; color: var(--text); }
+.logo-mark .logo-icon { width: 1.5rem; height: 1.5rem; }
+.logo-mark .logo-icon-signal { fill: var(--accent); }
+.logo-mark-lg { width: 3.5rem; height: 3.5rem; }
+.logo-mark-lg .logo-icon { width: 3rem; height: 3rem; }
 
 .avatar { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 9999px; background: var(--bg-raised); border: 1px solid var(--border); font-size: 0.75rem; font-weight: 600; color: var(--text-soft); }
 

@@ -3,7 +3,7 @@
     <div class="sidebar-brand">
         <a href="{{ route('cipi-gui.dashboard') }}" class="flex items-center gap-3 text-strong">
             @include('cipi-gui::partials.logo')
-            <span class="brand-name">Cipi</span>
+            <span class="brand-name">cipi</span>
         </a>
         <span class="brand-tag ml-auto">panel</span>
     </div>
