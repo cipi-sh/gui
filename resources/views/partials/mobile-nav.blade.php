@@ -9,7 +9,7 @@
            x-transition:leave="transition ease-in duration-150" x-transition:leave-start="translate-x-0" x-transition:leave-end="-translate-x-full">
         <div class="sidebar-brand">
             @include('cipi-gui::partials.logo')
-            <span class="brand-name">Cipi</span>
+            <span class="brand-name">cipi</span>
             <button type="button" class="btn btn-ghost btn-icon btn-sm ml-auto" x-on:click="mobileNavOpen = false" aria-label="Close menu">
                 <x-cipi::icon name="x" />
             </button>
