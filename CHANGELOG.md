@@ -1,5 +1,23 @@
 # Changelog
 
+## [4.4.0] — 2026-11-23
+
+Notifications, all of them. The server page had an Email tab with the SMTP form; Cipi 5.12.0 and cipi/api 1.42 let the panel manage every channel and every trigger, and the tab (still `?tab=smtp`) now does.
+
+### Added
+
+- **Notifications tab** — `Livewire\Notifications`, a component of its own:
+  - **Channels**: every channel of the server with its state and where it sends (secrets never shown): SMTP, Resend, Amazon SES, Slack, Discord, Mattermost, Google Chat, Telegram, ntfy, Pushover, webhook. **Add** with a type picker that shows only the fields of the type and suggests an id; **Edit** sends only what changed — an empty secret keeps the stored one, a webhook can stop signing; **Pause / Turn on**, **Test** (the result stays on the row: a refused test shows the channel's reason), **Test all**, **Remove**. Validated like the CLI: https for chat webhooks, numeric Telegram chat ids, email recipients, a free id.
+  - **Triggers**: every trigger by category, with a switch each, a filter, *all* / *none* per category, *All on* / *All off*, *Defaults*; changes are kept on the page, counted, and sent in **one save** (`PUT /api/notifications/triggers`).
+  - Server viewers see everything and change nothing.
+- `Support\Notifications`: types, fields, secrets, targets — checked by `tests/standalone.php`.
+- The token abilities shown on Connections include `notifications-view`, `notifications-manage`, `metrics-view`, `metrics-manage`. Tokens with `smtp-view` / `smtp-manage` keep working on the new routes.
+
+### Changed
+
+- The tab is named **Notifications**. On a server whose API is older than 1.42, or whose Cipi is older than 5.12, it shows the SMTP form of before with a note on what to update.
+- `Theme::VERSION` 4.4.0, `Theme::API` 1.42.
+
 ## [4.3.0] — 2026-11-23
 
 Metrics, with charts. Cipi 5.11.0 keeps a history on each server — host CPU, memory, load, network; per app CPU, memory, PHP-FPM, requests and 5xx per minute, queue workers and the healthcheck's status and time, every minute for 7 days and in 15-minute rollups for 30 — and cipi/api 1.41 serves it. The panel draws it.

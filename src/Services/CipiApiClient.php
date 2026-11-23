@@ -1170,6 +1170,66 @@ class CipiApiClient
         return $this->delete('/smtp')['data'] ?? [];
     }
 
+    // ── Notifications: every channel and trigger (API 1.42+ / Cipi CLI ≥ 5.12.0) ──
+
+    /** {channels: [...], triggers: {enabled, total}, types: [...]} — secrets come back as *_set only. */
+    public function notifications(): array
+    {
+        return $this->get('/notifications')['data'] ?? [];
+    }
+
+    /** @return array{channel: ?array, test: ?array} */
+    public function addNotificationChannel(array $payload): array
+    {
+        return $this->post('/notifications/channels', $payload)['data'] ?? [];
+    }
+
+    /** Only the fields given change; a secret left out is kept. */
+    public function updateNotificationChannel(string $id, array $payload): array
+    {
+        return $this->put('/notifications/channels/'.rawurlencode($id), $payload)['data'] ?? [];
+    }
+
+    public function removeNotificationChannel(string $id): array
+    {
+        return $this->delete('/notifications/channels/'.rawurlencode($id))['data'] ?? [];
+    }
+
+    public function setNotificationChannelEnabled(string $id, bool $enabled): array
+    {
+        return $this->post('/notifications/channels/'.rawurlencode($id).'/'.($enabled ? 'enable' : 'disable'))['data'] ?? [];
+    }
+
+    /** {ok, message}; a refused test (422) comes back as ok: false with the reason. */
+    public function testNotificationChannel(string $id): array
+    {
+        try {
+            return $this->post('/notifications/channels/'.rawurlencode($id).'/test')['data'] ?? ['ok' => true, 'message' => 'Test sent'];
+        } catch (CipiApiException $e) {
+            if ($e->getStatusCode() === 422) {
+                return ['ok' => false, 'message' => $e->getMessage()];
+            }
+            throw $e;
+        }
+    }
+
+    /** {triggers: [{id, category, label, enabled}], enabled, total} */
+    public function notificationTriggers(): array
+    {
+        return $this->get('/notifications/triggers')['data'] ?? [];
+    }
+
+    /** @param  array<string, bool>  $triggers */
+    public function updateNotificationTriggers(array $payload): array
+    {
+        return $this->put('/notifications/triggers', $payload)['data'] ?? [];
+    }
+
+    public function resetNotificationTriggers(): array
+    {
+        return $this->post('/notifications/triggers/reset')['data'] ?? [];
+    }
+
     // ── Healthchecks (API 1.16+) ──────────────────────────────────────
 
     /**
