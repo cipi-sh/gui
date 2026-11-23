@@ -20,6 +20,7 @@ namespace {
     require $root.'/src/Support/DeployLog.php';
     require $root.'/src/Support/Presets.php';
     require $root.'/src/Support/Metrics.php';
+    require $root.'/src/Support/Notifications.php';
     require $root.'/src/Http/Controllers/DbUploadController.php';
     require $root.'/src/Services/CipiApiException.php';
     require $root.'/src/Livewire/Concerns/ManagesBackups.php';
@@ -201,6 +202,19 @@ namespace {
     $check(str_contains($css, 'svg.chart-svg:not([class*="h-"]):not([class*="w-"])'), 'charts are not shrunk to icon size by the base svg rule');
     $comp = (string) file_get_contents($root.'/src/Livewire/Metrics.php');
     $check(str_contains($comp, '#[Locked]') && str_contains($comp, "Access::can(\$user, 'view', \$id, \$this->app)") && str_contains($comp, 'return $this->serverAllowed(Access::MANAGE'), 'the app is locked; reading needs view, changing needs manage on the server');
+
+    echo "--- notifications (4.4.0)\n";
+    $N = 'CipiGui\Support\Notifications';
+    $check(array_keys($N::TYPES) === ['smtp', 'resend', 'ses', 'slack', 'discord', 'mattermost', 'googlechat', 'telegram', 'ntfy', 'pushover', 'webhook'] && array_keys($N::FIELDS) === array_keys($N::TYPES), 'every channel type of Cipi 5.12, each with its fields');
+    $check($N::target(['type' => 'smtp', 'host' => 'h.test', 'port' => '587', 'from' => 'a@x.it', 'to' => ['b@x.it', 'c@x.it']]) === 'h.test:587 · a@x.it → b@x.it, c@x.it' && $N::target(['type' => 'telegram', 'chat_id' => '-1']) === 'chat -1' && $N::target(['type' => 'webhook', 'url' => 'https://x/***', 'secret_set' => true]) === 'https://x/*** · signed', 'target: one line, nothing secret');
+    $fv = $N::formValues(['type' => 'resend', 'api_key_set' => true, 'from' => 'a@x.it', 'to' => ['b@x.it', 'c@x.it']]);
+    $check($fv === ['api_key' => '', 'from' => 'a@x.it', 'to' => 'b@x.it, c@x.it'], 'form values: secrets empty, recipients joined');
+    $check($N::secretStored(['token_set' => true], 'token') && ! $N::secretStored(['secret_set' => false], 'secret') && $N::secretStored([], 'url'), 'a stored secret is told apart');
+    $nv = $views[$root.'/resources/views/livewire/notifications.blade.php'] ?? '';
+    $check(str_contains($nv, 'wire:model.live="triggerState.{{ $tid }}"') && str_contains($nv, 'wire:click="saveTriggers"') && ! preg_match('/value="\{\{\s*\$form\[/', $nv), 'triggers are switched locally and saved together; no secret is written into the form');
+    $check(str_contains($views[$root.'/resources/views/livewire/server-manage.blade.php'] ?? '', "@livewire('cipi-gui.notifications', ['serverId' => \$serverId]") && str_contains($views[$root.'/resources/views/livewire/server-manage.blade.php'] ?? '', 'data-notifications-legacy'), 'the Notifications tab, and the SMTP form for an older server');
+    $nc = (string) file_get_contents($root.'/src/Livewire/Notifications.php');
+    $check(substr_count($nc, '$this->guardManage()') >= 6 && str_contains($nc, 'Access::canManageServer('), 'every change needs manage on the server');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);

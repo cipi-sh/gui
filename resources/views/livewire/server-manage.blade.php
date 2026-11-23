@@ -73,7 +73,7 @@
                 This section needs a newer Cipi API or a token with the matching abilities.
                 Run <code>cipi self-update &amp;&amp; cipi api update</code> on the server and recreate the token from
                 <a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>.
-                @if($activeTab === 'backups') (API 1.39+ / Cipi 5.9.0+, whose migration lets the panel run <code>cipi backup</code>; abilities <code>backups-view</code> and <code>backups-manage</code>) @elseif(in_array($activeTab, ['node', 'search', 'packages', 'monitor', 'zt'], true)) (API 1.31+ / Cipi 5.4.1+) @elseif($activeTab === 'metrics') (API 1.41+ / Cipi 5.11.0+; abilities <code>metrics-view</code> and <code>metrics-manage</code>) @elseif($activeTab === 'disk') (API 1.33+ / Cipi 5.5.2+, whose migration lets the API run <code>cipi disk</code>) @endif
+                @if($activeTab === 'backups') (API 1.39+ / Cipi 5.9.0+, whose migration lets the panel run <code>cipi backup</code>; abilities <code>backups-view</code> and <code>backups-manage</code>) @elseif(in_array($activeTab, ['node', 'search', 'packages', 'monitor', 'zt'], true)) (API 1.31+ / Cipi 5.4.1+) @elseif($activeTab === 'metrics') (API 1.41+ / Cipi 5.11.0+; abilities <code>metrics-view</code> and <code>metrics-manage</code>) @elseif($activeTab === 'disk') (API 1.33+ / Cipi 5.5.2+, whose migration lets the API run <code>cipi disk</code>) @elseif($activeTab === 'smtp') (abilities <code>smtp-view</code> and <code>smtp-manage</code>, or <code>notifications-view</code> and <code>notifications-manage</code>) @endif
                 @if(($unsupportedReason[$activeTab] ?? '') !== '')
                     <p class="mt-2" data-tab-reason>The server answered: <span class="font-mono text-xs break-words">{{ $unsupportedReason[$activeTab] }}</span></p>
                 @endif
@@ -529,7 +529,15 @@
                 </table>
             </div>
 
+        @elseif($activeTab === 'smtp' && ! $notificationsLegacy)
+            @livewire('cipi-gui.notifications', ['serverId' => $serverId], key('notifications-'.$serverId))
+
         @elseif($activeTab === 'smtp')
+            <x-cipi::alert type="info" class="mb-4" data-notifications-legacy>
+                This server manages only email from the panel. With <strong>Cipi 5.12</strong> and <strong>cipi/api 1.42</strong>
+                (<code>cipi self-update &amp;&amp; cipi api update</code>) this tab manages every channel — Slack, Discord, Telegram, ntfy,
+                Pushover, Resend, SES, webhooks — and which events notify.
+            </x-cipi::alert>
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div class="card lg:col-span-2">
                     <div class="card-header">
@@ -598,7 +606,7 @@
                     @else
                         <p class="text-muted">Save a configuration first.</p>
                     @endif
-                    <p class="field-hint mt-4">Slack, Discord, Telegram, ntfy and webhook channels, plus per-event filters, are set on the host with <code>cipi notifications</code>.</p>
+                    <p class="field-hint mt-4">On this server, Slack, Discord, Telegram, ntfy and webhook channels, and which events notify, are set on the host with <code>cipi notification</code>.</p>
                 </div>
             </div>
 

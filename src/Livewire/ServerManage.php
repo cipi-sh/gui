@@ -32,7 +32,7 @@ class ServerManage extends Component
         'services' => 'Services',
         'health' => 'Health',
         'monitor' => 'Monitor',
-        'smtp' => 'Email',
+        'smtp' => 'Notifications',
         'ssh' => 'SSH',
         'search' => 'Search',
         'packages' => 'Packages',
@@ -77,6 +77,9 @@ class ServerManage extends Component
     public array $services = [];
 
     public array $healthChecks = [];
+
+    /** The server's API is older than 1.42 (or its Cipi than 5.12): only the SMTP form of before. */
+    public bool $notificationsLegacy = false;
 
     public array $smtp = [];
 
@@ -267,7 +270,19 @@ class ServerManage extends Component
             'monitor' => fn () => $this->monitor = $this->client()->monitorStatus(),
             // A component of its own (Livewire\Metrics) reads, polls and draws it.
             'metrics' => fn () => null,
-            'smtp' => fn () => $this->syncSmtp($this->client()->getSmtp()),
+            // Every channel and trigger (Livewire\Notifications, API 1.42+); the SMTP form of before otherwise.
+            'smtp' => function () {
+                $this->notificationsLegacy = false;
+                try {
+                    $this->client()->notifications();
+                } catch (CipiApiException $e) {
+                    if (! $this->isUnsupported($e) && $e->getStatusCode() !== 503) {
+                        throw $e;
+                    }
+                    $this->notificationsLegacy = true;
+                    $this->syncSmtp($this->client()->getSmtp());
+                }
+            },
             'ssh' => fn () => $this->sshKeys = $this->client()->listSshKeys(),
             'search' => fn () => $this->search = $this->client()->searchStatus(),
             'packages' => fn () => $this->packages = $this->client()->listPackages(),

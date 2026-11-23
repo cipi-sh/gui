@@ -221,7 +221,7 @@ class MetricsTest extends TestCase
     #[Test]
     public function the_version_is_4_3_0(): void
     {
-        $this->assertSame('4.3.0', \CipiGui\Support\Theme::VERSION);
+        $this->assertTrue(version_compare(\CipiGui\Support\Theme::VERSION, '4.3.0', '>='));
         $this->assertStringContainsString('## [4.3.0]', (string) file_get_contents(\CipiGui\Support\Theme::packageRoot().'/CHANGELOG.md'));
     }
 }

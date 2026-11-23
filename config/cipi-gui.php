@@ -60,7 +60,8 @@ return [
         'smtp-view', 'smtp-manage', 'health-view', 'health-manage',
         'packages-view', 'monitor-view', 'zt-view', 'disk-view', 'yml-view', 'yml-manage',
         'ip-whitelist-view', 'ip-whitelist-manage', 'status-view',
-        'backups-view', 'backups-manage',
+        'backups-view', 'backups-manage', 'metrics-view', 'metrics-manage',
+        'notifications-view', 'notifications-manage',
     ],
 
     /*
