@@ -110,6 +110,9 @@ class AppDetail extends Component
     // Basic auth
     public ?array $basicAuth = null;
 
+    /** cipi/agent routes and basic auth (API 1.41+): {mode, public, prefix}; null when unknown. */
+    public ?array $basicAuthAgent = null;
+
     public string $basicAuthUser = 'admin';
 
     public string $basicAuthPassword = '';
@@ -439,8 +442,12 @@ class AppDetail extends Component
 
         $can = fn (string $ability) => $this->can[$ability] ?? false;
 
-        $tabs = [
-            'overview' => 'Overview',
+        $tabs = ['overview' => 'Overview'];
+        if ($can('view')) {
+            // A component of its own (Livewire\Metrics) reads, polls and draws it.
+            $tabs['metrics'] = 'Metrics';
+        }
+        $tabs += [
             'domains' => 'Domains & SSL',
             'routing' => 'Routing',
             'deploy' => 'Deploy',
@@ -1686,6 +1693,36 @@ class AppDetail extends Component
         try {
             $this->basicAuth = $this->client()->basicAuthStatus($this->appName);
             $this->basicAuth['enabled'] = $this->appFlagIsTrue($this->basicAuth['enabled'] ?? false);
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+        $this->loadBasicAuthAgent();
+    }
+
+    /**
+     * Whether the cipi/agent routes stay outside basic auth (Cipi 5.11.0). An
+     * older API has no such route: the card then says nothing about it.
+     */
+    protected function loadBasicAuthAgent(): void
+    {
+        try {
+            $this->basicAuthAgent = $this->client()->basicAuthAgent($this->appName);
+        } catch (CipiApiException) {
+            $this->basicAuthAgent = null;
+        }
+    }
+
+    public function setBasicAuthAgent(string $mode): void
+    {
+        if (! $this->allowed('edit') || ! in_array($mode, ['public', 'protected'], true)) {
+            return;
+        }
+
+        try {
+            $this->basicAuthAgent = $this->client()->setBasicAuthAgent($this->appName, $mode);
+            $this->dispatch('notify', type: 'success', message: $mode === 'public'
+                ? 'cipi/agent routes are left out of basic auth when the release has the agent.'
+                : 'cipi/agent routes stay behind basic auth.');
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }

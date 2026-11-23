@@ -243,6 +243,17 @@ class CipiApiClient
         return $this->post("/apps/{$name}/basicauth/disable")['data'] ?? [];
     }
 
+    /** cipi/agent routes left out of basic auth (API 1.41+): {mode, public, prefix}. */
+    public function basicAuthAgent(string $name): array
+    {
+        return $this->get("/apps/{$name}/basicauth/agent")['data'] ?? [];
+    }
+
+    public function setBasicAuthAgent(string $name, string $mode): array
+    {
+        return $this->put("/apps/{$name}/basicauth/agent", ['mode' => $mode])['data'] ?? [];
+    }
+
     public function appLogs(string $name, array $query = []): array
     {
         return $this->get("/apps/{$name}/logs", $query)['data'] ?? [];
@@ -648,6 +659,65 @@ class CipiApiClient
     public function monitorStatus(): array
     {
         return $this->get('/monitor')['data'] ?? [];
+    }
+
+    // ── Metrics & health history (API 1.41+ / Cipi ≥ 5.11.0) ──────────
+
+    /** Host now, per app latest values + last-hour trend + uptime 24h/7d/30d, recent events, collector state. */
+    public function metricsOverview(): array
+    {
+        return $this->get('/metrics')['data'] ?? [];
+    }
+
+    /**
+     * ~240 points of [ts, avg, max] per metric. $app null = the host.
+     *
+     * @param  list<string>  $metrics
+     */
+    public function metricsSeries(?string $app, array $metrics = [], ?string $range = null): array
+    {
+        $query = array_filter(['metrics' => implode(',', $metrics), 'range' => $range], fn ($v) => $v !== null && $v !== '');
+
+        return $this->get($app !== null ? "/apps/{$app}/metrics" : '/metrics/series', $query)['data'] ?? [];
+    }
+
+    public function metricsUptime(?string $app = null, ?string $range = null): array
+    {
+        return $this->get('/metrics/uptime', array_filter(['app' => $app, 'range' => $range], fn ($v) => $v !== null))['data'] ?? [];
+    }
+
+    /** @return list<array{ts: int, source: string, subject: string, status: string, summary: string}> */
+    public function metricsEvents(?string $app = null, ?string $range = null, int $limit = 100, ?string $source = null): array
+    {
+        $query = array_filter(['app' => $app, 'range' => $range, 'limit' => $limit, 'source' => $source], fn ($v) => $v !== null);
+
+        return $this->get('/metrics/events', $query)['data']['events'] ?? [];
+    }
+
+    public function metricsSettings(): array
+    {
+        return $this->get('/metrics/settings')['data'] ?? [];
+    }
+
+    /** @param  array<string, bool|int>  $settings  enabled, probe, raw_days, rollup_days, resolution_minutes, events_days */
+    public function updateMetricsSettings(array $settings): array
+    {
+        return $this->put('/metrics/settings', $settings)['data'] ?? [];
+    }
+
+    public function setMetricsHeartbeat(string $url, int $every = 1): array
+    {
+        return $this->put('/metrics/heartbeat', ['url' => $url, 'every' => $every])['data'] ?? [];
+    }
+
+    public function deleteMetricsHeartbeat(): array
+    {
+        return $this->delete('/metrics/heartbeat')['data'] ?? [];
+    }
+
+    public function testMetricsHeartbeat(): array
+    {
+        return $this->post('/metrics/heartbeat/test')['data'] ?? [];
     }
 
     public function ztStatus(): array

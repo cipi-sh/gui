@@ -1,5 +1,39 @@
 # Changelog
 
+## [4.3.0] — 2026-11-23
+
+Metrics, with charts. Cipi 5.11.0 keeps a history on each server — host CPU, memory, load, network; per app CPU, memory, PHP-FPM, requests and 5xx per minute, queue workers and the healthcheck's status and time, every minute for 7 days and in 15-minute rollups for 30 — and cipi/api 1.41 serves it. The panel draws it.
+
+### Added
+
+- **A Metrics tab on the server page** (second, after Overview) — `Livewire\Metrics`, a component of its own:
+  - **Tiles** with the latest minute: CPU and disk with a bar, memory with MB and swap, load, network in and out, healthchecks passing; each with a sparkline of the range.
+  - **Charts** of CPU, memory, load and network over **1h, 6h, 24h, 7d or 30d**: the average as a line, the peak of each point as a band, gaps where no minute was recorded (the server was off, the cron stopped) instead of a line across them. **Deploys and incidents are marked** on every chart — blue for a release put live, red for a healthcheck incident or a monitor check going critical, green for a recovery — and a **tooltip** follows the pointer (touch too) with the time, each value, the peak and what happened then.
+  - **Apps**: per app the healthcheck's last status and time, CPU, memory, requests and 5xx per minute, uptime over 24 hours and 30 days coloured like a status page (≥ 99.9 % green, ≥ 99 % amber, red below), and the last hour of requests as a sparkline. A row opens the app's Metrics tab.
+  - **Uptime — 30 days**: one bar per day per app, with the day's uptime on hover.
+  - **Events**: the timeline of monitor checks changing state, healthcheck incidents, releases and heartbeat failures.
+  - **Collection & retention** (server managers): how much the history takes on the server; raw minutes, rollup resolution, rollups and events kept — validated as the CLI does (rollups never shorter than the minutes); the per-minute healthcheck probe; the collector on or off; the **heartbeat** URL and interval, a test call and turning it off; whether the OpenMetrics endpoint is on (turning it on stays on the server: it opens a port).
+- **A Metrics tab on the app page** (second, for anyone who may view the app): uptime 24h with 7d and 30d, response time, requests and 5xx per minute, CPU (of one core) and memory now; charts of requests with 5xx, response time, CPU, memory, **PHP-FPM children against `pm.max_children`** with the minutes the pool hit it, and queue workers running against configured; 30-day uptime bars, minutes down, average response and the incidents; the app's events.
+- **Live**: while the tab is on screen it is read again every **30 seconds** (every 2 minutes for 7 and 30 days, where a new minute changes nothing visible): `wire:poll.visible`, so a tab in the background asks nothing. **Live / Paused** switches it. The four reads a refresh needs are sent together.
+- **Charts without a library**: `partials/chart-script` (in the layout) turns an element with `data-cipi-chart` into an SVG that fills its width and redraws on resize and on a theme change; colours are the theme's tokens. No build step and nothing loaded from elsewhere, like the rest of the panel.
+- **Access tab → basic auth**: whether the **cipi/agent routes** (`/cipi/` or `CIPI_ROUTE_PREFIX`) are left out of basic auth — they check their own tokens, and a Git provider cannot send the site's password — with a button to protect them too or leave them out again (`GET|PUT /api/apps/{name}/basicauth/agent`). An API without the route shows nothing about it.
+- `Support\Metrics`: ranges, polling interval, chart shape, markers, sparklines, uptime bars and number formats — pure, checked by `tests/standalone.php`.
+
+### Changed
+
+- The panel is written against cipi/api **1.41** (`Theme::API`).
+- The token recommended in the README carries `metrics-view` and `metrics-manage`. A token created before has neither (abilities are not added to existing tokens): the tab then says what to do, as other sections do.
+
+### Not available
+
+- On a server older than Cipi 5.11.0, or an API older than 1.41, or with a token without `metrics-view`, the tab says so — with the server's own answer — and polls nothing.
+
+### Tests
+
+- `tests/Feature/MetricsTest.php` (10 tests): the server tab and what it reads; the app tab without settings; a longer range polls less often, a range the tab does not offer falls back, Paused stops polling; a manager changes the retention, and rollups shorter than the minutes are refused; the heartbeat; a viewer reads and changes nothing; an API without the routes, and a core older than 5.11.0 with its reason.
+- `tests/standalone.php`: 16 more checks (the helpers of `Support\Metrics`, and what the views must contain).
+- The PHPUnit suite was **not** run for this release: this environment had no network to install the dependencies. The views were compiled with a stand-in Blade compiler and rendered with sample data in Chrome, dark and light, to check the charts; `tests/standalone.php` passes (63).
+
 ## [4.2.2] — 2026-11-19
 
 PHP 8.6, and the legacy versions a server may still have.
