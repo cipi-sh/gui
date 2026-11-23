@@ -23,6 +23,7 @@ class ServerManage extends Component
 
     public const TABS = [
         'overview' => 'Overview',
+        'metrics' => 'Metrics',
         'disk' => 'Disk',
         'php' => 'PHP',
         'node' => 'Node',
@@ -264,6 +265,8 @@ class ServerManage extends Component
             'services' => fn () => $this->services = $this->client()->listServices(),
             'health' => fn () => $this->healthChecks = $this->client()->listHealth(),
             'monitor' => fn () => $this->monitor = $this->client()->monitorStatus(),
+            // A component of its own (Livewire\Metrics) reads, polls and draws it.
+            'metrics' => fn () => null,
             'smtp' => fn () => $this->syncSmtp($this->client()->getSmtp()),
             'ssh' => fn () => $this->sshKeys = $this->client()->listSshKeys(),
             'search' => fn () => $this->search = $this->client()->searchStatus(),

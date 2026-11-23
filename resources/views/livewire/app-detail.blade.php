@@ -1175,6 +1175,33 @@
                             <x-cipi::secret label="Password" :value="$generatedPassword" />
                         </div>
                     @endif
+                    @if($basicAuthAgent !== null)
+                        @php $agentPublic = (bool) ($basicAuthAgent['public'] ?? false); $agentProtected = ($basicAuthAgent['mode'] ?? 'public') === 'protected'; @endphp
+                        <div class="card p-4 mb-4" data-basicauth-agent>
+                            <div class="flex items-start justify-between gap-3">
+                                <div class="min-w-0">
+                                    <p class="text-sm text-strong">cipi/agent routes</p>
+                                    <p class="text-xs text-muted mt-1">
+                                        @if($agentPublic)
+                                            <span class="font-mono">{{ $basicAuthAgent['prefix'] ?? '/cipi/' }}</span> stays reachable without the password: the Git webhook, the health endpoint and MCP check their own tokens, and a Git provider cannot send this password.
+                                        @elseif($agentProtected)
+                                            Behind basic auth too: Git webhooks and MCP clients get 401 until they can send the password.
+                                        @else
+                                            Left out of basic auth once the live release has <code>cipi/agent</code> — checked again after every deploy.
+                                        @endif
+                                    </p>
+                                </div>
+                                <span class="badge {{ $agentPublic ? 'badge-blue' : 'badge-gray' }}">{{ $agentPublic ? 'Public' : ($agentProtected ? 'Protected' : 'No agent') }}</span>
+                            </div>
+                            <div class="mt-3">
+                                @if($agentProtected)
+                                    <button type="button" wire:click="setBasicAuthAgent('public')" class="btn btn-secondary btn-sm">Leave the agent out of basic auth</button>
+                                @else
+                                    <button type="button" wire:click="setBasicAuthAgent('protected')" data-confirm="Git webhooks and MCP clients will get 401. Keep the agent behind basic auth?" class="btn btn-ghost btn-sm">Protect the agent too</button>
+                                @endif
+                            </div>
+                        </div>
+                    @endif
                     <button wire:click="disableBasicAuth" data-confirm="Remove the password prompt from this site?" class="btn btn-danger">Disable basic auth</button>
                 @else
                     <form wire:submit="enableBasicAuth" class="space-y-4">
@@ -1194,6 +1221,10 @@
                     </form>
                 @endif
             </div>
+
+        {{-- ═══ Metrics ═══ --}}
+        @elseif($activeTab === 'metrics')
+            @livewire('cipi-gui.metrics', ['serverId' => $serverId, 'app' => $appName], key('metrics-'.$appName))
 
         {{-- ═══ Logs ═══ --}}
         @elseif($activeTab === 'logs')

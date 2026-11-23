@@ -272,9 +272,9 @@ class Release421Test extends TestCase
     }
 
     #[Test]
-    public function the_version_is_4_2_1(): void
+    public function the_version_is_4_2_1_or_later(): void
     {
-        $this->assertSame('4.2.1', Theme::VERSION);
+        $this->assertTrue(version_compare(Theme::VERSION, '4.2.1', '>='));
         $this->assertStringContainsString('## [4.2.1]', (string) file_get_contents(Theme::packageRoot().'/CHANGELOG.md'));
     }
 }

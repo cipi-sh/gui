@@ -19,6 +19,7 @@ namespace {
     function config(string $k, mixed $d = null): mixed { return $GLOBALS['CFG'][$k] ?? $d; }
     require $root.'/src/Support/DeployLog.php';
     require $root.'/src/Support/Presets.php';
+    require $root.'/src/Support/Metrics.php';
     require $root.'/src/Http/Controllers/DbUploadController.php';
     require $root.'/src/Services/CipiApiException.php';
     require $root.'/src/Livewire/Concerns/ManagesBackups.php';
@@ -162,6 +163,44 @@ namespace {
     $theme = (string) file_get_contents($root.'/src/Support/Theme.php');
     $check(str_contains($theme, "public const NAME = 'Cipi';") && (bool) preg_match("/public const API = '\d+\.\d+';/", $theme), 'the name and the API release the panel is written for are constants');
     $check(! str_contains($all, "config('app.name'"), 'no view reads APP_NAME');
+
+    echo "--- metrics (4.3.0)\n";
+    $M = 'CipiGui\Support\Metrics';
+    $check($M::validRange('7d') === '7d' && $M::validRange('3w') === '24h' && $M::validRange(null) === '24h', 'a range the tab does not offer falls back to 24h');
+    $check($M::pollSeconds('1h') === 30 && $M::pollSeconds('24h') === 30 && $M::pollSeconds('7d') === 120 && $M::pollSeconds('30d') === 120, 'poll every 30 s up to 24h, every 2 min beyond');
+    $check($M::rangeSeconds('6h') === 21600 && $M::rangeSeconds('30d') === 2592000, 'range seconds');
+    $chart = $M::chart(['step' => 600, 'from' => 100, 'to' => 900, 'series' => ['cpu' => [[100, 12.5, 30], [700, 'x', 1], [800, 20]], 'mem' => []]],
+        [['metric' => 'cpu', 'name' => 'CPU', 'color' => 'accent', 'band' => true], ['metric' => 'mem', 'name' => 'Memory', 'color' => 'info', 'kind' => 'line']], '%', [], null, 100.0);
+    $check($chart['series'][0]['points'] === [[100, 12.5, 30.0], [800, 20.0, 20.0]] && $chart['series'][0]['band'] === true && $chart['series'][1]['points'] === [] && $chart['yMax'] === 100.0 && ! array_key_exists('threshold', $chart),
+        'chart: points kept as [t, avg, max], a point that is not numeric dropped, max defaults to avg, nulls left out');
+    $check(! $M::chartEmpty($chart) && $M::chartEmpty($M::chart(['series' => []], [['metric' => 'cpu', 'name' => 'CPU', 'color' => 'accent']], '%')), 'an empty chart is told apart');
+    $marks = $M::markers([
+        ['ts' => 500, 'source' => 'deploy', 'subject' => 'shop', 'status' => 'ok', 'summary' => 'release 4'],
+        ['ts' => 600, 'source' => 'health', 'subject' => 'shop', 'status' => 'crit', 'summary' => 'down'],
+        ['ts' => 650, 'source' => 'health', 'subject' => 'blog', 'status' => 'ok', 'summary' => 'back up'],
+        ['ts' => 50, 'source' => 'deploy', 'subject' => 'shop', 'status' => 'ok', 'summary' => 'too old'],
+        ['ts' => 700, 'source' => 'deploy', 'subject' => 'shop', 'status' => 'crit', 'summary' => 'unhealthy release'],
+    ], 100, 900, 'shop');
+    $check(array_column($marks, 'kind') === ['deploy', 'crit', 'crit'] && $marks[0]['label'] === 'Deploy — release 4', 'markers: in the window, of the app, a failed deploy in red');
+    $sp = $M::spark([1, null, 3, 2]);
+    $check($sp !== null && str_starts_with($sp['line'], 'M0,') && str_ends_with($sp['area'], 'Z') && $M::spark([5]) === null, 'sparkline: gaps skipped, one point is no line');
+    $check($M::uptimeClass(100) === 'is-ok' && $M::uptimeClass(99.9) === 'is-ok' && $M::uptimeClass(99.5) === 'is-warn' && $M::uptimeClass(98) === 'is-bad' && $M::uptimeClass(null) === 'is-none', 'uptime colours: 99.9 / 99 thresholds');
+    $now = 86400 * 100 + 3600;
+    $bars = $M::uptimeDays([[86400 * 99, 99.5], [86400 * 100, 100], [86400 * 50, 1]], 3, $now);
+    $check(array_column($bars, 'pct') === [null, 99.5, 100.0] && $bars[2]['ts'] === 86400 * 100, 'uptime bars: one per day, oldest first, a day without probes is empty, older days ignored');
+    $check($M::format(12.345, '%') === '12.3%' && $M::format(1534, 'ms') === '1.53 s' && $M::format(91.4, 'ms') === '91 ms' && $M::format(2048, 'mb') === '2.0 GB'
+        && $M::format(1536, 'bps') === '1.5 KB/s' && $M::format(12345, 'count') === '12.3k' && $M::format(null) === '—' && $M::format(0.5, 'count') === '0.5', 'formatting with units');
+    $mv = $views[$root.'/resources/views/livewire/metrics.blade.php'] ?? '';
+    $check(str_contains($mv, 'wire:poll.{{ $poll }}s.visible="poll"') && str_contains($mv, '@if($live)'), 'the tab polls only while live and visible');
+    $chartPartial = $views[$root.'/resources/views/partials/metrics-chart.blade.php'] ?? '';
+    $check(str_contains($chartPartial, 'wire:ignore') && str_contains($chartPartial, 'wire:key="chart-{{ $key }}-{{ $version }}"') && str_contains($chartPartial, 'data-cipi-chart='), 'a chart is drawn by the script, and replaced when new data arrives');
+    $script = $views[$root.'/resources/views/partials/chart-script.blade.php'] ?? '';
+    $check(str_contains($views[$root.'/resources/views/layouts/app.blade.php'] ?? '', "@include('cipi-gui::partials.chart-script')") && ! preg_match('/<script[^>]+src=/', $script), 'the chart script is in the layout and loads nothing from elsewhere');
+    $check(str_contains($views[$root.'/resources/views/livewire/server-manage.blade.php'] ?? '', "@livewire('cipi-gui.metrics', ['serverId' => \$serverId]") && str_contains($views[$root.'/resources/views/livewire/app-detail.blade.php'] ?? '', "@livewire('cipi-gui.metrics', ['serverId' => \$serverId, 'app' => \$appName]"), 'the Metrics tab is on the server page and on the app page');
+    $css = (string) file_get_contents($root.'/resources/css/cipi-gui.css');
+    $check(str_contains($css, 'svg.chart-svg:not([class*="h-"]):not([class*="w-"])'), 'charts are not shrunk to icon size by the base svg rule');
+    $comp = (string) file_get_contents($root.'/src/Livewire/Metrics.php');
+    $check(str_contains($comp, '#[Locked]') && str_contains($comp, "Access::can(\$user, 'view', \$id, \$this->app)") && str_contains($comp, 'return $this->serverAllowed(Access::MANAGE'), 'the app is locked; reading needs view, changing needs manage on the server');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);
