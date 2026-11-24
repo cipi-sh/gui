@@ -126,7 +126,8 @@
                     @php $kind = $this->appKind($app); @endphp
                     <a href="{{ route('cipi-gui.apps.show', ['name' => $app['app'], 'server' => $app['server_id']]) }}" class="card card-hover p-4" wire:key="app-card-{{ $app['server_id'] }}-{{ $app['app'] }}">
                         <div class="flex items-start justify-between gap-3">
-                            <div class="min-w-0">
+                            <x-cipi::site-icon :site="$this->siteUrl($app)" :name="$app['app']" class="mt-0.5" />
+                            <div class="min-w-0 flex-1">
                                 <p class="font-semibold text-strong">{{ $app['app'] }}</p>
                                 <p class="text-xs text-muted truncate">{{ $app['domain'] }}</p>
                                 @if($multiServer && $scopeId === 0)
@@ -166,20 +167,25 @@
                                 @php
                                     $kind = $this->appKind($app);
                                     $url = route('cipi-gui.apps.show', ['name' => $app['app'], 'server' => $app['server_id']]);
-                                    $siteUrl = (($app['force_https'] ?? false) ? 'https://' : 'http://').ltrim(str_replace('*.', '', $app['domain']), '.');
+                                    $siteUrl = $this->siteUrl($app);
                                 @endphp
                                 <tr wire:key="app-{{ $app['server_id'] }}-{{ $app['app'] }}">
                                     <td>
-                                        <span class="inline-flex items-center gap-2">
-                                            <a href="{{ $url }}" class="row-link">{{ $app['app'] }}</a>
-                                            <span class="badge {{ $this->envBadgeClass($app['env']) }}" title="Environment: {{ $app['env'] }}" data-app-env="{{ $app['env'] }}">{{ $app['env'] }}</span>
-                                        </span>
-                                        <p class="text-xs text-muted flex items-center gap-1 mt-0.5">
-                                            <span class="truncate" style="max-width: 18rem;">{{ $app['domain'] }}</span>
-                                            @if(count($app['aliases']) > 0)
-                                                <span class="text-subtle">+{{ count($app['aliases']) }}</span>
-                                            @endif
-                                        </p>
+                                        <div class="flex items-center gap-3">
+                                            <x-cipi::site-icon :site="$siteUrl" :name="$app['app']" />
+                                            <div class="min-w-0">
+                                                <span class="inline-flex items-center gap-2">
+                                                    <a href="{{ $url }}" class="row-link">{{ $app['app'] }}</a>
+                                                    <span class="badge {{ $this->envBadgeClass($app['env']) }}" title="Environment: {{ $app['env'] }}" data-app-env="{{ $app['env'] }}">{{ $app['env'] }}</span>
+                                                </span>
+                                                <p class="text-xs text-muted flex items-center gap-1 mt-0.5">
+                                                    <span class="truncate" style="max-width: 18rem;">{{ $app['domain'] }}</span>
+                                                    @if(count($app['aliases']) > 0)
+                                                        <span class="text-subtle">+{{ count($app['aliases']) }}</span>
+                                                    @endif
+                                                </p>
+                                            </div>
+                                        </div>
                                     </td>
                                     @if($multiServer && $scopeId === 0)
                                         <td class="whitespace-nowrap">
