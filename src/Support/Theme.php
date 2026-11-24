@@ -4,7 +4,7 @@ namespace CipiGui\Support;
 
 class Theme
 {
-    public const VERSION = '4.5.0';
+    public const VERSION = '4.5.1';
 
     /**
      * The cipi/api release this panel is written against (minor). What a

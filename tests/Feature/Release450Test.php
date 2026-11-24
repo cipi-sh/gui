@@ -173,6 +173,25 @@ class Release450Test extends TestCase
     }
 
     #[Test]
+    public function rows_are_moved_and_removed_by_key_and_keep_their_values(): void
+    {
+        $page = Livewire::test(AppDetail::class, ['name' => 'shop'])->call('setTab', 'env')
+            // Each row is keyed by its place too, so one that moves is drawn again (4.5.1).
+            ->assertSeeHtml('wire:key="env-2-DB_HOST"')
+            ->call('moveEnvKey', 'DB_HOST', 'APP_NAME')
+            ->assertSeeHtml('wire:key="env-0-DB_HOST"')
+            ->assertSeeHtml('wire:model.live.debounce.400ms="envRows.0.value"');
+        $this->assertSame(['DB_HOST' => '127.0.0.1', 'APP_NAME' => 'Shop', 'APP_ENV' => 'production'], array_column($page->get('envRows'), 'value', 'key'));
+
+        $page->call('moveEnvKey', 'NOPE', 'APP_NAME')->call('moveEnvKey', 'APP_NAME', 'NOPE')->call('removeEnvKey', 'NOPE');
+        $this->assertSame(['DB_HOST', 'APP_NAME', 'APP_ENV'], array_column($page->get('envRows'), 'key'));
+
+        $page->call('removeEnvKey', 'APP_NAME')->call('saveEnv');
+        $this->assertSame(['unset' => ['APP_NAME'], 'order' => ['DB_HOST', 'APP_ENV']], $this->envPut());
+        $this->assertSame(['DB_HOST' => '127.0.0.1', 'APP_ENV' => 'production'], $this->env);
+    }
+
+    #[Test]
     public function a_move_out_of_range_changes_nothing(): void
     {
         $page = Livewire::test(AppDetail::class, ['name' => 'shop'])->call('setTab', 'env')
