@@ -146,6 +146,7 @@ class Databases extends Component
                     fn ($item) => is_array($item) && is_string($item['engine'] ?? null) && in_array($item['status'] ?? '', ['installed', 'running'], true),
                 ));
                 $this->enginesByServer[$id] = $installed;
+                $this->rememberEngineServers($id, is_array($engineResult['data']['engines'] ?? null) ? $engineResult['data']['engines'] : []);
                 $default = $engineResult['data']['default'] ?? null;
                 foreach ($installed as $item) {
                     if (! is_string($default) && ! empty($item['default'])) {
@@ -319,6 +320,7 @@ class Databases extends Component
     {
         try {
             $data = $this->client()->listDatabaseEngines();
+            $this->rememberEngineServers($serverId, is_array($data['engines'] ?? null) ? $data['engines'] : []);
             $installed = array_values(array_filter(
                 is_array($data['engines'] ?? null) ? $data['engines'] : [],
                 fn ($item) => is_array($item) && is_string($item['engine'] ?? null) && in_array($item['status'] ?? '', ['installed', 'running'], true),

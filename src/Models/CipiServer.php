@@ -99,6 +99,9 @@ class CipiServer extends Model
 
     public function markError(string $message): void
     {
+        // Output of a failed command, as an older API passes it on: no colours.
+        $clean = trim((string) preg_replace(['/\x1b\[[0-9;]*[A-Za-z]/', '/\[\d{1,3}(?:;\d{1,3})*m/', '/━+/u'], '', $message));
+        $message = $clean !== '' ? $clean : $message;
         if ($this->last_error === $message) {
             return;
         }

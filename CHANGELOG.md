@@ -1,5 +1,28 @@
 # Changelog
 
+## [4.5.0] — 2026-11-24
+
+For Cipi 5.13.0 and cipi/api 1.43: the `.env` in the order you want it, the commit whose automatic deploy failed, basic auth read right, MySQL where a server runs it, and paths left out of the backups. Every change degrades to what the panel did before on an older server.
+
+### Added
+
+- **`.env` tab: drag and drop.** Each row has a handle (⠿): drag it to move the variable, or focus it and use **↑/↓**. The new order is counted as one unsaved change (*“… · new order”*), shown before saving, and sent with the other changes in the same save (`order` on `PUT /api/apps/{name}/env`); comments above a key move with it on the server. A key added at the end is not a reorder; one moved up is. The handles are off while the list is filtered. An API before 1.43 that saves the values and drops the order is told apart (a warning instead of “saved”), and one that refuses an order-only save says what to update.
+- **The paused commit** (Cipi 5.13.0): when an automatic deploy fails, the webhook no longer retries the same commit, and the next push deploys as usual. The app page says so above the tabs — *Automatic deploys paused on commit `a1b2c3d4e5f6`* — with **Deploy now** and **Resume automatic deploys**; on the Deploy tab the unlock button becomes **Resume automatic deploys** while a commit is paused (`POST …/deploy/unlock` removes a stuck lock and resumes).
+- **Backups: paths to leave out** (`exclude_paths`, Cipi 5.13.0): a field in the profile form — relative to the app, comma-separated, `shop:storage/app/uploads` for some apps only — validated as the CLI does (never absolute, never the whole app), and *“N paths left out”* on the profile card. The field is sent only to set paths or to clear the ones a profile had, so an older server is never sent it.
+- **MySQL**: where `cipi db switch mysql` replaced MariaDB on a server, the panel says **MySQL** — app page, Apps and Databases lists, the create forms, the Engines tab (with a note on the CLI-only switch). The engine id stays `mariadb`; what runs on port 3306 is read from `GET /api/dbs/engines` (`server`, API 1.43) and remembered per server for 12 hours; the app page asks for it together with its other reads, once.
+- `grip` icon.
+
+### Fixed
+
+- **Access tab: `[1mBasic auth — app[0m ━━━ Status [2mdisabled[0m` on every app.** That was the output of `cipi basicauth status`, which on Cipi 5.11–5.12 exited 1 after printing it, passed on by the API as an error. The panel now reads the state from it (enabled, users) on an older API instead of showing it, cipi/api 1.43 reads `--json`, and Cipi 5.13.0 fixes the exit status.
+- Error messages from the CLI never show terminal colours or the rule under a title — neither escaped (`\e[1m`) nor left bare (`[0m`) — in toasts, on the page, or as a server's last error.
+- Enabling basic auth on Cipi 5.11–5.12 (which also exited 1 after enabling it) shows the API's notice as a warning instead of an error.
+
+### Changed
+
+- `CipiApiClient::updateEnv($name, $set, $unset, ?array $order = null)`.
+- `Theme::VERSION` 4.5.0, `Theme::API` 1.43.
+
 ## [4.4.0] — 2026-11-23
 
 Notifications, all of them. The server page had an Email tab with the SMTP form; Cipi 5.12.0 and cipi/api 1.42 let the panel manage every channel and every trigger, and the tab (still `?tab=smtp`) now does.

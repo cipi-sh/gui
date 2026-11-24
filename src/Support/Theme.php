@@ -4,13 +4,13 @@ namespace CipiGui\Support;
 
 class Theme
 {
-    public const VERSION = '4.4.0';
+    public const VERSION = '4.5.0';
 
     /**
      * The cipi/api release this panel is written against (minor). What a
      * server actually runs is its own to say: GET /api/status → system.api.
      */
-    public const API = '1.42';
+    public const API = '1.43';
 
     /** The panel's name where a browser or an authenticator shows one: not the host app's APP_NAME ("Laravel" on a fresh install). */
     public const NAME = 'Cipi';

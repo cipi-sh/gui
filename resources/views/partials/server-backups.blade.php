@@ -120,7 +120,7 @@
                                             <span class="badge {{ $stateBadge[$state] }}" data-backup-state="{{ $state }}">@if($state === 'running')<span class="spinner" style="width:.6rem;height:.6rem;border-width:1.5px"></span> @endif{{ $stateLabel[$state] }}</span>
                                         </div>
                                         <dl class="backup-matrix-facts">
-                                            <dt>Takes</dt><dd>{{ ['all' => 'files + databases', 'files' => 'files', 'db' => 'databases'][$p['scope'] ?? 'all'] ?? $p['scope'] }}</dd>
+                                            <dt>Takes</dt><dd>{{ ['all' => 'files + databases', 'files' => 'files', 'db' => 'databases'][$p['scope'] ?? 'all'] ?? $p['scope'] }}@php $leftOut = array_values(array_filter((array) ($p['exclude_paths'] ?? []), 'is_string')); @endphp @if($leftOut !== [] && ($p['scope'] ?? 'all') !== 'db')<span class="text-subtle" title="Left out of the app archives: {{ implode(', ', $leftOut) }}"> · {{ count($leftOut) }} {{ \Illuminate\Support\Str::plural('path', count($leftOut)) }} left out</span>@endif</dd>
                                             <dt>When</dt><dd title="{{ $p['cron'] ?? '' }}">{{ $this->backupScheduleLabel($p) }}</dd>
                                             <dt>Where</dt><dd>{{ implode(', ', (array) ($p['destinations'] ?? [])) ?: '—' }}@if(!empty($p['encrypt'])) <x-cipi::icon name="lock" class="h-3 w-3 inline" /><span class="sr-only">encrypted</span>@endif</dd>
                                             <dt>Keeps</dt><dd>{{ $this->backupRetentionLabel($p) }}</dd>
@@ -253,6 +253,12 @@
                             <input id="bp-apps" type="text" wire:model="bpApps" class="font-mono" placeholder="*">
                             <p class="field-hint">Names or globs, comma-separated. <code>*</code> is every app, also the ones created later.</p>
                             @error('bpApps') <p class="field-error">{{ $message }}</p> @enderror
+                        </div>
+                        <div>
+                            <label for="bp-expaths">Paths to leave out <span class="text-subtle font-normal">— optional</span></label>
+                            <input id="bp-expaths" type="text" wire:model="bpExcludePaths" class="font-mono" placeholder="storage/app/uploads, *.mp4">
+                            <p class="field-hint">Relative to the app, comma-separated; <code>shop:storage/app/uploads</code> for some apps only. A large uploads folder is better kept with rsync. Needs Cipi 5.13.</p>
+                            @error('bpExcludePaths') <p class="field-error">{{ $message }}</p> @enderror
                         </div>
                     @endif
                     @if($bpScope !== 'files')

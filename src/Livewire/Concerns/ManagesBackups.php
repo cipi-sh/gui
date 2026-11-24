@@ -47,6 +47,12 @@ trait ManagesBackups
 
     public string $bpExcludeTables = '';
 
+    /** Paths left out of the app archives, comma-separated (Cipi 5.13.0). */
+    public string $bpExcludePaths = '';
+
+    /** The profile being edited had exclude_paths: an emptied field clears them. */
+    public bool $bpHadExcludePaths = false;
+
     /** every | cron */
     public string $bpSchedule = 'every';
 
@@ -256,6 +262,9 @@ trait ManagesBackups
             $this->bpDatabases = implode(', ', array_filter((array) ($existing['databases'] ?? []), 'is_string'));
             $this->bpExcludeDatabases = implode(', ', array_filter((array) ($existing['exclude_databases'] ?? []), 'is_string'));
             $this->bpExcludeTables = implode(', ', array_filter((array) ($existing['exclude_tables'] ?? []), 'is_string'));
+            $paths = array_values(array_filter((array) ($existing['exclude_paths'] ?? []), 'is_string'));
+            $this->bpExcludePaths = implode(', ', $paths);
+            $this->bpHadExcludePaths = $paths !== [];
             $every = self::backupEveryFor($existing);
             $this->bpSchedule = $every !== null ? 'every' : 'cron';
             $this->bpEvery = $every ?? '1d';
@@ -267,7 +276,7 @@ trait ManagesBackups
             $this->bpEncrypt = (bool) ($existing['encrypt'] ?? false);
         } else {
             $this->backupEditing = null;
-            $this->reset(['bpName', 'bpScope', 'bpApps', 'bpDatabases', 'bpExcludeDatabases', 'bpExcludeTables', 'bpSchedule', 'bpEvery', 'bpCron', 'bpKeep', 'bpKeepDays', 'bpKeepWeeks', 'bpEncrypt']);
+            $this->reset(['bpName', 'bpScope', 'bpApps', 'bpDatabases', 'bpExcludeDatabases', 'bpExcludeTables', 'bpExcludePaths', 'bpHadExcludePaths', 'bpSchedule', 'bpEvery', 'bpCron', 'bpKeep', 'bpKeepDays', 'bpKeepWeeks', 'bpEncrypt']);
             // The default bucket when there is one, this server's disk otherwise.
             $this->bpDestinations = in_array('s3', $destinations, true) ? ['s3'] : ['local'];
         }
@@ -302,6 +311,7 @@ trait ManagesBackups
             'bpDatabases' => [$this->bpScope === 'files' ? 'nullable' : 'required', $glob],
             'bpExcludeDatabases' => ['nullable', $glob],
             'bpExcludeTables' => ['nullable', $tableGlob],
+            'bpExcludePaths' => ['nullable', 'string', 'max:4000'],
             'bpSchedule' => ['required', 'in:every,cron'],
             'bpEvery' => ['required_if:bpSchedule,every', 'in:'.implode(',', array_keys(self::BACKUP_EVERY))],
             'bpCron' => ['required_if:bpSchedule,cron', 'regex:/^[0-9*\/,-]+( [0-9*\/,-]+){4}$/'],
@@ -324,6 +334,15 @@ trait ManagesBackups
             'bpDestinations.min' => 'Choose where the backup goes.',
         ]);
 
+        $excludePaths = self::backupExcludePaths($this->bpExcludePaths);
+        foreach ($excludePaths as $path) {
+            if (! self::validBackupExcludePath($path)) {
+                $this->addError('bpExcludePaths', "“{$path}”: a path relative to the app (storage/app/uploads, *.mp4), optionally shop: first — never absolute, never the whole app.");
+
+                return;
+            }
+        }
+
         if ((int) $this->bpKeep + (int) $this->bpKeepDays + (int) $this->bpKeepWeeks === 0) {
             $this->addError('bpKeepDays', 'Set at least one: a profile that keeps everything grows without end.');
 
@@ -343,6 +362,11 @@ trait ManagesBackups
         ];
         if ($this->bpScope !== 'db') {
             $payload['apps'] = $list($this->bpApps);
+            // Sent only when there is something to set or to clear: a server
+            // before Cipi 5.13.0 / API 1.43 knows nothing of it.
+            if ($excludePaths !== [] || $this->bpHadExcludePaths) {
+                $payload['exclude_paths'] = $excludePaths;
+            }
         }
         if ($this->bpScope !== 'files') {
             $payload['databases'] = $list($this->bpDatabases);
@@ -445,5 +469,35 @@ trait ManagesBackups
             ($profile['last']['status'] ?? null) === 'ok' => 'ok',
             default => 'never',
         };
+    }
+
+    /**
+     * The paths of the field: comma or newline separated, spaces inside a path
+     * kept (tar patterns may have them), duplicates dropped.
+     *
+     * @return list<string>
+     */
+    public static function backupExcludePaths(string $value): array
+    {
+        $out = [];
+        foreach (preg_split('/\s*[,\n]\s*/', trim($value)) ?: [] as $path) {
+            $path = trim($path);
+            if ($path !== '' && ! in_array($path, $out, true)) {
+                $out[] = $path;
+            }
+        }
+
+        return $out;
+    }
+
+    /** The same rule as cipi backup profile --exclude-paths and the API. */
+    public static function validBackupExcludePath(string $path): bool
+    {
+        if (strlen($path) > 255 || ! preg_match('/^(?:[a-z0-9*?-]+:)?(?!\/)[A-Za-z0-9._*?\/@+ \[\]-]{1,255}$/', $path)) {
+            return false;
+        }
+        $pattern = (string) preg_replace('/^[a-z0-9*?-]+:/', '', $path);
+
+        return ! in_array($pattern, ['*', '*/', 'shared', 'htdocs'], true) && ! str_starts_with($pattern, '/');
     }
 }

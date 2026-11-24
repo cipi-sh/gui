@@ -154,7 +154,7 @@
                                             @endif
                                         </td>
                                     @endif
-                                    <td><span class="badge {{ $engine === 'pgsql' ? 'badge-blue' : 'badge-neutral' }}">{{ $this->engineLabel($engine ?: null) }}</span></td>
+                                    <td><span class="badge {{ $engine === 'pgsql' ? 'badge-blue' : 'badge-neutral' }}">{{ $this->engineLabel($engine ?: null, (int) $db['server_id']) }}</span></td>
                                     <td class="font-mono text-xs text-muted">{{ $db['user'] ?? '—' }}</td>
                                     <td class="text-right tabular-nums text-soft">{{ $db['size'] ?? '—' }}</td>
                                     <td class="text-xs text-muted font-mono truncate" style="max-width: 16rem;" title="{{ $last ?? '' }}">{{ $last ? basename($last) : '—' }}</td>
@@ -212,7 +212,7 @@
                                 @foreach($createEngines as $item)
                                     <label class="check-card" wire:key="create-engine-{{ $createServerId }}-{{ $item['engine'] }}">
                                         <input type="radio" wire:model="dbEngine" value="{{ $item['engine'] }}">
-                                        <span><span class="check-card-title">{{ $this->engineLabel($item['engine']) }}</span><span class="check-card-text">{{ $createDefaultEngine === $item['engine'] ? 'Server default' : 'Installed' }}@if(!empty($item['port'])) · :{{ $item['port'] }}@endif</span></span>
+                                        <span><span class="check-card-title">{{ $item['label'] ?? $this->engineLabel($item['engine'], $createServerId) }}</span><span class="check-card-text">{{ $createDefaultEngine === $item['engine'] ? 'Server default' : 'Installed' }}@if(!empty($item['port'])) · :{{ $item['port'] }}@endif</span></span>
                                     </label>
                                 @endforeach
                             </div>

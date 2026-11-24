@@ -436,7 +436,7 @@
                     <div class="card">
                         <div class="flex items-start justify-between gap-3">
                             <div>
-                                <h2 class="card-title">{{ $this->engineLabel($engine['engine'] ?? null) }}</h2>
+                                <h2 class="card-title">{{ $engine['label'] ?? $this->engineLabel($engine['engine'] ?? null) }}</h2>
                                 <p class="card-subtitle">{{ $ready ? 'Installed'.(!empty($engine['port']) ? ' · port '.$engine['port'] : '') : 'Not installed' }}</p>
                             </div>
                             <div class="flex gap-1">
@@ -444,8 +444,18 @@
                                 <span class="badge {{ $ready ? 'badge-green' : 'badge-gray' }}">{{ $engine['status'] ?? '' }}</span>
                             </div>
                         </div>
+                        @if(($engine['engine'] ?? null) === 'mariadb' && $ready && isset($engine['server']))
+                            {{-- Which server runs on port 3306 is chosen on the server only (cipi db switch, Cipi 5.13.0). --}}
+                            <p class="text-xs text-muted mt-3" data-engine-server="{{ $engine['server'] }}">
+                                @if($engine['server'] === 'mysql')
+                                    MySQL runs in place of MariaDB on port 3306. Back to MariaDB, while there are no databases: <code>cipi db switch mariadb</code> on the server.
+                                @else
+                                    MySQL instead of MariaDB, on a server with no databases yet: <code>cipi db switch mysql</code> on the server.
+                                @endif
+                            </p>
+                        @endif
                         @if(! $ready && $canManage)
-                            <button type="button" wire:click="installEngine('{{ $engine['engine'] }}')" data-confirm="Install {{ $this->engineLabel($engine['engine']) }} on this server?" class="btn btn-primary btn-sm mt-4">Install</button>
+                            <button type="button" wire:click="installEngine('{{ $engine['engine'] }}')" data-confirm="Install {{ $engine['label'] ?? $this->engineLabel($engine['engine']) }} on this server?" class="btn btn-primary btn-sm mt-4">Install</button>
                         @endif
                     </div>
                 @empty

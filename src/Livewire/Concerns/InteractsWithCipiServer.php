@@ -7,6 +7,7 @@ use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
 use CipiGui\Support\AppEnv;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Locked;
 
 trait InteractsWithCipiServer
@@ -21,6 +22,9 @@ trait InteractsWithCipiServer
     public ?int $serverId = null;
 
     public ?string $error = null;
+
+    /** @var array<int, string> server id => "mysql"|"mariadb", for this request */
+    protected array $mysqlServerMemo = [];
 
     protected function currentServer(): ?CipiServer
     {
@@ -134,7 +138,7 @@ trait InteractsWithCipiServer
 
     protected function friendlyApiError(CipiApiException $e): string
     {
-        $message = $e->getMessage();
+        $message = self::plainCliText($e->getMessage());
 
         return match (true) {
             $message === 'Server Error' || str_starts_with($message, 'API request failed with status 500') => 'Panel API error (HTTP 500). On the managed server run: cipi self-update && cipi api update',
@@ -300,11 +304,100 @@ trait InteractsWithCipiServer
         return ($app['octane'] ?? null) ? $php.' · Octane' : $php.' · FPM';
     }
 
-    protected function engineLabel(?string $engine): string
+    /**
+     * A message that came from the CLI, without its terminal colours: an API
+     * that passes the output of a failed command on (the Access tab showed
+     * "[1mBasic auth — app[0m ━━━ …" on Cipi 5.11–5.12) never puts escape
+     * codes, or what is left of them, in front of the user.
+     */
+    public static function plainCliText(string $text): string
+    {
+        $text = preg_replace('/\x1b\[[0-9;]*[A-Za-z]/', '', $text) ?? $text;
+        $text = preg_replace('/\[\d{1,3}(?:;\d{1,3})*m/', '', $text) ?? $text;
+        $text = preg_replace('/━+/u', '', $text) ?? $text;
+
+        return trim(preg_replace('/[ \t]*\n[ \t\n]*/', "\n", $text) ?? $text);
+    }
+
+    /**
+     * The state `cipi basicauth status` printed before exiting 1 (Cipi 5.11–5.12,
+     * under set -o pipefail), which an API before 1.43 answered as an error: the
+     * Access tab reads it from there instead of showing the output as a failure.
+     *
+     * @return array{enabled: bool, users: list<string>}|null null when it is not that output
+     */
+    public static function basicAuthStateFromCliText(string $text): ?array
+    {
+        $plain = self::plainCliText($text);
+        if (! preg_match('/Basic auth\s+—\s+\S+\s+Status\s+(enabled|disabled)\b/u', $plain, $m)) {
+            return null;
+        }
+        $users = [];
+        if (preg_match('/\bUsers\s+([A-Za-z0-9._-]+(?:,[A-Za-z0-9._-]+)*)/', $plain, $u)) {
+            $users = array_values(array_filter(explode(',', $u[1]), fn ($v) => $v !== ''));
+        }
+
+        return ['enabled' => $m[1] === 'enabled', 'users' => $users];
+    }
+
+    /**
+     * Port 3306 runs MariaDB, or MySQL where `cipi db switch mysql` replaced it
+     * (Cipi 5.13.0). The engine keeps its id "mariadb"; GET /dbs/engines says
+     * which server answers on it, and it is remembered per server for half a
+     * day, so every label of the panel can say MySQL there.
+     *
+     * @param  list<array<string, mixed>>  $engines  the data.engines of GET /dbs/engines
+     */
+    protected function rememberEngineServers(?int $serverId, array $engines): void
+    {
+        if ($serverId === null) {
+            return;
+        }
+        foreach ($engines as $engine) {
+            if (is_array($engine) && ($engine['engine'] ?? null) === 'mariadb') {
+                $server = ($engine['server'] ?? 'mariadb') === 'mysql' ? 'mysql' : 'mariadb';
+                Cache::put('cipi-gui.mysql-server.'.$serverId, $server, now()->addHours(12));
+                $this->mysqlServerMemo[$serverId] = $server;
+            }
+        }
+    }
+
+    /** "mysql" or "mariadb": what the engine "mariadb" runs on that server, as far as the panel knows. */
+    protected function mysqlServerOf(?int $serverId = null): string
+    {
+        $serverId ??= ($this->serverId ?? (session('cipi_gui_server_id') !== null ? (int) session('cipi_gui_server_id') : null));
+        if ($serverId === null) {
+            return 'mariadb';
+        }
+
+        return $this->mysqlServerMemo[$serverId] ??= (Cache::get('cipi-gui.mysql-server.'.$serverId) === 'mysql' ? 'mysql' : 'mariadb');
+    }
+
+    /** Ask the server once, when nothing is remembered for it (the pages that show an app's database). */
+    protected function ensureEngineServers(): void
+    {
+        $server = $this->currentServer();
+        if ($server === null || Cache::has('cipi-gui.mysql-server.'.$server->id)) {
+            return;
+        }
+        try {
+            $this->rememberEngineServers($server->id, (array) ($this->client()->listDatabaseEngines()['engines'] ?? []));
+            if (! Cache::has('cipi-gui.mysql-server.'.$server->id)) {
+                // No MySQL engine there: nothing to ask again for half a day.
+                Cache::put('cipi-gui.mysql-server.'.$server->id, 'mariadb', now()->addHours(12));
+            }
+        } catch (CipiApiException) {
+            // An older API, a token without the ability, a server that did not
+            // answer: MariaDB it stays, asked again in a while.
+            Cache::put('cipi-gui.mysql-server.'.$server->id, 'mariadb', now()->addMinutes(30));
+        }
+    }
+
+    protected function engineLabel(?string $engine, ?int $serverId = null): string
     {
         return match ($engine) {
             'pgsql' => 'PostgreSQL',
-            'mariadb' => 'MariaDB',
+            'mariadb' => $this->mysqlServerOf($serverId) === 'mysql' ? 'MySQL' : 'MariaDB',
             'valkey' => 'Valkey',
             'meilisearch' => 'Meilisearch',
             default => $engine ?: '—',

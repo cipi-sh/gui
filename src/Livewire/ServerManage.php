@@ -264,7 +264,10 @@ class ServerManage extends Component
                 }
             },
             'backups' => fn () => $this->loadBackups(),
-            'engines' => fn () => $this->enginesData = $this->client()->listDatabaseEngines() + ['default' => null, 'engines' => []],
+            'engines' => function () {
+                $this->enginesData = $this->client()->listDatabaseEngines() + ['default' => null, 'engines' => []];
+                $this->rememberEngineServers($this->currentServer()?->id, (array) $this->enginesData['engines']);
+            },
             'services' => fn () => $this->services = $this->client()->listServices(),
             'health' => fn () => $this->healthChecks = $this->client()->listHealth(),
             'monitor' => fn () => $this->monitor = $this->client()->monitorStatus(),

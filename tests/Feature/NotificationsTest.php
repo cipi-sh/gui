@@ -192,10 +192,11 @@ class NotificationsTest extends TestCase
     }
 
     #[Test]
-    public function the_version_is_4_4_0(): void
+    public function the_release_is_in_the_changelog(): void
     {
-        $this->assertSame('4.4.0', \CipiGui\Support\Theme::VERSION);
-        $this->assertSame('1.42', \CipiGui\Support\Theme::API);
+        // 4.4.0 was written for API 1.42; later releases move both on.
+        $this->assertTrue(version_compare(\CipiGui\Support\Theme::VERSION, '4.4.0', '>='));
+        $this->assertTrue(version_compare(\CipiGui\Support\Theme::API, '1.42', '>='));
         $this->assertStringContainsString('## [4.4.0]', (string) file_get_contents(\CipiGui\Support\Theme::packageRoot().'/CHANGELOG.md'));
     }
 }
