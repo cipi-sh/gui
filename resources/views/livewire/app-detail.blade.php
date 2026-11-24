@@ -1047,14 +1047,18 @@
                         $envLast = count($envRows) - 1;
                     @endphp
                     {{-- Drag a row by its handle (or focus the handle and use the arrow keys) to
-                         reorder the file; comments above a key move with it. Off while filtering. --}}
+                         reorder the file; comments above a key move with it. Off while filtering.
+                         The server is told keys, never positions, and every row is keyed by its
+                         position too: a row that changes place is drawn again, so its wire:model
+                         and wire:click point at its new place (Livewire does not re-read a
+                         wire: attribute changed by a morph — the values followed the old rows). --}}
                     <div class="space-y-2 max-h-panel overflow-y-auto pr-1"
-                         x-data="{ from: null, over: null,
-                                   drop(to) { const f = this.from; this.from = null; this.over = null;
-                                              if (f === null || f === to) return;
-                                              $wire.moveEnvRow(f, to); },
-                                   regrip(f, to, key) { $wire.moveEnvRow(f, to).then(() => requestAnimationFrame(() =>
-                                              document.querySelector('[data-env-grip=&quot;' + key + '&quot;]')?.focus())); } }">
+                         x-data="{ from: null, fromKey: null, over: null,
+                                   drop(toKey) { const k = this.fromKey; this.from = null; this.fromKey = null; this.over = null;
+                                                 if (k === null || k === toKey) return;
+                                                 $wire.moveEnvKey(k, toKey); },
+                                   regrip(key, target) { $wire.moveEnvKey(key, target).then(() => requestAnimationFrame(() =>
+                                                 document.querySelector('[data-env-grip=&quot;' + key + '&quot;]')?.focus())); } }">
                         @forelse($envRows as $index => $row)
                             @php
                                 $key = $row['key'];
@@ -1062,22 +1066,22 @@
                                 $isChanged = ! $isNew && $envOriginal[$key] !== $row['value'];
                                 $secret = $this->isSensitiveKey($key);
                             @endphp
-                            <div class="env-row is-sortable {{ $isNew ? 'is-new' : ($isChanged ? 'is-changed' : '') }}" wire:key="env-{{ $key }}"
+                            <div class="env-row is-sortable {{ $isNew ? 'is-new' : ($isChanged ? 'is-changed' : '') }}" wire:key="env-{{ $index }}-{{ $key }}"
                                  x-show="!filter || @js(strtolower($key)).includes(filter.toLowerCase())"
                                  x-data="{ reveal: {{ $secret ? 'false' : 'true' }} }"
                                  x-bind:class="{ 'is-dragging': from === {{ $index }}, 'is-drop-target': over === {{ $index }} && from !== {{ $index }}, 'is-drop-after': over === {{ $index }} && from !== null && from < {{ $index }} }"
-                                 x-on:dragstart="from = {{ $index }}; $event.dataTransfer.effectAllowed = 'move'; $event.dataTransfer.setData('text/plain', @js($key))"
+                                 x-on:dragstart="from = {{ $index }}; fromKey = @js($key); $event.dataTransfer.effectAllowed = 'move'; $event.dataTransfer.setData('text/plain', @js($key))"
                                  x-on:dragover.prevent="if (from !== null) { over = {{ $index }}; $event.dataTransfer.dropEffect = 'move' }"
-                                 x-on:drop.prevent="drop({{ $index }})"
-                                 x-on:dragend="from = null; over = null; $el.draggable = false">
+                                 x-on:drop.prevent="drop(@js($key))"
+                                 x-on:dragend="from = null; fromKey = null; over = null; $el.draggable = false">
                                 {{-- A span, not a <button>: Firefox starts no drag from inside a button. --}}
                                 <span class="env-grip" role="button" data-env-grip="{{ $key }}"
                                       aria-label="Move {{ $key }} — drag, or use the arrow keys" title="Drag to reorder · ↑/↓ with the keyboard"
                                       x-bind:tabindex="filter === '' ? 0 : -1" x-bind:aria-disabled="filter !== ''"
                                       x-on:pointerdown="if (filter === '') $el.closest('.env-row').draggable = true"
                                       x-on:pointerup="$el.closest('.env-row').draggable = false"
-                                      @if($index > 0) x-on:keydown.arrow-up.prevent="regrip({{ $index }}, {{ $index - 1 }}, @js($key))" @endif
-                                      @if($index < $envLast) x-on:keydown.arrow-down.prevent="regrip({{ $index }}, {{ $index + 1 }}, @js($key))" @endif
+                                      @if($index > 0) x-on:keydown.arrow-up.prevent="regrip(@js($key), @js($envRows[$index - 1]['key']))" @endif
+                                      @if($index < $envLast) x-on:keydown.arrow-down.prevent="regrip(@js($key), @js($envRows[$index + 1]['key']))" @endif
                                 ><x-cipi::icon name="grip" stroke="3" /></span>
                                 <input type="text" value="{{ $key }}" class="font-mono input-sm" readonly tabindex="-1" aria-label="Key">
                                 <div class="relative">
@@ -1088,7 +1092,7 @@
                                         </button>
                                     @endif
                                 </div>
-                                <button type="button" wire:click="removeEnvRow({{ $index }})" class="btn btn-ghost btn-icon btn-sm danger" aria-label="Remove {{ $key }}"><x-cipi::icon name="trash" /></button>
+                                <button type="button" wire:click="removeEnvKey(@js($key))" class="btn btn-ghost btn-icon btn-sm danger" aria-label="Remove {{ $key }}"><x-cipi::icon name="trash" /></button>
                             </div>
                         @empty
                             <p class="text-muted">The file is empty.</p>

@@ -1881,6 +1881,22 @@ class AppDetail extends Component
         $this->envRows = array_values($rows);
     }
 
+    /**
+     * Move the row of $key to where the row of $target is (drag and drop, the
+     * arrow keys): keys, not positions, so a page drawn before the last change
+     * can never move or overwrite the wrong row.
+     */
+    public function moveEnvKey(string $key, string $target): void
+    {
+        $keys = array_column($this->envRows, 'key');
+        $from = array_search($key, $keys, true);
+        $to = array_search($target, $keys, true);
+        if ($from === false || $to === false) {
+            return;
+        }
+        $this->moveEnvRow((int) $from, (int) $to);
+    }
+
     /** True when the rows are not in the order of the file (keys added or removed aside). */
     public function envOrderChanged(): bool
     {
@@ -1909,6 +1925,15 @@ class AppDetail extends Component
         }
 
         return false;
+    }
+
+    /** Remove the row of $key (by key: see moveEnvKey()). */
+    public function removeEnvKey(string $key): void
+    {
+        $index = array_search($key, array_column($this->envRows, 'key'), true);
+        if ($index !== false) {
+            $this->removeEnvRow((int) $index);
+        }
     }
 
     public function removeEnvRow(int $index): void

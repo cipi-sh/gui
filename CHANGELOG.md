@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.5.1] — 2026-11-24
+
+### Fixed
+
+- **Environment tab: after a drag and drop the values did not follow their rows** — a moved row showed, and on typing wrote, the value of the row now in its old place, and its trash button removed that other row. The rows were keyed by their variable name only, so Livewire moved the existing elements, and it does not re-read a `wire:` attribute (`wire:model="envRows.<n>.value"`, `wire:click`) that a morph changes. Every row is now keyed by its place as well (`env-<place>-<KEY>`): a row that changes place is drawn again with the binding of its new place. The same off-by-one hit the rows below one removed with the trash button.
+- The page tells the server keys, never positions: `moveEnvKey($key, $target)` for drag and drop and the arrow keys, `removeEnvKey($key)` for the trash button — a page drawn before the last change can never move or remove the wrong row. `moveEnvRow()` and `removeEnvRow()` stay.
+
 ## [4.5.0] — 2026-11-24
 
 For Cipi 5.13.0 and cipi/api 1.43: the `.env` in the order you want it, the commit whose automatic deploy failed, basic auth read right, MySQL where a server runs it, and paths left out of the backups. Every change degrades to what the panel did before on an older server.

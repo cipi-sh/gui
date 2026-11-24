@@ -234,14 +234,22 @@ namespace {
     $adv = $views[$root.'/resources/views/livewire/app-detail.blade.php'] ?? '';
     $check(str_contains($ad, 'public function moveEnvRow(int $from, int $to): void') && (bool) preg_match('/function moveEnvRow[^{]+\{\s+if \(! \$this->allowed\(\'env\'\)\)/', $ad), 'moving a .env row needs the env ability');
     $check(str_contains($ad, '$this->client()->updateEnv($this->appName, $set, $unset, $order)') && str_contains($ad, 'array_keys($this->envOriginal) !== $order'), 'the new order is saved with the other changes, and an API that drops it is told apart');
-    $check(str_contains($adv, 'class="env-grip" role="button"') && str_contains($adv, 'x-on:drop.prevent="drop({{ $index }})"') && str_contains($adv, 'x-on:keydown.arrow-up.prevent') && str_contains($adv, "x-bind:aria-disabled=\"filter !== ''\""),
+    $check(str_contains($adv, 'class="env-grip" role="button"') && str_contains($adv, 'x-on:drop.prevent="drop(@js($key))"') && str_contains($adv, 'x-on:keydown.arrow-up.prevent') && str_contains($adv, "x-bind:aria-disabled=\"filter !== ''\""),
         '.env rows: a drag handle (not a <button>: Firefox), arrow keys, off while filtering');
+
+    echo "--- 4.5.1: a moved .env row keeps its value\n";
+    // Livewire does not re-read a wire: attribute that a morph changes: a row
+    // kept by its key alone, moved, still bound envRows.<old place>.value.
+    $check(str_contains($adv, 'wire:key="env-{{ $index }}-{{ $key }}"') && ! str_contains($adv, 'wire:key="env-{{ $key }}"'), 'every .env row is keyed by its place too: one that moves is drawn again with its new binding');
+    $check(str_contains($adv, '$wire.moveEnvKey(k, toKey)') && str_contains($adv, 'regrip(@js($key), @js($envRows[$index - 1][\'key\']))') && str_contains($adv, 'wire:click="removeEnvKey(@js($key))"')
+        && ! str_contains($adv, '$wire.moveEnvRow(') && ! str_contains($adv, 'removeEnvRow({{ $index }})'), 'the page tells the server keys, never positions');
+    $check(str_contains($ad, 'public function moveEnvKey(string $key, string $target): void') && str_contains($ad, 'public function removeEnvKey(string $key): void'), 'moveEnvKey() and removeEnvKey()');
     $check(str_contains($adv, 'data-deploy-paused') && str_contains($adv, 'Resume automatic deploys') && str_contains($ad, "\$this->deployStatus['paused_commit']"), 'a paused commit is shown, with a way to resume');
     $check(str_contains($views[$root.'/resources/views/partials/server-backups.blade.php'] ?? '', 'wire:model="bpExcludePaths"'), 'backup profiles: paths to leave out');
     $client = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
     $check(str_contains($client, 'public function updateEnv(string $name, array $set = [], array $unset = [], ?array $order = null): array') && str_contains($client, "\$payload['order'] = array_values(\$order);"), 'the client sends order');
     $theme = (string) file_get_contents($root.'/src/Support/Theme.php');
-    $check(str_contains($theme, "VERSION = '4.5.0'") && str_contains($theme, "API = '1.43'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.5.0]'), 'version 4.5.0 for API 1.43');
+    $check((bool) preg_match("/VERSION = '4\\.5\\.\\d+'/", $theme) && str_contains($theme, "API = '1.43'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.5.0]'), 'version 4.5.0 for API 1.43');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);
