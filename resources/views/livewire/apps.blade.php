@@ -444,7 +444,7 @@
                                     <label for="app-engine">Database engine</label>
                                     <select id="app-engine" wire:model="engine">
                                         @foreach($availableEngines as $item)
-                                            <option value="{{ $item['engine'] }}">{{ $this->engineLabel($item['engine']) }}{{ !empty($item['default']) ? ' · default' : '' }}{{ !empty($item['port']) ? ' · :'.$item['port'] : '' }}</option>
+                                            <option value="{{ $item['engine'] }}">{{ $item['label'] ?? $this->engineLabel($item['engine']) }}{{ !empty($item['default']) ? ' · default' : '' }}{{ !empty($item['port']) ? ' · :'.$item['port'] : '' }}</option>
                                         @endforeach
                                     </select>
                                     @error('engine') <p class="field-error">{{ $message }}</p> @enderror

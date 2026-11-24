@@ -353,6 +353,10 @@ class AppDetail extends Component
         if ($this->prefetchDeployStatus) {
             $paths[] = ["/apps/{$this->appName}/deploy/status", ['tail' => self::DEPLOY_TAIL_LINES]];
         }
+        if (($this->app['engine'] ?? '') === 'mariadb' && $this->serverId !== null
+            && ! \Illuminate\Support\Facades\Cache::has('cipi-gui.mysql-server.'.$this->serverId)) {
+            $paths[] = '/dbs/engines'; // MariaDB or MySQL (ensureEngineServers)
+        }
 
         return $paths;
     }
@@ -416,6 +420,10 @@ class AppDetail extends Component
             // Asked at once instead of one after the other: each is a `sudo cipi …`
             // on the server, and the page waited for their sum.
             $this->client()->prefetch($this->overviewPaths());
+            if (($this->app['engine'] ?? '') === 'mariadb') {
+                // MariaDB or MySQL on port 3306 (Cipi 5.13.0): known once per server.
+                $this->ensureEngineServers();
+            }
             $this->loadInstalledPhpVersions();
             $this->loadNodeRuntimes();
             $this->loadNodeStatus();
@@ -828,7 +836,19 @@ class AppDetail extends Component
             return;
         }
 
-        $this->startJob('Unlock deploy', fn (CipiApiClient $api) => $api->deployUnlock($this->appName));
+        $this->startJob($this->pausedCommit() !== null ? 'Resume automatic deploys' : 'Unlock deploy', fn (CipiApiClient $api) => $api->deployUnlock($this->appName));
+    }
+
+    /**
+     * The commit whose automatic deploy failed (Cipi 5.13.0): the webhook does
+     * not deploy it again. A new push deploys as usual; a deploy from here that
+     * succeeds, or unlockDeploy(), resumes it.
+     */
+    public function pausedCommit(): ?string
+    {
+        $commit = $this->deployStatus['paused_commit'] ?? null;
+
+        return is_string($commit) && preg_match('/^[0-9a-f]{7,64}$/', $commit) ? $commit : null;
     }
 
     public function installSsl(): void
@@ -1694,7 +1714,14 @@ class AppDetail extends Component
             $this->basicAuth = $this->client()->basicAuthStatus($this->appName);
             $this->basicAuth['enabled'] = $this->appFlagIsTrue($this->basicAuth['enabled'] ?? false);
         } catch (CipiApiException $e) {
-            $this->handleApiError($e);
+            // An API before 1.43 on Cipi 5.11–5.12 answers the status as an error
+            // (the command exited 1 after printing it): the state is in its text.
+            $state = self::basicAuthStateFromCliText($e->getMessage());
+            if ($state !== null) {
+                $this->basicAuth = $state;
+            } else {
+                $this->handleApiError($e);
+            }
         }
         $this->loadBasicAuthAgent();
     }
@@ -1749,7 +1776,11 @@ class AppDetail extends Component
             $this->generatedPassword = $result['password'] ?? null;
             $this->basicAuthPassword = '';
             $this->patchApp(['basic_auth' => true]);
-            $this->dispatch('notify', type: 'success', message: 'Basic auth enabled.');
+            if (is_string($result['notice'] ?? null) && $result['notice'] !== '') {
+                $this->dispatch('notify', type: 'warning', message: $result['notice']);
+            } else {
+                $this->dispatch('notify', type: 'success', message: 'Basic auth enabled.');
+            }
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
@@ -1831,6 +1862,55 @@ class AppDetail extends Component
         $this->resetErrorBag('envNewKey');
     }
 
+    /**
+     * Move a row of the .env (drag and drop, or the up/down buttons). Saved
+     * with the other changes: the order goes with them (API 1.43 / Cipi 5.13).
+     */
+    public function moveEnvRow(int $from, int $to): void
+    {
+        if (! $this->allowed('env')) {
+            return;
+        }
+        $count = count($this->envRows);
+        if ($from < 0 || $from >= $count || $to < 0 || $to >= $count || $from === $to) {
+            return;
+        }
+        $rows = $this->envRows;
+        [$row] = array_splice($rows, $from, 1);
+        array_splice($rows, $to, 0, [$row]);
+        $this->envRows = array_values($rows);
+    }
+
+    /** True when the rows are not in the order of the file (keys added or removed aside). */
+    public function envOrderChanged(): bool
+    {
+        $current = [];
+        foreach ($this->envRows as $row) {
+            $key = trim((string) ($row['key'] ?? ''));
+            if ($key !== '' && array_key_exists($key, $this->envOriginal)) {
+                $current[] = $key;
+            }
+        }
+        $original = array_values(array_intersect(array_keys($this->envOriginal), $current));
+
+        if ($current !== $original) {
+            return true;
+        }
+
+        // A new key placed anywhere but at the end, where --set puts it.
+        $seenNew = false;
+        foreach ($this->envRows as $row) {
+            $isNew = ! array_key_exists((string) ($row['key'] ?? ''), $this->envOriginal);
+            if ($isNew) {
+                $seenNew = true;
+            } elseif ($seenNew) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function removeEnvRow(int $index): void
     {
         if (! $this->allowed('env')) {
@@ -1879,7 +1959,7 @@ class AppDetail extends Component
     {
         $diff = $this->envDiff();
 
-        return count($diff['set']) + count($diff['unset']);
+        return count($diff['set']) + count($diff['unset']) + ($this->envOrderChanged() ? 1 : 0);
     }
 
     public function saveEnv(): void
@@ -1889,18 +1969,40 @@ class AppDetail extends Component
         }
 
         ['set' => $set, 'unset' => $unset] = $this->envDiff();
+        $order = null;
+        if ($this->envOrderChanged()) {
+            $order = [];
+            foreach ($this->envRows as $row) {
+                $key = trim((string) ($row['key'] ?? ''));
+                if ($key !== '') {
+                    $order[] = $key;
+                }
+            }
+        }
 
-        if ($set === [] && $unset === []) {
+        if ($set === [] && $unset === [] && $order === null) {
             $this->dispatch('notify', type: 'info', message: 'No .env changes to save.');
 
             return;
         }
 
         try {
-            $data = $this->client()->updateEnv($this->appName, $set, $unset);
+            $data = $this->client()->updateEnv($this->appName, $set, $unset, $order);
             $this->syncEnvRowsFromVars(is_array($data['vars'] ?? null) ? $data['vars'] : []);
-            $this->dispatch('notify', type: 'success', message: '.env saved ('.(count($set) + count($unset)).' changes). Deploy or run config:cache to apply.');
+            $changes = count($set) + count($unset) + ($order !== null ? 1 : 0);
+            if ($order !== null && array_keys($this->envOriginal) !== $order) {
+                // An API before 1.43 takes the keys and drops the order.
+                $this->dispatch('notify', type: 'warning', message: '.env saved, but this server did not keep the new order — it needs API 1.43 and Cipi 5.13 (cipi self-update && cipi api update).');
+            } else {
+                $this->dispatch('notify', type: 'success', message: '.env saved ('.$changes.' '.\Illuminate\Support\Str::plural('change', $changes).'). Deploy or run config:cache to apply.');
+            }
         } catch (CipiApiException $e) {
+            if ($order !== null && $set === [] && $unset === [] && $e->getStatusCode() === 422 && ! str_contains(strtolower($e->getMessage()), 'order')) {
+                // Only a new order, refused by an API before 1.43 ("set or unset").
+                $this->dispatch('notify', type: 'warning', message: 'Reordering the .env needs API 1.43 and Cipi 5.13 on this server (cipi self-update && cipi api update).');
+
+                return;
+            }
             $this->handleApiError($e);
         }
     }

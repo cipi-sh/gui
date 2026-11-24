@@ -122,6 +122,25 @@
             </div>
         @endif
 
+        {{-- A commit whose automatic deploy failed (Cipi 5.13.0): the webhook skips it
+             until a new push arrives; the queue behind it is free. --}}
+        @php $pausedCommit = $this->deployActive() ? null : $this->pausedCommit(); @endphp
+        @if($pausedCommit !== null)
+            <div class="alert alert-warn mb-4" role="status" data-deploy-paused>
+                <x-cipi::icon name="pause" class="h-5 w-5 shrink-0" />
+                <div class="min-w-0 flex-1">
+                    <p class="alert-title">Automatic deploys paused on commit <code>{{ substr($pausedCommit, 0, 12) }}</code></p>
+                    <p class="text-sm">Its deploy failed, so the webhook does not try the same commit again. The next push deploys as usual; a deploy started here that succeeds resumes them too.</p>
+                    @if($can['deploy'] ?? false)
+                        <div class="mt-3 flex flex-wrap gap-2">
+                            <button type="button" wire:click="deploy" class="btn btn-secondary btn-sm"><x-cipi::icon name="rocket" /> Deploy now</button>
+                            <button type="button" wire:click="unlockDeploy" data-confirm="Let the webhook deploy commit {{ substr($pausedCommit, 0, 12) }} again?" class="btn btn-ghost btn-sm"><x-cipi::icon name="play" /> Resume automatic deploys</button>
+                        </div>
+                    @endif
+                </div>
+            </div>
+        @endif
+
         @unless($can['edit'] ?? false)
             <x-cipi::alert type="info" class="mb-4">Read-only: your access lets you look at this app{{ ($can['deploy'] ?? false) ? ' and deploy it' : '' }}, not change it.</x-cipi::alert>
         @endunless
@@ -645,7 +664,11 @@
                         <div class="space-y-2">
                             <button wire:click="deploy" @disabled($deployBusy) class="btn btn-primary w-full"><x-cipi::icon name="rocket" /> Deploy now</button>
                             <button wire:click="rollback" @disabled($deployBusy) data-confirm="Roll back to the previous release?" class="btn btn-secondary w-full"><x-cipi::icon name="rollback" /> Roll back</button>
-                            <button wire:click="unlockDeploy" data-confirm="Remove the deploy lock? Only do this if no deploy is running." class="btn btn-ghost w-full"><x-cipi::icon name="unlock" /> Unlock a stuck deploy</button>
+                            @if($this->pausedCommit() !== null)
+                                <button wire:click="unlockDeploy" data-confirm="Resume automatic deploys (and remove a stuck lock, if any)? Only do this if no deploy is running." class="btn btn-ghost w-full"><x-cipi::icon name="play" /> Resume automatic deploys</button>
+                            @else
+                                <button wire:click="unlockDeploy" data-confirm="Remove the deploy lock? Only do this if no deploy is running." class="btn btn-ghost w-full"><x-cipi::icon name="unlock" /> Unlock a stuck deploy</button>
+                            @endif
                         </div>
                         @if($deployBusy)
                             <p class="text-xs text-muted mt-2" data-deploy-busy>A deploy is already running — Deployer holds the lock until it ends, and the page follows it above.</p>
@@ -1018,8 +1041,20 @@
                 @elseif(! $envLoaded)
                     <div class="skeleton h-40 w-full"></div>
                 @else
-                    @php $changes = $this->envChangeCount(); @endphp
-                    <div class="space-y-2 max-h-panel overflow-y-auto pr-1">
+                    @php
+                        $changes = $this->envChangeCount();
+                        $orderChanged = $this->envOrderChanged();
+                        $envLast = count($envRows) - 1;
+                    @endphp
+                    {{-- Drag a row by its handle (or focus the handle and use the arrow keys) to
+                         reorder the file; comments above a key move with it. Off while filtering. --}}
+                    <div class="space-y-2 max-h-panel overflow-y-auto pr-1"
+                         x-data="{ from: null, over: null,
+                                   drop(to) { const f = this.from; this.from = null; this.over = null;
+                                              if (f === null || f === to) return;
+                                              $wire.moveEnvRow(f, to); },
+                                   regrip(f, to, key) { $wire.moveEnvRow(f, to).then(() => requestAnimationFrame(() =>
+                                              document.querySelector('[data-env-grip=&quot;' + key + '&quot;]')?.focus())); } }">
                         @forelse($envRows as $index => $row)
                             @php
                                 $key = $row['key'];
@@ -1027,9 +1062,23 @@
                                 $isChanged = ! $isNew && $envOriginal[$key] !== $row['value'];
                                 $secret = $this->isSensitiveKey($key);
                             @endphp
-                            <div class="env-row {{ $isNew ? 'is-new' : ($isChanged ? 'is-changed' : '') }}" wire:key="env-{{ $key }}"
+                            <div class="env-row is-sortable {{ $isNew ? 'is-new' : ($isChanged ? 'is-changed' : '') }}" wire:key="env-{{ $key }}"
                                  x-show="!filter || @js(strtolower($key)).includes(filter.toLowerCase())"
-                                 x-data="{ reveal: {{ $secret ? 'false' : 'true' }} }">
+                                 x-data="{ reveal: {{ $secret ? 'false' : 'true' }} }"
+                                 x-bind:class="{ 'is-dragging': from === {{ $index }}, 'is-drop-target': over === {{ $index }} && from !== {{ $index }}, 'is-drop-after': over === {{ $index }} && from !== null && from < {{ $index }} }"
+                                 x-on:dragstart="from = {{ $index }}; $event.dataTransfer.effectAllowed = 'move'; $event.dataTransfer.setData('text/plain', @js($key))"
+                                 x-on:dragover.prevent="if (from !== null) { over = {{ $index }}; $event.dataTransfer.dropEffect = 'move' }"
+                                 x-on:drop.prevent="drop({{ $index }})"
+                                 x-on:dragend="from = null; over = null; $el.draggable = false">
+                                {{-- A span, not a <button>: Firefox starts no drag from inside a button. --}}
+                                <span class="env-grip" role="button" data-env-grip="{{ $key }}"
+                                      aria-label="Move {{ $key }} — drag, or use the arrow keys" title="Drag to reorder · ↑/↓ with the keyboard"
+                                      x-bind:tabindex="filter === '' ? 0 : -1" x-bind:aria-disabled="filter !== ''"
+                                      x-on:pointerdown="if (filter === '') $el.closest('.env-row').draggable = true"
+                                      x-on:pointerup="$el.closest('.env-row').draggable = false"
+                                      @if($index > 0) x-on:keydown.arrow-up.prevent="regrip({{ $index }}, {{ $index - 1 }}, @js($key))" @endif
+                                      @if($index < $envLast) x-on:keydown.arrow-down.prevent="regrip({{ $index }}, {{ $index + 1 }}, @js($key))" @endif
+                                ><x-cipi::icon name="grip" stroke="3" /></span>
                                 <input type="text" value="{{ $key }}" class="font-mono input-sm" readonly tabindex="-1" aria-label="Key">
                                 <div class="relative">
                                     <input :type="reveal ? 'text' : 'password'" wire:model.live.debounce.400ms="envRows.{{ $index }}.value" class="font-mono input-sm" autocomplete="off" aria-label="Value of {{ $key }}" style="{{ $secret ? 'padding-right:2.25rem' : '' }}">
@@ -1054,7 +1103,7 @@
                     @error('envNewKey') <p class="field-error">{{ $message }}</p> @enderror
 
                     <div class="flex flex-wrap items-center justify-between gap-3 mt-4">
-                        <p class="text-xs {{ $changes ? 'text-accent' : 'text-subtle' }}">{{ $changes ? $changes.' unsaved '.\Illuminate\Support\Str::plural('change', $changes) : count($envRows).' variables · sensitive values are hidden' }}</p>
+                        <p class="text-xs {{ $changes ? 'text-accent' : 'text-subtle' }}">{{ $changes ? $changes.' unsaved '.\Illuminate\Support\Str::plural('change', $changes).($orderChanged ? ' · new order' : '') : count($envRows).' variables · drag ⠿ to reorder · sensitive values are hidden' }}</p>
                         <div class="btn-group">
                             @if($changes)
                                 <button type="button" wire:click="resetEnv" class="btn btn-ghost">Discard</button>

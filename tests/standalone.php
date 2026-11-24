@@ -216,6 +216,33 @@ namespace {
     $nc = (string) file_get_contents($root.'/src/Livewire/Notifications.php');
     $check(substr_count($nc, '$this->guardManage()') >= 6 && str_contains($nc, 'Access::canManageServer('), 'every change needs manage on the server');
 
+    echo "--- 4.5.0: Cipi 5.13 / API 1.43\n";
+    require_once $root.'/src/Livewire/Concerns/InteractsWithCipiServer.php';
+    $cli = new class { use \CipiGui\Livewire\Concerns\InteractsWithCipiServer; };
+    $raw = "\e[1mBasic auth — newsltrc3072\e[0m\n━━━━━━━━━━━━━━━━\n  Status     \e[2mdisabled\e[0m\n\n";
+    $check(! str_contains($cli::plainCliText($raw), '[') && ! str_contains($cli::plainCliText($raw), '━') && str_contains($cli::plainCliText('[1mBasic auth — x[0m ━━━ Status [2mdisabled[0m'), 'Basic auth — x') && ! str_contains($cli::plainCliText('[1mBasic auth — x[0m ━━━ Status [2mdisabled[0m'), '[0m'),
+        'CLI text without colours, escaped or bare, nor the rule under the title');
+    $check($cli::basicAuthStateFromCliText($raw) === ['enabled' => false, 'users' => []]
+        && $cli::basicAuthStateFromCliText('[1mBasic auth — shop[0m ━━ Status [0;32menabled[0m Users [0;36madmin,ops[0m') === ['enabled' => true, 'users' => ['admin', 'ops']]
+        && $cli::basicAuthStateFromCliText('App not found') === null, 'basic auth: the state an older API answered as an error is read from its text');
+    $B = get_class($page);
+    $check($B::backupExcludePaths(" storage/app/uploads, *.mp4\nshop:public/my files ,storage/app/uploads,, ") === ['storage/app/uploads', '*.mp4', 'shop:public/my files'], 'exclude paths: commas and new lines, spaces inside a path kept, duplicates dropped');
+    $okPaths = array_filter(['storage/app/uploads', '*.mp4', 'shop:storage/app/uploads', 'api-*:public/a[1]', 'wp-content/uploads/'], fn ($p) => $B::validBackupExcludePath($p));
+    $badPaths = array_filter(['/var/www', '*', '*/', 'shared', 'htdocs', 'shop:*', 'shop:/etc', 'a;rm -rf', "a\nb", 'x$(id)', str_repeat('a', 256)], fn ($p) => $B::validBackupExcludePath($p));
+    $check(count($okPaths) === 5 && $badPaths === [], 'exclude paths: the rule of the CLI — relative, never the whole app, nothing a shell would read');
+    $ad = (string) file_get_contents($root.'/src/Livewire/AppDetail.php');
+    $adv = $views[$root.'/resources/views/livewire/app-detail.blade.php'] ?? '';
+    $check(str_contains($ad, 'public function moveEnvRow(int $from, int $to): void') && (bool) preg_match('/function moveEnvRow[^{]+\{\s+if \(! \$this->allowed\(\'env\'\)\)/', $ad), 'moving a .env row needs the env ability');
+    $check(str_contains($ad, '$this->client()->updateEnv($this->appName, $set, $unset, $order)') && str_contains($ad, 'array_keys($this->envOriginal) !== $order'), 'the new order is saved with the other changes, and an API that drops it is told apart');
+    $check(str_contains($adv, 'class="env-grip" role="button"') && str_contains($adv, 'x-on:drop.prevent="drop({{ $index }})"') && str_contains($adv, 'x-on:keydown.arrow-up.prevent') && str_contains($adv, "x-bind:aria-disabled=\"filter !== ''\""),
+        '.env rows: a drag handle (not a <button>: Firefox), arrow keys, off while filtering');
+    $check(str_contains($adv, 'data-deploy-paused') && str_contains($adv, 'Resume automatic deploys') && str_contains($ad, "\$this->deployStatus['paused_commit']"), 'a paused commit is shown, with a way to resume');
+    $check(str_contains($views[$root.'/resources/views/partials/server-backups.blade.php'] ?? '', 'wire:model="bpExcludePaths"'), 'backup profiles: paths to leave out');
+    $client = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    $check(str_contains($client, 'public function updateEnv(string $name, array $set = [], array $unset = [], ?array $order = null): array') && str_contains($client, "\$payload['order'] = array_values(\$order);"), 'the client sends order');
+    $theme = (string) file_get_contents($root.'/src/Support/Theme.php');
+    $check(str_contains($theme, "VERSION = '4.5.0'") && str_contains($theme, "API = '1.43'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.5.0]'), 'version 4.5.0 for API 1.43');
+
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);
 }

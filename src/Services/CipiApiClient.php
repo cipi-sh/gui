@@ -269,8 +269,9 @@ class CipiApiClient
     /**
      * @param  array<string, string>  $set
      * @param  list<string>  $unset
+     * @param  list<string>|null  $order  every key once, applied after set/unset (API 1.43, Cipi 5.13.0)
      */
-    public function updateEnv(string $name, array $set = [], array $unset = []): array
+    public function updateEnv(string $name, array $set = [], array $unset = [], ?array $order = null): array
     {
         $payload = [];
         if ($set !== []) {
@@ -278,6 +279,9 @@ class CipiApiClient
         }
         if ($unset !== []) {
             $payload['unset'] = $unset;
+        }
+        if ($order !== null && $order !== []) {
+            $payload['order'] = array_values($order);
         }
 
         return $this->put("/apps/{$name}/env", $payload)['data'] ?? [];

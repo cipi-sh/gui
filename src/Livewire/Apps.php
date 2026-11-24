@@ -501,6 +501,7 @@ class Apps extends Component
         try {
             $data = $this->client()->listDatabaseEngines();
             $engines = is_array($data['engines'] ?? null) ? $data['engines'] : [];
+            $this->rememberEngineServers($this->currentServer()?->id, $engines);
 
             $this->availableEngines = array_values(array_filter(
                 $engines,
