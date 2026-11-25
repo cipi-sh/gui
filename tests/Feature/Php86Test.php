@@ -92,7 +92,8 @@ class Php86Test extends TestCase
 
         $this->phpTab()->set('phpInstallVersion', '8.6')->call('installPhp')
             ->assertSet('showJobOverlay', false)
-            ->assertSet('error', fn ($error) => str_contains((string) $error, 'PHP 8.6 needs Cipi 5.9.1+'));
+            // The panel names no Cipi version (4.7.0): the PHP version stays, the Cipi ones go.
+            ->assertSet('error', fn ($error) => str_contains((string) $error, 'PHP 8.6 needs an update of Cipi on this server') && ! str_contains((string) $error, '5.9.'));
     }
 
     #[Test]

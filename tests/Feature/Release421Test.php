@@ -171,7 +171,9 @@ class Release421Test extends TestCase
 
         $this->backupsTab()
             ->assertSee('Not available on this server')
-            ->assertSee($reason)
+            // What the server answered, without the versions it names (4.7.0).
+            ->assertSee('Backup management from the panel needs an update of Cipi on this server')
+            ->assertDontSee('5.8.5')
             ->assertSee('Check again')
             ->assertDontSee('Backups are not configured on this server')
             ->assertDontSee('could not be read');
