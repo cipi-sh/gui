@@ -185,7 +185,7 @@ class NginxDirectivesTest extends TestCase
         $this->routing()
             ->assertSet('nginxLoaded', false)
             ->assertSeeHtml('data-nginx-unavailable')
-            ->assertSee('needs cipi/api 1.44+ and Cipi 5.14.0+')
+            ->assertSee('needs an up-to-date Cipi on this server')
             ->assertDontSeeHtml('wire:model="nginxConfig"');
 
         // A token created before the abilities existed.
@@ -194,7 +194,7 @@ class NginxDirectivesTest extends TestCase
 
         // cipi/api 1.44 on a Cipi before 5.14.0: the API's own words.
         $this->read = fn () => Http::response(['error' => 'This server cannot edit nginx directives yet: Cipi 5.14.0+ is required (cipi self-update, then cipi api update).'], 503);
-        $this->routing()->assertSee('Cipi 5.14.0+ is required');
+        $this->routing()->assertSee('an update of Cipi is required')->assertDontSee('5.14.0');
 
         // The rest of the tab is there all the same.
         $this->routing()->assertSee('Prefix reverse proxies');

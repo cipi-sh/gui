@@ -141,4 +141,41 @@ final class Notifications
 
         return $flag !== null && ! empty($ch[$flag]);
     }
+
+    /** The selector every server knows: failures and security events. */
+    public const URGENT = 'urgent';
+
+    /**
+     * What a channel takes, as the server keeps it: null for everything
+     * (also [] and a list with "all"), otherwise its selectors.
+     *
+     * @return list<string>|null
+     */
+    public static function events(array $ch): ?array
+    {
+        $ev = $ch['events'] ?? null;
+        if (! is_array($ev)) {
+            return null;
+        }
+        $ev = array_values(array_unique(array_filter($ev, fn ($e) => is_string($e) && preg_match('/^[a-z][a-z0-9_-]{1,40}$/', $e) === 1)));
+
+        return $ev === [] || in_array('all', $ev, true) ? null : $ev;
+    }
+
+    /**
+     * For people: "Everything", or the selectors by their labels — a category
+     * by its name, "Urgent", a single trigger by its id.
+     *
+     * @param  list<array{id: string, label: string}>  $categories
+     */
+    public static function eventsLabel(array $ch, array $categories): string
+    {
+        $ev = self::events($ch);
+        if ($ev === null) {
+            return 'Everything';
+        }
+        $names = array_column($categories, 'label', 'id');
+
+        return implode(', ', array_map(fn (string $e) => $e === self::URGENT ? 'Urgent' : ($names[$e] ?? $e), $ev));
+    }
 }

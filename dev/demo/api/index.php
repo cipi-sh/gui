@@ -291,7 +291,7 @@ function handle(string $method, string $route, array $body, array $query, string
     }
 
     // Firewall (API 1.44 / Cipi 5.14.0): UFW, fail2ban, CrowdSec
-    if ($r('/firewall(/rules|/blocks|/attempts|/bans|/crowdsec/enable|/crowdsec/disable|/crowdsec/allowlist)?')) {
+    if ($r('/firewall(/rules|/blocks|/attempts|/bans|/crowdsec/enable|/crowdsec/disable|/crowdsec/allowlist|/real-ip|/real-ip/refresh)?')) {
         return firewallRoute($method, $p(1), $body, $s, $state, $profile);
     }
 
@@ -713,6 +713,8 @@ function demoFirewall(): array
             ]],
         'crowdsec' => ['installed' => false, 'running' => false, 'bouncer' => 'not installed', 'mode' => '', 'rescue' => 'stopped', 'rescue_port' => null,
             'allowlist' => [], 'decisions' => [], 'ram_available_mb' => 2810, 'ram_required_mb' => 512, 'enable_blockers' => []],
+        'real_ip' => ['enabled' => false, 'provider' => null, 'header' => null, 'kept_by' => null, 'ranges' => 0,
+            'refreshed_at' => null, 'nightly_refresh' => false, 'can_disable' => false, 'bans_active' => true],
     ];
 }
 
@@ -733,7 +735,25 @@ function firewallRoute(string $method, string $action, array $body, array &$s, a
     };
 
     if ($action === '' && $method === 'GET') {
+        $fw['real_ip'] ??= demoFirewall()['real_ip'];
+
         return [200, ['data' => $fw]];
+    }
+    if ($action === '/real-ip' || $action === '/real-ip/refresh') {
+        $fw['real_ip'] ??= demoFirewall()['real_ip'];
+        if ($method === 'DELETE') {
+            if (! $fw['real_ip']['can_disable']) {
+                throw new DemoHttpError(422, 'real-ip is already off');
+            }
+            $fw['real_ip'] = array_merge(demoFirewall()['real_ip'], ['bans_active' => $fw['real_ip']['bans_active']]);
+
+            return $done('real-ip is off — nginx sees the address of each connection');
+        }
+        $was = $fw['real_ip']['enabled'];
+        $fw['real_ip'] = array_merge($fw['real_ip'], ['enabled' => true, 'provider' => 'cloudflare', 'header' => 'CF-Connecting-IP',
+            'kept_by' => 'real-ip', 'ranges' => 22, 'refreshed_at' => gmdate('Y-m-d\TH:i:s\Z'), 'nightly_refresh' => true, 'can_disable' => true]);
+
+        return $done($was ? "Already on — Cloudflare's ranges refreshed (22 ranges)" : "nginx now takes the visitor's address from Cloudflare (22 ranges, refreshed every night)");
     }
     if ($action === '/rules' && $method === 'POST') {
         $p = $port($body['port'] ?? '') ?? throw new DemoHttpError(422, 'A port (1-65535) or a range such as 8000:8100.');

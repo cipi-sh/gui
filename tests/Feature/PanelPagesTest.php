@@ -85,7 +85,7 @@ class PanelPagesTest extends TestCase
 
         $this->actingAs($this->admin());
         Livewire::withQueryParams(['tab' => 'disk'])->test(ServerManage::class)->call('init')
-            ->assertSee('Not available on this server')->assertSee('Cipi 5.5.2+')->assertDontSee('Everything else');
+            ->assertSee('Not available on this server')->assertSee('cipi self-update')->assertDontSee('5.5.2')->assertDontSee('Everything else');
     }
 
     #[Test]

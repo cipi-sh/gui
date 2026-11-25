@@ -249,7 +249,7 @@ class AppYmlTest extends TestCase
 
         $this->ymlTab()
             ->assertSet('ymlUnsupported', 'server')
-            ->assertSee('Requires Cipi 5.6.4+ and cipi/api 1.35+')
+            ->assertSee('Requires an up-to-date Cipi')
             ->assertSee('cipi yml plan shop')
             ->assertDontSee('Apply now');
 
@@ -257,7 +257,7 @@ class AppYmlTest extends TestCase
 
         $this->ymlTab()
             ->assertSet('ymlUnsupported', 'server')
-            ->assertSee('Requires Cipi 5.6.4+ and cipi/api 1.35+')
+            ->assertSee('Requires an up-to-date Cipi')
             ->assertSee('The server said:')
             ->assertSee("Unknown option '--json'");
     }
@@ -279,7 +279,7 @@ class AppYmlTest extends TestCase
 
         $this->ymlTab()
             ->call('enableYmlAuto')
-            ->assertSet('error', 'cipi yml auto failed — cipi.yml from the panel requires Cipi 5.6.4+ and cipi/api 1.35+ (cipi self-update && cipi api update).');
+            ->assertSet('error', 'cipi yml auto failed — cipi.yml from the panel needs an up-to-date Cipi on this server (cipi self-update && cipi api update).');
     }
 
     #[Test]

@@ -878,6 +878,24 @@ class CipiApiClient
         return $this->firewallChange('delete', '/firewall/crowdsec/allowlist', ['address' => $address]);
     }
 
+    /** nginx takes the visitor's address from Cloudflare (CF-Connecting-IP); again, the ranges are fetched anew. */
+    public function firewallRealIpEnable(): array
+    {
+        return $this->firewallChange('put', '/firewall/real-ip', []);
+    }
+
+    /** Cloudflare's ranges fetched again (the server does it every night too). */
+    public function firewallRealIpRefresh(): array
+    {
+        return $this->firewallChange('post', '/firewall/real-ip/refresh', []);
+    }
+
+    /** Back to the address of each connection. */
+    public function firewallRealIpDisable(): array
+    {
+        return $this->firewallChange('delete', '/firewall/real-ip', []);
+    }
+
     /** Async job (`crowdsec-enable`): the panel's address goes on CrowdSec's allowlist. */
     public function crowdsecEnable(): array
     {

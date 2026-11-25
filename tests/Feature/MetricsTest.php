@@ -202,8 +202,9 @@ class MetricsTest extends TestCase
         Livewire::test(Metrics::class, ['serverId' => $this->server->id])
             ->call('init')
             ->assertSet('unsupported', true)
-            ->assertSee('Cipi 5.11.0')
-            ->assertSee('cipi/api 1.41.0')
+            ->assertSee('an up-to-date Cipi')
+            ->assertSee('cipi self-update')
+            ->assertDontSee('5.11.0')
             ->assertDontSeeHtml('wire:poll');
     }
 
@@ -215,7 +216,9 @@ class MetricsTest extends TestCase
         Livewire::test(Metrics::class, ['serverId' => $this->server->id])
             ->call('init')
             ->assertSet('unsupported', true)
-            ->assertSee('this server runs Cipi 5.10.0');
+            ->assertSee('Metrics needs an update of Cipi on this server')
+            ->assertDontSee('5.10.0')
+            ->assertDontSee('5.11.0');
     }
 
     #[Test]

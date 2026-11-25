@@ -258,7 +258,7 @@
                                 <datalist id="edit-env-options">
                                     @foreach($envSuggestions as $suggestion)<option value="{{ $suggestion }}"></option>@endforeach
                                 </datalist>
-                                <p class="field-hint">production, staging, development, testing or your own word — lowercase letters, digits, <code>-</code>, <code>_</code>. Picks <code>cipi-&lt;environment&gt;.yml</code> over <code>cipi.yml</code> on deploys (cipi/api 1.36+).</p>
+                                <p class="field-hint">production, staging, development, testing or your own word — lowercase letters, digits, <code>-</code>, <code>_</code>. Picks <code>cipi-&lt;environment&gt;.yml</code> over <code>cipi.yml</code> on deploys.</p>
                                 @error('editEnv') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
                             @if($isNode)
@@ -356,7 +356,7 @@
                         @endif
                     </div>
                     @if($healthUnsupported)
-                        <p class="text-muted">Healthchecks need API 1.16+ / Cipi 5.0.7+ and the <code>health-view</code> / <code>health-manage</code> abilities.</p>
+                        <p class="text-muted">Healthchecks need an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>health-view</code> / <code>health-manage</code> abilities.</p>
                     @else
                         <form wire:submit="saveHealth" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-start">
                             <div class="sm:col-span-3">
@@ -398,7 +398,7 @@
                             @endif
                         </div>
                         @if($searchUnsupported)
-                            <p class="text-muted">Needs API 1.31+ / Cipi 5.2.2+ and the <code>search-view</code> ability.</p>
+                            <p class="text-muted">Needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>search-view</code> ability.</p>
                         @elseif($searchStatus === null)
                             <button wire:click="loadSearchStatus" class="btn btn-secondary btn-sm">Load search status</button>
                         @elseif(empty($searchStatus['installed']))
@@ -499,7 +499,7 @@
                         <button wire:click="loadWwwStatus" class="btn btn-ghost btn-sm"><x-cipi::icon name="refresh" /> Refresh</button>
                     </div>
                     @if($wwwUnsupported)
-                        <p class="text-muted">Needs Cipi 4.8+ / API 1.12+ and the <code>www-manage</code> ability.</p>
+                        <p class="text-muted">Needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>www-manage</code> ability.</p>
                     @elseif($wwwStatus === null)
                         <div class="skeleton h-12 w-full"></div>
                     @else
@@ -525,7 +525,7 @@
         @elseif($activeTab === 'routing')
             @if($routingUnsupported)
                 <x-cipi::alert type="warn" title="Routing needs a newer server">
-                    Redirects and proxies need API 1.31+ and Cipi 5.4.1+ (run <code>cipi self-update</code>), plus the abilities
+                    Redirects and proxies need an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>), plus the abilities
                     <code>redirects-view</code>, <code>redirects-manage</code>, <code>proxies-view</code>, <code>proxies-manage</code>.
                 </x-cipi::alert>
             @elseif(! $routingLoaded)
@@ -753,7 +753,7 @@
                                 <p class="text-sm text-soft">Last deploy took <strong class="text-strong tabular-nums">{{ \CipiGui\Support\DeployLog::format($times['last']) }}</strong>@if($times['count'] > 1) · <span class="tabular-nums">{{ \CipiGui\Support\DeployLog::format($times['average']) }}</span> on average over {{ $times['count'] }} {{ \Illuminate\Support\Str::plural('deploy', $times['count']) }}@endif.</p>
                                 <p class="text-xs text-muted mt-1">From the deploy log — the Took column in the audit has every deploy.</p>
                             @elseif(! empty($auditRecords))
-                                <p class="text-xs text-muted">No timing yet. Cipi 5.6+ writes how long each deploy took to the deploy log; it shows here from the next deploy.</p>
+                                <p class="text-xs text-muted">No timing yet: it shows here from the next deploy, once the server writes how long each deploy took to the deploy log.</p>
                             @else
                                 <p class="text-xs text-muted">Shown once a deploy has run.</p>
                             @endif
@@ -787,16 +787,16 @@
                         </div>
                     </div>
                     @if($auditUnsupported)
-                        <div class="px-5 pb-5"><p class="text-muted">The audit needs API 1.31+ / Cipi 5.4.0+ and the <code>deploy-manage</code> ability.</p></div>
+                        <div class="px-5 pb-5"><p class="text-muted">The audit needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>deploy-manage</code> ability.</p></div>
                     @elseif(! $auditLoaded)
                         <div class="px-5 pb-5"><div class="skeleton h-24 w-full"></div></div>
                     @elseif(empty($auditRecords) && ! $this->deployBanner())
-                        <div class="px-5 pb-5"><p class="text-muted">No records in this period. The ledger starts with the first deploy after Cipi 5.4.0.</p></div>
+                        <div class="px-5 pb-5"><p class="text-muted">No records in this period. The ledger starts with the first deploy the server recorded.</p></div>
                     @else
                         <div class="table-scroll max-h-panel overflow-y-auto">
                             <table class="table-compact">
                                 <thead>
-                                    <tr><th>#</th><th>When</th><th>Event</th><th>Release</th><th class="text-right" title="From the deploy log (Cipi 5.6+)">Took</th><th>Origin</th><th title="Who started it: the login user root established, or the actor the app's own code reported (webhook pusher, MCP client)">By</th>@if($can['logs'] ?? false)<th class="text-right"><span class="sr-only">Log</span></th>@endif</tr>
+                                    <tr><th>#</th><th>When</th><th>Event</th><th>Release</th><th class="text-right" title="From the deploy log">Took</th><th>Origin</th><th title="Who started it: the login user root established, or the actor the app's own code reported (webhook pusher, MCP client)">By</th>@if($can['logs'] ?? false)<th class="text-right"><span class="sr-only">Log</span></th>@endif</tr>
                                 </thead>
                                 <tbody>
                                     @if($live = $this->deployBanner())
@@ -874,7 +874,7 @@
                             </div>
                         </div>
                         @if($deployConfigUnsupported)
-                            <p class="text-muted">Needs API 1.14+ / Cipi 5.0.3+ and the <code>apps-deploy-config</code> ability.</p>
+                            <p class="text-muted">Needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>apps-deploy-config</code> ability.</p>
                         @elseif(! $deployConfigLoaded)
                             <div class="skeleton h-20 w-full"></div>
                         @else
@@ -905,7 +905,7 @@
                                     @else
                                         <code>queue:restart</code> and <code>horizon:terminate</code> can both stay on: <code>horizon:terminate</code> runs only where <code>laravel/horizon</code> is installed and is skipped everywhere else.
                                     @endif
-                                    Either way Cipi restarts the app's workers after each deploy (5.13.0+).
+                                    Either way Cipi restarts the app's workers after each deploy.
                                 </p>
                                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div>
@@ -939,7 +939,7 @@
                 </x-cipi::alert>
             @elseif($ymlUnsupported === 'server')
                 <x-cipi::alert type="warn" title="cipi.yml needs a newer server">
-                    Requires Cipi 5.6.4+ and cipi/api 1.35+ — run <code>cipi self-update &amp;&amp; cipi api update</code> on the server, then give the token
+                    Requires an up-to-date Cipi — run <code>cipi self-update &amp;&amp; cipi api update</code> on the server, then give the token
                     <code>yml-view</code> and <code>yml-manage</code>. Until then: <code>cipi yml plan {{ $app['app'] }}</code> and <code>cipi yml apply {{ $app['app'] }}</code> over SSH.
                     @if($ymlUnsupportedDetail)
                         <p class="mt-2">The server said: <code>{{ $ymlUnsupportedDetail }}</code></p>
@@ -1124,7 +1124,7 @@
                 </div>
 
                 @if($envUnsupported)
-                    <p class="text-muted">.env editing needs API 1.14+ / Cipi 5.0.3+ and the <code>apps-env</code> ability.</p>
+                    <p class="text-muted">.env editing needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>apps-env</code> ability.</p>
                 @elseif(! $envLoaded)
                     <div class="skeleton h-40 w-full"></div>
                 @else
@@ -1242,7 +1242,7 @@
                     @endif
                 </div>
                 @if($authJsonUnsupported)
-                    <p class="text-muted">Needs API 1.14+ and the <code>apps-auth</code> ability.</p>
+                    <p class="text-muted">Needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>apps-auth</code> ability.</p>
                 @elseif(! $authJsonLoaded)
                     <div class="skeleton h-40 w-full"></div>
                 @else
@@ -1290,7 +1290,7 @@
                     </div>
                 </div>
                 @if($runUnsupported)
-                    <p class="text-muted">Needs API 1.14+ / Cipi 5.0.3+ and the <code>apps-run</code> ability.</p>
+                    <p class="text-muted">Needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>apps-run</code> ability.</p>
                 @else
                     @include('cipi-gui::partials.preset-list', ['kind' => 'run', 'presets' => $runPresets, 'use' => 'useRunPreset', 'canEdit' => $canEditPresets, 'editing' => $presetEditing === 'run', 'custom' => $presetsCustom['run']])
                     <form wire:submit="runAppCommand">

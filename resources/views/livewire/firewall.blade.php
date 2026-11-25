@@ -4,6 +4,7 @@
     $f2b = (array) ($firewall['fail2ban'] ?? []);
     $cs = (array) ($firewall['crowdsec'] ?? []);
     $zt = (array) ($firewall['zero_trust'] ?? []);
+    $rip = is_array($firewall['real_ip'] ?? null) ? $firewall['real_ip'] : null;
     $protected = (array) ($firewall['protected_ports'] ?? []);
     $allRules = array_values((array) ($ufw['rules'] ?? []));
 @endphp
@@ -20,7 +21,7 @@
         </div>
     @elseif($unsupported)
         <x-cipi::alert type="warn" title="The firewall is not available on this server" data-firewall-unsupported>
-            It needs <strong>Cipi 5.14.0</strong> and <strong>cipi/api 1.44.0</strong> on the server — <code>cipi self-update &amp;&amp; cipi api update</code> —
+            It needs an up-to-date Cipi on the server — <code>cipi self-update &amp;&amp; cipi api update</code> —
             and a token with <code>firewall-view</code> and <code>firewall-manage</code> (recreate it from <a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>).
             @if($unsupportedReason !== '')
                 <p class="mt-2">The server answered: <span class="font-mono text-xs break-words">{{ $unsupportedReason }}</span></p>
@@ -258,6 +259,54 @@
                         <x-cipi::alert type="danger" class="mt-3">fail2ban is not running: nobody is being banned. Restart it from the Services tab.</x-cipi::alert>
                     @endif
                 </div>
+            </div>
+
+            {{-- ── The visitor's address behind Cloudflare ──────────── --}}
+            <div class="card" data-firewall-real-ip>
+                <div class="card-header">
+                    <div>
+                        <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="globe" /> Cloudflare real IP</h2>
+                        <p class="card-subtitle">For domains proxied by Cloudflare (the orange cloud): nginx, the logs, fail2ban, CrowdSec and the apps see the visitor instead of Cloudflare. Only requests from Cloudflare's ranges are believed, so the header cannot be forged from anywhere else; domains not behind Cloudflare are unaffected.</p>
+                    </div>
+                    @if($rip !== null)
+                        <span class="badge {{ ! empty($rip['enabled']) ? 'badge-green' : 'badge-gray' }}">{{ ! empty($rip['enabled']) ? 'On' : 'Off' }}</span>
+                    @endif
+                </div>
+
+                @if($rip === null)
+                    <p class="text-sm text-muted" data-real-ip-unsupported>Not available on this server yet: update Cipi on it (<code>cipi self-update</code>). Until then it is turned on at the server with <code>cipi nginx real-ip cloudflare</code>.</p>
+                @elseif(($rip['kept_by'] ?? null) === 'other')
+                    <x-cipi::alert type="info">nginx already has a <code>real_ip</code> configuration Cipi did not write (<code>set_real_ip_from</code> in /etc/nginx): it is changed at the server, not here.</x-cipi::alert>
+                @elseif(! empty($rip['enabled']))
+                    <dl class="kv mb-4">
+                        <dt>Header</dt><dd class="font-mono">{{ $rip['header'] ?? 'CF-Connecting-IP' }}</dd>
+                        <dt>Trusted ranges</dt><dd>{{ (int) ($rip['ranges'] ?? 0) }} @if(! empty($rip['refreshed_at']))<span class="text-muted">· fetched {{ \CipiGui\Support\Clock::format($rip['refreshed_at']) }}</span>@endif @if(! empty($rip['nightly_refresh']))<span class="block text-xs text-muted">Fetched again every night.</span>@endif</dd>
+                        <dt>Kept by</dt><dd>{{ match ($rip['kept_by'] ?? null) { 'zero-trust' => 'Zero Trust', 'both' => 'This setting and Zero Trust', default => 'This setting' } }}</dd>
+                    </dl>
+                    <p class="text-xs text-muted mb-4">PHP-FPM apps read the visitor as <code>REMOTE_ADDR</code> (<code>$request->ip()</code>, no TrustProxies change); Octane and Node apps in <code>X-Forwarded-For</code>. A firewall ban stops direct connections only: a visitor who comes through Cloudflare is blocked at Cloudflare.</p>
+                    @if(in_array($rip['kept_by'] ?? null, ['zero-trust', 'both'], true))
+                        <x-cipi::alert type="info" class="mb-4">Zero Trust needs it: it stays on until Zero Trust is disabled.</x-cipi::alert>
+                    @endif
+                    @if($canManage)
+                        <div class="flex flex-wrap justify-end gap-2">
+                            <button type="button" wire:click="refreshRealIp" class="btn btn-secondary" wire:loading.attr="disabled" wire:target="refreshRealIp,enableRealIp,disableRealIp"><x-cipi::icon name="refresh" /> Fetch the ranges again</button>
+                            @if(! empty($rip['can_disable']))
+                                <button type="button" wire:click="disableRealIp"
+                                    data-confirm="{{ ! empty($rip['bans_active'])
+                                        ? 'Turn Cloudflare real IP off? With a domain still proxied by Cloudflare, every visitor becomes one of Cloudflare\'s addresses again, and fail2ban or CrowdSec could ban Cloudflare itself — taking those sites down. Set those domains to DNS only in Cloudflare first.'
+                                        : 'Turn Cloudflare real IP off? Domains proxied by Cloudflare will show Cloudflare\'s addresses again, in the logs and in the apps.' }}"
+                                    class="btn btn-ghost danger" wire:loading.attr="disabled" wire:target="refreshRealIp,enableRealIp,disableRealIp">Turn off</button>
+                            @endif
+                        </div>
+                    @endif
+                @else
+                    <p class="text-sm text-soft mb-4">Off: nginx sees the address of each connection — for a domain behind Cloudflare's proxy, one of Cloudflare's, so every visitor looks alike and a ban would hit Cloudflare. Turning it on fetches Cloudflare's public ranges (no token needed), tells nginx to trust <code>CF-Connecting-IP</code> from them only, and keeps fail2ban and CrowdSec from ever banning them. Tested with <code>nginx -t</code> first: refused, nothing changes.</p>
+                    @if($canManage)
+                        <button type="button" wire:click="enableRealIp" data-confirm="Take the visitor's address from Cloudflare for requests coming from Cloudflare's ranges? nginx reloads." class="btn btn-primary" wire:loading.attr="disabled" wire:target="enableRealIp"><x-cipi::icon name="power" /> Turn on</button>
+                    @else
+                        <p class="text-muted text-sm">Changing it needs Manage access to this server.</p>
+                    @endif
+                @endif
             </div>
 
             {{-- ── CrowdSec ─────────────────────────────────────────── --}}

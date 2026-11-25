@@ -1,5 +1,28 @@
 # Changelog
 
+## [4.7.0] — 2026-11-25
+
+Cloudflare's real IP from the Firewall tab, what each notification channel receives, MySQL named where port 3306 runs it, the heartbeat as a field like the others — and a panel that names no version of Cipi or of its API: where a server lacks something, it says to update it.
+
+### Added
+
+- **Firewall tab: Cloudflare real IP** (`cipi nginx real-ip`, ability `firewall-manage`) — a card of its own for domains proxied by Cloudflare: on, nginx, the logs, fail2ban, CrowdSec and the apps see the visitor instead of Cloudflare, believing `CF-Connecting-IP` from Cloudflare's ranges only.
+  - **Turn on** (tested with `nginx -t` first, nothing changes when nginx refuses), **Fetch the ranges again**, and the ranges trusted, when they were fetched, and who keeps it on;
+  - **Turn off** only when the server says it may (`can_disable`): kept by Zero Trust, it says so instead; with fail2ban or CrowdSec running, the question says they could ban Cloudflare itself — and the sites behind it — while a domain is still proxied. The server refuses it too when the panel reaches its API through Cloudflare;
+  - a server that does not report it yet says to update Cipi, and how to turn it on at the server meanwhile.
+- **Notifications: what each channel receives.** A channel takes **everything** (as before) or **only some events**: **Urgent** (failures and security events) and the categories of the triggers — Security, Deploy, Backup, Monitor, Health, SSL… — so that one channel gets every notification, another only the alarms, another only the deploys. A **Receives** column in the list; in the form, *Everything* or *Only some events* with a box per kind and how many triggers it holds. Single triggers set at the server (`cipi notification events <id> backup_fail`) are shown and kept as they are. Sent only when it changed, never empty. Shown only where the server keeps it (it lists its `categories`).
+- Demo API: `real_ip` on the firewall, on and off.
+
+### Changed
+
+- **Databases: MySQL where port 3306 runs MySQL.** The engine filter (*All · MariaDB*), its card and the page's intro said MariaDB on a server switched to MySQL (`cipi db switch mysql`), while the rows said MySQL. They now say what each server in view runs: MySQL, MariaDB, or *MariaDB / MySQL* across a fleet that has both.
+- **Metrics: the heartbeat is a field like the retention's.** *Heartbeat URL* and *Every* are labelled, side by side, on the line of the retention fields; what it is (off, or where it calls and how the last call went) under them, the buttons below; OpenMetrics the same way.
+- **No version of Cipi or of its API in the panel's text.** "It grants the 59 abilities the panel uses with API 1.39. On API 1.39+…", "Needs API 1.31+ / Cipi 5.2.2+", "Requires Cipi 5.6.4+ and cipi/api 1.35+", *Built for Cipi API 1.44+* in Settings, and the rest: where a server lacks a feature the panel says to update Cipi on it (`cipi self-update && cipi api update`) and which abilities the token needs — never which release has it. The servers' own messages lose their numbers too: "The firewall from the panel needs Cipi 5.14.0+ — this server runs Cipi 5.13.1" reads "The firewall from the panel needs an update of Cipi on this server (cipi self-update && cipi api update)" (`versionless()`, in every API error the panel shows). The versions a server reports running are still on its page, and the panel's own in the sidebar.
+
+### Fixed
+
+- **A MySQL client's warning listed as a database** — "mysql: [Warning] Using a password on the command line interface can be insecure.", with Backup, Restore and New password next to it, on a server switched to MySQL. Cipi 5.15.0 fixes the cause; the page drops such a line from any server meanwhile (`Databases::isClientNoise()`).
+
 ## [4.6.0] — 2026-11-25
 
 Two-factor authentication an admin can require for every account, the firewall of each server — UFW, fail2ban, CrowdSec — from its page, its optional packages installed and removed from the panel, and the app page saying which user and which IP to connect to, the `.env` edited as text, an app's nginx directives and a job's output while it runs. For Cipi 5.14.0 and cipi/api 1.44; the 2FA requirement and the app page need nothing on the servers.

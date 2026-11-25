@@ -167,7 +167,7 @@ class Databases extends Component
 
             $canManage = Access::canManageServer($user, $id);
             foreach ($listResult['data'] as $db) {
-                if (! is_array($db) || ! isset($db['name'])) {
+                if (! is_array($db) || ! isset($db['name']) || self::isClientNoise((string) $db['name'])) {
                     continue;
                 }
                 $this->databases[] = [
@@ -187,6 +187,20 @@ class Databases extends Component
 
         usort($this->databases, fn (array $a, array $b) => strcmp($a['name'], $b['name']) ?: strcmp($a['server_name'], $b['server_name']));
         $this->loading = false;
+    }
+
+    /**
+     * A line a database client printed on stderr, listed as a database by a
+     * server whose CLI read both streams as one: "mysql: [Warning] Using a
+     * password on the command line interface can be insecure." on a server
+     * switched to MySQL, "WARNING: …" from psql. Not a database: not shown,
+     * not offered to back up or delete.
+     */
+    public static function isClientNoise(string $name): bool
+    {
+        return preg_match('/^(mysql|mariadb|mysqldump|mariadb-dump|psql):\s*\[?(warning|note|error)\b/i', $name) === 1
+            || preg_match('/^(WARNING|NOTICE|DETAIL|HINT|ERROR):\s/', $name) === 1
+            || str_contains($name, 'Using a password on the command line');
     }
 
     /** Show one server's databases (0 = every server). */
@@ -567,6 +581,38 @@ class Databases extends Component
         $this->loadDatabases(); // the server may have changed partway
     }
 
+    /**
+     * What the engine "mariadb" is called across these servers: "MySQL" when
+     * every one of them that has it runs MySQL, "MariaDB / MySQL" when they
+     * differ, "MariaDB" otherwise (and when none says).
+     *
+     * @param  list<int>  $serverIds
+     */
+    protected function mysqlLabelFor(array $serverIds): string
+    {
+        $kinds = [];
+        foreach ($serverIds as $id) {
+            $has = false;
+            foreach ($this->enginesByServer[$id] ?? [] as $item) {
+                if (($item['engine'] ?? null) === 'mariadb') {
+                    $has = true;
+                    $runs = is_string($item['server'] ?? null) ? $item['server'] : $this->mysqlServerOf($id);
+                    $kinds[$runs === 'mysql' ? 'mysql' : 'mariadb'] = true;
+                }
+            }
+            if (! $has && in_array($id, array_map('intval', array_column($this->databases, 'server_id')), true)) {
+                // No engine list from that server (an older API): what the panel last knew.
+                $kinds[$this->mysqlServerOf($id)] = true;
+            }
+        }
+
+        return match (true) {
+            isset($kinds['mysql'], $kinds['mariadb']) => 'MariaDB / MySQL',
+            isset($kinds['mysql']) => 'MySQL',
+            default => 'MariaDB',
+        };
+    }
+
     public function render()
     {
         $servers = $this->fleet ? $this->activeServers() : collect(array_filter([$this->currentServer()]));
@@ -608,6 +654,15 @@ class Databases extends Component
         }
         ksort($engineCards);
 
+        // The engine "mariadb" is whatever runs on port 3306 of each server in
+        // view: MariaDB, or MySQL after `cipi db switch mysql`. The card, the
+        // filter and the intro say which — both when the fleet has both.
+        $inView = $scopeId === 0 ? $servers : $servers->where('id', $scopeId);
+        $mysqlLabel = $this->mysqlLabelFor($inView->pluck('id')->map(fn ($id) => (int) $id)->all());
+        foreach ($engineCards as $engine => $card) {
+            $engineCards[$engine]['label'] = $engine === 'mariadb' ? $mysqlLabel : $this->engineLabel($engine);
+        }
+
         $needle = mb_strtolower(trim($this->search));
         $visible = array_values(array_filter($scoped, fn (array $db) => ($this->engineFilter === 'all' || ($db['engine'] ?? 'mariadb') === $this->engineFilter)
             && ($needle === '' || str_contains(mb_strtolower($db['name'].' '.($db['user'] ?? '').' '.$db['server_name']), $needle))));
@@ -628,6 +683,7 @@ class Databases extends Component
             'serverCounts' => $serverCounts,
             'serverErrors' => $errors,
             'engineCards' => array_values($engineCards),
+            'mysqlLabel' => $mysqlLabel,
             'scopedCount' => count($scoped),
             'visible' => $visible,
             'counts' => $counts,

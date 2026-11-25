@@ -188,7 +188,8 @@ class NotificationsTest extends TestCase
             ->call('init')
             ->assertSet('notificationsLegacy', true)
             ->assertSet('smtpHost', 'smtp.example.com')
-            ->assertSee('Cipi 5.12');
+            ->assertSee('With an up-to-date Cipi')
+            ->assertDontSee('5.12');
     }
 
     #[Test]

@@ -1008,8 +1008,8 @@ class AppDetail extends Component
         } catch (CipiApiException $e) {
             $this->nginxUnavailable = match (true) {
                 $e->getStatusCode() === 403 => 'The panel\'s token lacks the nginx-view and nginx-manage abilities: create a new one from Connections.',
-                in_array($e->getStatusCode(), [404, 405, 501], true) => 'Editing nginx directives needs cipi/api 1.44+ and Cipi 5.14.0+ on this server (cipi self-update && cipi api update).',
-                default => self::plainCliText($e->getMessage()),
+                in_array($e->getStatusCode(), [404, 405, 501], true) => 'Editing nginx directives needs an up-to-date Cipi on this server (cipi self-update && cipi api update).',
+                default => self::versionless(self::plainCliText($e->getMessage())),
             };
         }
     }
@@ -1695,7 +1695,7 @@ class AppDetail extends Component
             if ($reason = $this->ymlUnsupportedReason($e)) {
                 $this->yml = null;
                 $this->ymlUnsupported = $reason;
-                $this->ymlUnsupportedDetail = $reason === 'server' && $e->getStatusCode() === 503 ? $e->getMessage() : null;
+                $this->ymlUnsupportedDetail = $reason === 'server' && $e->getStatusCode() === 503 ? self::versionless($e->getMessage()) : null;
 
                 return;
             }
@@ -1781,7 +1781,7 @@ class AppDetail extends Component
     {
         $message = match ($this->ymlUnsupportedReason($e)) {
             'ability' => 'This token lacks the yml-manage ability (403). Recreate it from Connections with yml-manage to apply cipi.yml and turn auto-apply on or off.',
-            'server' => rtrim($e->getStatusCode() === 503 ? $e->getMessage() : 'Not available on this server', '.').' — cipi.yml from the panel requires Cipi 5.6.4+ and cipi/api 1.35+ (cipi self-update && cipi api update).',
+            'server' => rtrim($e->getStatusCode() === 503 ? self::versionless($e->getMessage()) : 'Not available on this server', '.').' — cipi.yml from the panel needs an up-to-date Cipi on this server (cipi self-update && cipi api update).',
             default => $this->friendlyApiError($e),
         };
 
@@ -2216,14 +2216,14 @@ class AppDetail extends Component
             $changes = count($set) + count($unset) + ($order !== null ? 1 : 0);
             if ($order !== null && array_keys($this->envOriginal) !== $order) {
                 // An API before 1.43 takes the keys and drops the order.
-                $this->dispatch('notify', type: 'warning', message: '.env saved, but this server did not keep the new order — it needs API 1.43 and Cipi 5.13 (cipi self-update && cipi api update).');
+                $this->dispatch('notify', type: 'warning', message: '.env saved, but this server did not keep the new order — it needs an up-to-date Cipi (cipi self-update && cipi api update).');
             } else {
                 $this->dispatch('notify', type: 'success', message: '.env saved ('.$changes.' '.\Illuminate\Support\Str::plural('change', $changes).'). Deploy or run config:cache to apply.');
             }
         } catch (CipiApiException $e) {
             if ($order !== null && $set === [] && $unset === [] && $e->getStatusCode() === 422 && ! str_contains(strtolower($e->getMessage()), 'order')) {
                 // Only a new order, refused by an API before 1.43 ("set or unset").
-                $this->dispatch('notify', type: 'warning', message: 'Reordering the .env needs API 1.43 and Cipi 5.13 on this server (cipi self-update && cipi api update).');
+                $this->dispatch('notify', type: 'warning', message: 'Reordering the .env needs an up-to-date Cipi on this server (cipi self-update && cipi api update).');
 
                 return;
             }
