@@ -15,6 +15,38 @@ $day = 86400;
 $iso = fn (int $ts): string => gmdate('Y-m-d\TH:i:s\Z', $ts);
 $date = fn (int $ts): string => gmdate('Y-m-d', $ts);
 
+/**
+ * The closed catalog as `cipi package list --json` returns it (Cipi 5.14.0):
+ * $installed are complete, $partial maps an id to the apt packages it lacks.
+ */
+$packageCatalog = function (array $installed = [], array $partial = []): array {
+    $catalog = [
+        ['image-optimizers', ['jpegoptim', 'optipng', 'pngquant', 'gifsicle', 'webp'], ['jpegoptim', 'optipng', 'pngquant', 'gifsicle', 'cwebp'], 'Image optimisers for spatie/laravel-image-optimizer'],
+        ['avif', ['libavif-bin'], ['avifenc'], 'AVIF encoder (avifenc) for spatie/laravel-image-optimizer'],
+        ['ffmpeg', ['ffmpeg'], ['ffmpeg', 'ffprobe'], 'Audio/video transcoding for pbmedia/laravel-ffmpeg'],
+        ['imagemagick', ['imagemagick'], ['convert'], 'ImageMagick CLI (the PHP extension is already installed; this is convert/magick)'],
+        ['poppler-utils', ['poppler-utils'], ['pdftotext', 'pdftoppm'], 'PDF text extraction for spatie/pdf-to-text'],
+        ['browsershot', ['libnss3', 'libnspr4', 'libatk1.0-0t64', 'libatk-bridge2.0-0t64', 'libcups2t64', 'libdrm2', 'libxkbcommon0', 'libxcomposite1', 'libxdamage1', 'libxfixes3', 'libxrandr2', 'libgbm1', 'libpango-1.0-0', 'libcairo2', 'libasound2t64', 'fonts-liberation', 'fonts-noto-color-emoji'], [], 'Libraries and fonts for the Chrome Puppeteer downloads: spatie/browsershot, spatie/laravel-pdf'],
+        ['fonts-cjk', ['fonts-noto-cjk'], [], 'Chinese, Japanese and Korean fonts for PDFs and images (Browsershot, ImageMagick)'],
+        ['pdftk', ['pdftk-java'], ['pdftk'], 'Fill forms, merge and split PDFs for mikehaertl/php-pdftk (pulls a headless Java runtime)'],
+        ['libreoffice', ['libreoffice-writer-nogui', 'libreoffice-calc-nogui'], ['soffice'], 'Headless LibreOffice: DOCX, XLSX and ODT to PDF (soffice --convert-to)'],
+        ['pandoc', ['pandoc'], ['pandoc'], 'Document conversion (Markdown, HTML, DOCX, ODT, EPUB) for ueberdosis/pandoc'],
+        ['tesseract', ['tesseract-ocr', 'tesseract-ocr-eng', 'tesseract-ocr-ita', 'tesseract-ocr-deu', 'tesseract-ocr-fra', 'tesseract-ocr-spa'], ['tesseract'], 'OCR for thiagoalessio/tesseract_ocr (English, Italian, German, French, Spanish)'],
+    ];
+
+    return array_map(function (array $row) use ($installed, $partial): array {
+        [$id, $apt, $bins, $description] = $row;
+        $done = in_array($id, $installed, true);
+        $missing = $done ? [] : ($partial[$id] ?? $apt);
+
+        return [
+            'id' => $id, 'packages' => $apt, 'description' => $description,
+            'kind' => $bins === [] ? 'libraries' : 'tools', 'binaries' => $bins,
+            'missing' => $missing, 'installed' => $done, 'partial' => ! $done && isset($partial[$id]),
+        ];
+    }, $catalog);
+};
+
 $laravelEnv = function (string $app, string $domain, string $engine = 'mariadb', array $extra = []): array {
     $db = $engine === 'pgsql'
         ? ['DB_CONNECTION' => 'pgsql', 'DB_HOST' => '127.0.0.1', 'DB_PORT' => '5432']
@@ -235,12 +267,7 @@ return [
             'health' => 'available', 'data_size' => '412M',
             'apps' => ['shop' => ['prefix' => 'shop_', 'key' => 'scoped']],
         ],
-        'packages' => [
-            ['id' => 'image-optimizers', 'packages' => ['jpegoptim', 'optipng', 'pngquant', 'gifsicle', 'webp'], 'description' => 'Image optimisers for spatie/laravel-image-optimizer', 'installed' => true, 'partial' => false],
-            ['id' => 'ffmpeg', 'packages' => ['ffmpeg'], 'description' => 'Audio/video transcoding for pbmedia/laravel-ffmpeg', 'installed' => false, 'partial' => false],
-            ['id' => 'imagemagick', 'packages' => ['imagemagick'], 'description' => 'ImageMagick CLI (the PHP extension is already installed; this is convert/magick)', 'installed' => true, 'partial' => false],
-            ['id' => 'poppler-utils', 'packages' => ['poppler-utils'], 'description' => 'PDF text extraction for spatie/pdf-to-text', 'installed' => false, 'partial' => false],
-        ],
+        'packages' => $packageCatalog(['image-optimizers', 'imagemagick', 'browsershot', 'ffmpeg']),
         'monitor' => [
             'reminder_minutes' => 240,
             'checks' => [
@@ -473,12 +500,7 @@ return [
             'user' => 'postmaster@mg.example.org', 'from' => 'cipi@example.org', 'to' => 'ops@example.com', 'tls' => true,
         ],
         'search' => ['installed' => false, 'running' => false, 'apps' => []],
-        'packages' => [
-            ['id' => 'image-optimizers', 'packages' => ['jpegoptim', 'optipng', 'pngquant', 'gifsicle', 'webp'], 'description' => 'Image optimisers for spatie/laravel-image-optimizer', 'installed' => false, 'partial' => true],
-            ['id' => 'ffmpeg', 'packages' => ['ffmpeg'], 'description' => 'Audio/video transcoding for pbmedia/laravel-ffmpeg', 'installed' => false, 'partial' => false],
-            ['id' => 'imagemagick', 'packages' => ['imagemagick'], 'description' => 'ImageMagick CLI (the PHP extension is already installed; this is convert/magick)', 'installed' => false, 'partial' => false],
-            ['id' => 'poppler-utils', 'packages' => ['poppler-utils'], 'description' => 'PDF text extraction for spatie/pdf-to-text', 'installed' => true, 'partial' => false],
-        ],
+        'packages' => $packageCatalog(['poppler-utils', 'libreoffice'], ['image-optimizers' => ['pngquant', 'gifsicle']]),
         'monitor' => [
             'reminder_minutes' => 240,
             'checks' => [
@@ -621,12 +643,7 @@ return [
         ],
         'smtp' => ['configured' => false, 'enabled' => false, 'host' => null, 'port' => null, 'user' => null, 'from' => null, 'to' => null, 'tls' => null],
         'search' => ['installed' => false, 'running' => false, 'apps' => []],
-        'packages' => [
-            ['id' => 'image-optimizers', 'packages' => ['jpegoptim', 'optipng', 'pngquant', 'gifsicle', 'webp'], 'description' => 'Image optimisers for spatie/laravel-image-optimizer', 'installed' => false, 'partial' => false],
-            ['id' => 'ffmpeg', 'packages' => ['ffmpeg'], 'description' => 'Audio/video transcoding for pbmedia/laravel-ffmpeg', 'installed' => false, 'partial' => false],
-            ['id' => 'imagemagick', 'packages' => ['imagemagick'], 'description' => 'ImageMagick CLI (the PHP extension is already installed; this is convert/magick)', 'installed' => false, 'partial' => false],
-            ['id' => 'poppler-utils', 'packages' => ['poppler-utils'], 'description' => 'PDF text extraction for spatie/pdf-to-text', 'installed' => false, 'partial' => false],
-        ],
+        'packages' => $packageCatalog(),
         'monitor' => [
             'reminder_minutes' => 240,
             'checks' => [

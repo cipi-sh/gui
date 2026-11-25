@@ -757,6 +757,7 @@ svg.spark:not([class*="h-"]):not([class*="w-"]) { width: 96px; height: 24px; }
 .mt-5 { margin-top: 1.25rem; }
 .mt-6 { margin-top: 1.5rem; }
 .mt-8 { margin-top: 2rem; }
+.mt-auto { margin-top: auto; }
 .mb-0 { margin-bottom: 0; }
 .mb-1 { margin-bottom: 0.25rem; }
 .mb-2 { margin-bottom: 0.5rem; }

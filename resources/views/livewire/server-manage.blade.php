@@ -691,21 +691,40 @@
         @elseif($activeTab === 'packages')
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 @forelse($packages as $pkg)
-                    <div class="card">
+                    @php
+                        $pkgId = (string) ($pkg['id'] ?? '');
+                        $pkgInstalled = ! empty($pkg['installed']);
+                        $pkgPartial = ! $pkgInstalled && ! empty($pkg['partial']);
+                        $pkgLibraries = ($pkg['kind'] ?? '') === 'libraries';
+                    @endphp
+                    <div class="card flex flex-col" data-package="{{ $pkgId }}">
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
-                                <h2 class="card-title font-mono">{{ $pkg['id'] ?? '—' }}</h2>
+                                <h2 class="card-title font-mono flex items-center gap-2">{{ $pkgId !== '' ? $pkgId : '—' }} @if($pkgLibraries)<span class="badge badge-gray" title="System libraries for software the app brings itself">Libraries</span>@endif</h2>
                                 <p class="card-subtitle">{{ $pkg['description'] ?? '' }}</p>
                             </div>
-                            <span class="badge {{ !empty($pkg['installed']) ? 'badge-green' : (!empty($pkg['partial']) ? 'badge-amber' : 'badge-gray') }}">{{ !empty($pkg['installed']) ? 'Installed' : (!empty($pkg['partial']) ? 'Partial' : 'Not installed') }}</span>
+                            <span class="badge {{ $pkgInstalled ? 'badge-green' : ($pkgPartial ? 'badge-amber' : 'badge-gray') }}">{{ $pkgInstalled ? 'Installed' : ($pkgPartial ? 'Partial' : 'Not installed') }}</span>
                         </div>
+                        @if(!empty($pkg['binaries']))<p class="text-xs text-muted mt-3">Commands: <span class="font-mono">{{ implode(', ', (array) $pkg['binaries']) }}</span></p>@endif
+                        @if($pkgId === 'browsershot')<p class="text-xs text-muted mt-2">Chrome itself comes from Puppeteer in the app (<code>npm install puppeteer</code>): this entry installs the libraries it needs to start.</p>@endif
+                        @if($pkgPartial && !empty($pkg['missing']))<p class="text-xs text-warn mt-2">Missing: <span class="font-mono">{{ implode(' ', (array) $pkg['missing']) }}</span></p>@endif
                         @if(!empty($pkg['packages']))<p class="font-mono text-2xs text-subtle mt-3">apt: {{ implode(' ', $pkg['packages']) }}</p>@endif
+                        @if($canManage && $pkgId !== '')
+                            <div class="flex justify-end gap-2 mt-auto pt-3">
+                                @if($pkgInstalled || $pkgPartial)
+                                    <button type="button" wire:click="removePackage(@js($pkgId))" data-confirm="Remove {{ $pkgId }} from this server? Apps that use it stop working; what other packages still need stays installed." data-confirm-label="Remove" class="btn btn-ghost btn-sm danger" @disabled($jobRunning)>Remove</button>
+                                @endif
+                                @unless($pkgInstalled)
+                                    <button type="button" wire:click="installPackage(@js($pkgId))" data-confirm="{{ $pkgPartial ? 'Complete' : 'Install' }} {{ $pkgId }} on this server? apt can take a few minutes." data-confirm-label="{{ $pkgPartial ? 'Complete' : 'Install' }}" class="btn btn-secondary btn-sm" @disabled($jobRunning)>{{ $pkgPartial ? 'Complete install' : 'Install' }}</button>
+                                @endunless
+                            </div>
+                        @endif
                     </div>
                 @empty
                     <div class="card text-muted">No packages returned.</div>
                 @endforelse
             </div>
-            <p class="field-hint mt-3">Read-only by design: <code>cipi package install &lt;id&gt;</code> on the host.</p>
+            <p class="field-hint mt-3">A closed catalog: the server installs only these entries, from Ubuntu's own repositories, and removes only what no other package needs. Installing and removing from the panel needs Cipi 5.14.0+ (API 1.44+) and a token with <code>packages-manage</code>; on older servers run <code>cipi package install &lt;id&gt;</code> on the host.</p>
 
         @elseif($activeTab === 'zt')
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">

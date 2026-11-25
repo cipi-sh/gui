@@ -322,6 +322,31 @@ namespace {
     $check($missing === [], 'every class of the access editor is in the stylesheet (gap-x-*, sm:ml-auto were not: the abilities were glued together)'.($missing ? ' — '.implode(', ', array_unique($missing)) : ''));
     $check(str_contains($ae, 'class="access-ability"') && str_contains($ae, 'type-picker role-picker') && str_contains($css, '.access-ability:has(input:checked)'), 'abilities are toggles of their own; the two roles share the row');
 
+    echo "--- 4.6.0: optional packages, installed and removed from the panel\n";
+    $cfg = (string) file_get_contents($root.'/config/cipi-gui.php');
+    $check(str_contains($cfg, "'packages-view', 'packages-manage',"), 'the token abilities include packages-manage');
+    $client = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    $check(str_contains($client, "return \$this->post('/packages/'.rawurlencode(\$id));") && str_contains($client, "return \$this->delete('/packages/'.rawurlencode(\$id));"), 'client: POST and DELETE /api/packages/{id}, the id URL-encoded');
+    $sm = (string) file_get_contents($root.'/src/Livewire/ServerManage.php');
+    $check((bool) preg_match('/function installPackage\(string \$id\): void\s*\{\s*\$pkg = \$this->knownPackage\(\$id\);\s*if \(! \$this->serverAllowed\(Access::MANAGE/s', $sm) && (bool) preg_match('/function removePackage\(string \$id\): void\s*\{\s*\$pkg = \$this->knownPackage\(\$id\);\s*if \(! \$this->serverAllowed\(Access::MANAGE/s', $sm), 'install and remove need manage access and an id the page listed');
+    $check(str_contains($sm, "\$api->installPackage(\$id)") && str_contains($sm, "\$api->removePackage(\$id)"), 'both run as jobs');
+    $smv = $views[$root.'/resources/views/livewire/server-manage.blade.php'] ?? '';
+    $pkgTab = (string) (preg_match("/@elseif\(\\\$activeTab === 'packages'\)(.*?)@elseif\(\\\$activeTab === 'zt'\)/s", $smv, $pm) ? $pm[1] : '');
+    $check($pkgTab !== '' && ! str_contains($pkgTab, 'Read-only by design') && str_contains($pkgTab, 'wire:click="installPackage(@js($pkgId))" data-confirm=') && str_contains($pkgTab, 'wire:click="removePackage(@js($pkgId))" data-confirm=') && str_contains($pkgTab, '@if($canManage && $pkgId !== \'\')'), 'the packages tab: Install and Remove, confirmed, only with manage access');
+    $check(str_contains($pkgTab, "\$pkg['binaries']") && str_contains($pkgTab, "\$pkg['missing']") && str_contains($pkgTab, '>Libraries</span>'), 'it shows the commands, what is missing, and which entries are libraries');
+    $missing = [];
+    preg_match_all('/class="([^"]*)"/', $pkgTab, $cm);
+    foreach ($cm[1] as $list) {
+        foreach (preg_split('/\s+/', trim((string) preg_replace('/\{\{.*?\}\}/', '', $list))) as $c) {
+            if ($c !== '' && preg_match('/^[a-z][a-z0-9:\/-]*$/', $c) && ! preg_match('/\.'.preg_quote(str_replace(':', '\\:', $c), '/').'(?=[\s,{:.>\[)])/', $css)) {
+                $missing[] = $c;
+            }
+        }
+    }
+    $check($missing === [], 'every class of the packages tab is in the stylesheet'.($missing ? ' — '.implode(', ', array_unique($missing)) : ''));
+    $fx = (string) file_get_contents($root.'/dev/demo/api/fixtures.php');
+    $check(substr_count($fx, "        ['") >= 11 && str_contains($fx, "['browsershot', [") && str_contains($fx, "['tesseract', ["), 'the demo lists the whole 5.14.0 catalog');
+
     $check((bool) preg_match("/VERSION = '4\\.6\\.\\d+'/", $theme) && str_contains($theme, "API = '1.44'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.6.0]'), 'version 4.6.0 for API 1.44');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";

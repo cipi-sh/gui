@@ -644,10 +644,10 @@ class CipiApiClient
         return $this->post("/apps/{$app}/search/disable")['data'] ?? [];
     }
 
-    // ── Host insights (read-only — API 1.31+) ─────────────────────────
+    // ── Host insights (API 1.31+; packages install/remove 1.44+) ──────
 
     /**
-     * @return list<array{id: string, packages: list<string>, description?: string, installed: bool, partial?: bool}>
+     * @return list<array{id: string, packages: list<string>, description?: string, kind?: string, binaries?: list<string>, missing?: list<string>, installed: bool, partial?: bool}>
      */
     public function listPackages(): array
     {
@@ -658,6 +658,18 @@ class CipiApiClient
         }
 
         return is_array($data) ? array_values($data) : [];
+    }
+
+    /** Install one entry of the server's closed catalog — a job (`package-install`; API 1.44+ / Cipi ≥ 5.14.0, `packages-manage`). */
+    public function installPackage(string $id): array
+    {
+        return $this->post('/packages/'.rawurlencode($id));
+    }
+
+    /** Remove one catalog entry, and only what nothing else needs — a job (`package-remove`). */
+    public function removePackage(string $id): array
+    {
+        return $this->delete('/packages/'.rawurlencode($id));
     }
 
     public function monitorStatus(): array

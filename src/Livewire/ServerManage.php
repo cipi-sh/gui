@@ -436,6 +436,44 @@ class ServerManage extends Component
         return false;
     }
 
+    // ── Optional packages (API 1.44+ / Cipi ≥ 5.14.0) ─────────────────
+
+    public function installPackage(string $id): void
+    {
+        $pkg = $this->knownPackage($id);
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || $pkg === null || ! empty($pkg['installed'])) {
+            return;
+        }
+
+        $this->startJob('Install '.$id, fn (CipiApiClient $api) => $api->installPackage($id));
+    }
+
+    public function removePackage(string $id): void
+    {
+        $pkg = $this->knownPackage($id);
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || $pkg === null || (empty($pkg['installed']) && empty($pkg['partial']))) {
+            return;
+        }
+
+        $this->startJob('Remove '.$id, fn (CipiApiClient $api) => $api->removePackage($id));
+    }
+
+    /**
+     * The entry is one the page lists, from the server's own catalog (never an id the request made up).
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function knownPackage(string $id): ?array
+    {
+        foreach ($this->packages as $pkg) {
+            if (is_array($pkg) && ($pkg['id'] ?? null) === $id) {
+                return $pkg;
+            }
+        }
+
+        return null;
+    }
+
     // ── SSH keys ──────────────────────────────────────────────────────
 
     public function addSshKey(): void

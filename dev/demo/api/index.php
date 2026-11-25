@@ -255,6 +255,26 @@ function handle(string $method, string $route, array $body, array $query, string
     if ($method === 'GET' && $r('/packages')) {
         return [200, ['data' => $s['packages']]];
     }
+    if (in_array($method, ['POST', 'DELETE'], true) && $r('/packages/([^/]+)')) {
+        $id = rawurldecode($p(1));
+        $entry = null;
+        foreach ($s['packages'] as $pkg) {
+            if ($pkg['id'] === $id) {
+                $entry = $pkg;
+            }
+        }
+        if ($entry === null) {
+            throw new DemoHttpError(404, "'{$id}' is not in this server's package catalog (cipi package list)");
+        }
+        if ($method === 'POST' && $entry['installed']) {
+            throw new DemoHttpError(409, "{$id} is already installed");
+        }
+        if ($method === 'DELETE' && ! $entry['installed'] && ! $entry['partial']) {
+            throw new DemoHttpError(409, "{$id} is not installed");
+        }
+
+        return [202, dispatchJob($state, $profile, $method === 'POST' ? 'package-install' : 'package-remove', ['package' => $id])];
+    }
     if ($method === 'GET' && $r('/monitor')) {
         return [200, ['data' => $s['monitor']]];
     }
@@ -1168,6 +1188,25 @@ function runJob(array &$s, string $type, array $p): array
             $label = engineLabel($p['engine']);
 
             return [true, "→ Installing {$label}...\n  ✓ apt packages\n  ✓ Hardened config\n  ✓ Service enabled\n\n✓ {$label} installed", ['engine' => $p['engine'], 'installed' => true]];
+
+        case 'package-install':
+        case 'package-remove':
+            $install = $type === 'package-install';
+            $apt = [];
+            foreach ($s['packages'] as &$pkg) {
+                if ($pkg['id'] === $p['package']) {
+                    $apt = $install ? ($pkg['missing'] ?: $pkg['packages']) : $pkg['packages'];
+                    $pkg['installed'] = $install;
+                    $pkg['partial'] = false;
+                    $pkg['missing'] = $install ? [] : $pkg['packages'];
+                }
+            }
+            unset($pkg);
+            $list = implode(' ', $apt);
+
+            return $install
+                ? [true, "→ Installing {$p['package']}: {$list}\n  ✓ apt packages\n\n✓ {$p['package']} installed", ['package' => $p['package'], 'installed' => true]]
+                : [true, "→ Removing {$p['package']}: {$list}\n  ✓ Nothing else needs them\n\n✓ {$p['package']} removed", ['package' => $p['package'], 'installed' => false]];
 
         case 'php-install':
             $v = $p['version'];
