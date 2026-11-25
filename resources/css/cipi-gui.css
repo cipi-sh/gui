@@ -959,7 +959,8 @@ svg.spark:not([class*="h-"]):not([class*="w-"]) { width: 96px; height: 24px; }
     .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .cipi-gui-main { padding: 2rem 2rem 3.5rem; }
-    .table-scroll { overflow: visible; }
+    /* Wide tables and their row menus spill out on desktop; a capped list (Deploy audit) keeps scrolling. */
+    .table-scroll:not(.overflow-y-auto) { overflow: visible; }
     .table-scroll table { min-width: 0; }
     .lg\:block { display: block; }
     .lg\:flex { display: flex; }
