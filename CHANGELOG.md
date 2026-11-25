@@ -1,5 +1,15 @@
 # Changelog
 
+## [4.7.1] — 2026-11-25
+
+### Fixed
+
+- **Notifications → a channel's *What it receives*:** the label of each box and its count — and *Urgent*'s note, "failures and security" — were separate items of the row: in a column of three, *Urgent* broke into two misaligned lines. Each box now holds one line of text, which wraps as text when it must.
+
+### Changed
+
+- `docs/screenshots`: Notifications with the *Receives* column, the add dialog with *What it receives*, a channel's events, and the Firewall tab's Cloudflare real IP card (on the README's Firewall row).
+
 ## [4.7.0] — 2026-11-25
 
 Cloudflare's real IP from the Firewall tab, what each notification channel receives, MySQL named where port 3306 runs it, the heartbeat as a field like the others — and a panel that names no version of Cipi or of its API: where a server lacks something, it says to update it.
