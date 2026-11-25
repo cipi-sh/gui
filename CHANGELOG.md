@@ -2,7 +2,7 @@
 
 ## [4.6.0] — 2026-11-25
 
-Two-factor authentication an admin can require for every account, the firewall of each server — UFW, fail2ban, CrowdSec — from its page, and its optional packages installed and removed from the panel. For Cipi 5.14.0 and cipi/api 1.44; the 2FA requirement needs nothing on the servers.
+Two-factor authentication an admin can require for every account, the firewall of each server — UFW, fail2ban, CrowdSec — from its page, its optional packages installed and removed from the panel, and the app page saying which user and which IP to connect to. For Cipi 5.14.0 and cipi/api 1.44; the 2FA requirement and the app page need nothing on the servers.
 
 ### Added
 
@@ -34,6 +34,13 @@ Two-factor authentication an admin can require for every account, the firewall o
   - Changing needs Manage on the server; every action takes only an id the page lists, and the server's catalog is closed whatever is sent. An older server answers with the Cipi version it needs, and one whose API has no route for it yet (cipi/api before 1.44) gets what to update instead of "route not found".
 - `packages-manage` in the token command on Connections.
 - Demo API: the whole catalog, installed and removed as jobs.
+- **App page: the user and the server's IP** — the page showed the server's name and the app's home, never the two things an SFTP client or a terminal asks for:
+  - Overview → Details has **User** (the app's Linux user, the one that signs in over SSH and SFTP — on Cipi it is named after the app), **Server IP** and, made of the two, the **SSH** command (`ssh shop@203.0.113.24`); each copies itself with a click, like the IP on the server page;
+  - the IP is also in the header, next to the server's name, on every tab;
+  - the address is the one the panel already keeps for the server (typed on Connections, or read from the server's status on the dashboard): nothing more is asked of the server, and it works with every Cipi and API version. A server whose address the panel does not know yet says so, and no command is offered;
+  - only an IP address and a user name ever reach the command — anything else is dropped (`AppDetail::serverIp()`, `AppDetail::sshCommand()`, `user` in `normalizeApp()`).
+  - Whoever may view the app sees them, as they see the server's IP on the dashboard. The command is `ssh` on the default port: with another port, add `-p`.
+- Demo API: every app answers with its `user`.
 
 ### Fixed
 

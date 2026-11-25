@@ -228,6 +228,18 @@ trait InteractsWithCipiServer
             $app[$key] = is_scalar($app[$key] ?? null) ? (string) $app[$key] : '';
         }
 
+        // The Linux user that owns /home/<app> and signs in over SSH and SFTP. Cipi
+        // names it after the app; an answer without `user` means the same. It ends
+        // up in a command the page offers to copy: a user name, or nothing.
+        $candidates = [$app['user'] ?? null, $app['app'] ?? null];
+        $app['user'] = '';
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && preg_match('/^[a-z_][a-z0-9_-]{0,31}$/', $candidate)) {
+                $app['user'] = $candidate;
+                break;
+            }
+        }
+
         // Environment label (API 1.36+); servers before it omit it, which means production.
         $app['env'] = AppEnv::normalize($app['env'] ?? null);
 

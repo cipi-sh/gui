@@ -348,6 +348,40 @@ namespace {
     $fx = (string) file_get_contents($root.'/dev/demo/api/fixtures.php');
     $check(substr_count($fx, "        ['") >= 20 && str_contains($fx, "['browsershot', [") && str_contains($fx, "['tesseract', [") && str_contains($fx, "['sec-nuclei', [], ['nuclei']") && str_contains($fx, "'sec-zap' => '2.16.1'"), 'the demo lists the whole 5.14.0 catalog, sec entries and an outdated one included');
 
+    echo "--- 4.6.0: the app page says where to connect and as whom\n";
+    require_once $root.'/src/Support/AppEnv.php';
+    require_once $root.'/src/Livewire/Concerns/InteractsWithCipiServer.php';
+    $norm = new class
+    {
+        use \CipiGui\Livewire\Concerns\InteractsWithCipiServer { normalizeApp as public; }
+    };
+    $check($norm->normalizeApp(['app' => 'shop', 'user' => 'shop'])['user'] === 'shop' && $norm->normalizeApp(['app' => 'shop'])['user'] === 'shop' && $norm->normalizeApp(['app' => 'shop', 'user' => ''])['user'] === 'shop',
+        'the user of an app: what the server says, or the app\'s name when it says nothing');
+    $check($norm->normalizeApp(['app' => 'shop', 'user' => 'shop $(id)'])['user'] === 'shop' && $norm->normalizeApp(['app' => 'Shop;id', 'user' => '-oProxyCommand=x'])['user'] === '' && $norm->normalizeApp([])['user'] === '',
+        'a user name or nothing: never an option of ssh, never a shell character');
+    $ad = (string) file_get_contents($root.'/src/Livewire/AppDetail.php');
+    $adv = $views[$root.'/resources/views/livewire/app-detail.blade.php'] ?? '';
+    $check(str_contains($ad, "return \$ip !== '' && filter_var(\$ip, FILTER_VALIDATE_IP) ? \$ip : null;") && str_contains($ad, 'return $user !== \'\' && $ip !== null ? "ssh {$user}@{$ip}" : null;'),
+        'the address is an IP or nothing, and the ssh command needs both');
+    $details = (string) (preg_match('/<h2 class="card-title">Details<\/h2>(.*?)<\/dl>/s', $adv, $dm) ? $dm[1] : '');
+    $check($details !== '' && str_contains($details, '<dt>User</dt>') && str_contains($details, '<dt>Server IP</dt>') && str_contains($details, '<x-cipi::copyable :value="$appUser"') && str_contains($adv, "\$appUser = (string) (\$app['user'] ?? '');") && str_contains($details, '<x-cipi::copyable :value="$serverIp"') && str_contains($details, '<x-cipi::copyable :value="$sshCommand"'),
+        'Details: User, Server IP and the ssh command, each copied with a click');
+    $check(str_contains($details, 'data-server-ip-unknown') && (bool) preg_match('/@if\(\$sshCommand\)\s*<dt>SSH<\/dt>/', $details), 'an address the panel does not know is said, and no command is offered without it');
+    $header = (string) (preg_match('/<x-slot:meta>(.*?)<\/x-slot:meta>/s', $adv, $hm) ? $hm[1] : '');
+    $check(str_contains($header, '@if($serverIp)<x-cipi::copyable :value="$serverIp" label="Copy server IP"'), 'the address is next to the server\'s name in the header, on every tab');
+    $check(! str_contains($ad, "->status()") && ! str_contains($ad, "'/status'"), 'nothing is asked of the server for it: the address is the one the panel keeps');
+    $missing = [];
+    preg_match_all('/class="([^"]*)"/', $details.$header, $cm);
+    foreach ($cm[1] as $list) {
+        foreach (preg_split('/\s+/', trim((string) preg_replace('/\{\{.*?\}\}/', '', $list))) as $c) {
+            if ($c !== '' && preg_match('/^[a-z][a-z0-9:\/.-]*$/', $c) && ! preg_match('/\.'.preg_quote(str_replace([':', '.'], ['\\:', '\\.'], $c), '/').'(?=[\s,{:.>\[)])/', $css)) {
+                $missing[] = $c;
+            }
+        }
+    }
+    $check($missing === [], 'every class of the Details card and of the header is in the stylesheet'.($missing ? ' — '.implode(', ', array_unique($missing)) : ''));
+    $check(str_contains((string) file_get_contents($root.'/dev/demo/api/index.php'), "\$out['user'] = \$out['app'];"), 'the demo API answers with the user of each app');
+
     $check((bool) preg_match("/VERSION = '4\\.6\\.\\d+'/", $theme) && str_contains($theme, "API = '1.44'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.6.0]'), 'version 4.6.0 for API 1.44');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";

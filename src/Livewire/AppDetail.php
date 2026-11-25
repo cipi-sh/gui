@@ -4,6 +4,7 @@ namespace CipiGui\Livewire;
 
 use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
+use CipiGui\Models\CipiServer;
 use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
@@ -2423,19 +2424,41 @@ class AppDetail extends Component
         return preg_match('#^https?://#', $repo) ? preg_replace('/\.git$/', '', $repo) : null;
     }
 
+    /**
+     * The public address of the server the app runs on, as the panel knows it:
+     * typed on Connections, or read from the server's status. null when it is
+     * not an address — nothing is built into an `ssh` command from anything else.
+     */
+    public static function serverIp(?CipiServer $server): ?string
+    {
+        $ip = trim((string) ($server?->ip ?? ''));
+
+        return $ip !== '' && filter_var($ip, FILTER_VALIDATE_IP) ? $ip : null;
+    }
+
+    /** `ssh <user>@<address>` for the app, or null while its user or the server's address is not known. */
+    public static function sshCommand(string $user, ?string $ip): ?string
+    {
+        return $user !== '' && $ip !== null ? "ssh {$user}@{$ip}" : null;
+    }
+
     public function render()
     {
         $server = $this->currentServer();
+        $serverIp = self::serverIp($server);
 
         return view('cipi-gui::livewire.app-detail', [
             'phpVersions' => $this->installedPhpVersions !== [] || $this->legacyPhpVersions !== [] ? $this->installedPhpVersions : config('cipi-gui.php_versions'),
             'legacyPhpVersions' => $this->legacyPhpVersions,
             'server' => $server,
+            'serverIp' => $serverIp,
+            'sshCommand' => self::sshCommand((string) ($this->app['user'] ?? ''), $serverIp),
             'tabs' => $this->app ? $this->tabs() : [],
             'artisanPresets' => Presets::get(Presets::ARTISAN),
             'runPresets' => Presets::get(Presets::RUN),
             'presetsCustom' => [Presets::ARTISAN => Presets::isCustom(Presets::ARTISAN), Presets::RUN => Presets::isCustom(Presets::RUN)],
             'canEditPresets' => Access::isAdmin($this->panelUser()),
+            'isAdmin' => Access::isAdmin($this->panelUser()),
             'envSuggestions' => AppEnv::SUGGESTIONS,
             'envMaxLength' => AppEnv::MAX_LENGTH,
         ])->title($this->appName.($server ? ' · '.$server->name : ''));

@@ -1434,6 +1434,7 @@ function publicApp(array $info, bool $show): array
     foreach ($keys as $key) {
         $out[$key] = $info[$key] ?? null;
     }
+    $out['user'] = $out['app']; // the Linux user of an app is named after it
     $out['php'] ??= '';
     $out['branch'] ??= '';
     $out['env'] ??= 'production';

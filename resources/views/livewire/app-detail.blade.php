@@ -20,6 +20,8 @@
             $isLaravel = $kind === 'laravel';
             $isSsr = $isNode && ($app['node_mode'] ?? '') === 'ssr';
             $repoUrl = $this->repositoryUrl();
+            // A page left open across an update of the panel still carries an app without `user`.
+            $appUser = (string) ($app['user'] ?? '');
         @endphp
 
         <x-cipi::page-header :title="$app['app']">
@@ -42,6 +44,7 @@
                     <a href="{{ $this->siteUrl() }}" target="_blank" rel="noopener" class="text-sm text-soft inline-flex items-center gap-1 ml-1">{{ $app['domain'] }} <x-cipi::icon name="external" class="h-3.5 w-3.5" /></a>
                     @if($server)
                         <a href="{{ route('cipi-gui.server-manage', ['serverId' => $server->id]) }}" class="text-sm text-soft inline-flex items-center gap-1 ml-1" title="Open the server this app runs on" data-server-link><x-cipi::icon name="server" class="h-3.5 w-3.5" /> {{ $server->name }}</a>
+                        @if($serverIp)<x-cipi::copyable :value="$serverIp" label="Copy server IP" class="font-mono text-xs text-soft" />@endif
                     @endif
                 </span>
             </x-slot:meta>
@@ -200,6 +203,28 @@
                             {{ $app['domain'] }}
                             @foreach($aliases as $alias)<br><span class="text-muted">{{ $alias }}</span>@endforeach
                         </dd>
+                        {{-- Where to connect and as whom: the app's Linux user, the address of its server. --}}
+                        <dt>User</dt>
+                        <dd>
+                            @if($appUser !== '')
+                                <x-cipi::copyable :value="$appUser" label="Copy user" class="font-mono text-xs" data-app-user /> <span class="text-xs text-muted">· SSH and SFTP</span>
+                            @else
+                                —
+                            @endif
+                        </dd>
+                        <dt>Server IP</dt>
+                        <dd>
+                            @if($serverIp)
+                                <x-cipi::copyable :value="$serverIp" label="Copy server IP" class="font-mono text-xs" data-server-ip />@if($server) <span class="text-xs text-muted">· {{ $server->name }}</span>@endif
+                            @else
+                                <span class="text-muted" data-server-ip-unknown>Not known yet</span>
+                                <span class="text-xs text-muted">· read from the server's status when the dashboard loads, or typed under @if($isAdmin)<a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>@else Connections by an admin @endif</span>
+                            @endif
+                        </dd>
+                        @if($sshCommand)
+                            <dt>SSH</dt>
+                            <dd><x-cipi::copyable :value="$sshCommand" label="Copy SSH command" class="font-mono text-xs" data-ssh-command /></dd>
+                        @endif
                         <dt>Home</dt><dd class="font-mono text-xs">/home/{{ $app['app'] }}</dd>
                         <dt>Created</dt><dd>{{ $app['created_at'] ?: '—' }}</dd>
                     </dl>
