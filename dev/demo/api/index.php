@@ -895,12 +895,26 @@ function jobView(array &$state, string $id): array
     }
 
     $created = gmdate('Y-m-d\TH:i:s.000000\Z', (int) $job['created']);
+    // A running job says what its command has printed so far (cipi/api 1.44).
+    $live = $job['status'] === 'running' ? liveOutput($job['type'], $age - JOB_PENDING_SECONDS) : null;
 
     return [
         'id' => $job['id'], 'type' => $job['type'], 'status' => $job['status'],
-        'result' => $job['result'], 'output' => $job['output'], 'exit_code' => $job['exit_code'],
+        'result' => $job['result'], 'output' => $job['output'] ?? $live, 'exit_code' => $job['exit_code'],
         'created_at' => $created, 'updated_at' => gmdate('Y-m-d\TH:i:s.000000\Z'),
     ];
+}
+
+/** The first lines a command of this type prints, one more every 0.4 s. */
+function liveOutput(string $type, float $seconds): string
+{
+    $steps = match (true) {
+        $type === 'app-deploy' => ['→ Deploying…', 'task deploy:info', 'task deploy:lock', 'task deploy:release', 'task deploy:update_code', 'task deploy:vendors', 'task artisan:migrate', 'task deploy:symlink'],
+        str_contains($type, 'install') => ['→ Reading package lists…', '→ Downloading…', '→ Unpacking…', '→ Setting up…'],
+        default => ['→ Running…'],
+    };
+
+    return implode("\n", array_slice($steps, 0, max(1, (int) floor($seconds / 0.4) + 1)));
 }
 
 /** Apply a finished job to the server state and return [ok, cli output, parsed result]. */
@@ -1428,7 +1442,7 @@ function publicApp(array $info, bool $show): array
 {
     $keys = ['app', 'domain', 'php', 'branch', 'env', 'repository', 'aliases', 'engine', 'octane', 'octane_port', 'node', 'node_mode', 'node_version', 'www_redirect', 'redirect', 'redirects', 'proxies', 'force_https', 'suspended', 'basic_auth', 'created_at'];
     if ($show) {
-        $keys = array_merge($keys, ['custom', 'docroot']);
+        $keys = array_merge($keys, ['custom', 'docroot', 'horizon']);
     }
     $out = [];
     foreach ($keys as $key) {

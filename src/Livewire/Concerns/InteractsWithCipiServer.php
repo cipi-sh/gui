@@ -181,7 +181,9 @@ trait InteractsWithCipiServer
             $app['custom'] = array_key_exists('engine', $app) && $app['engine'] === null && ! $app['node'];
         }
 
-        foreach (['basic_auth', 'force_https', 'suspended'] as $flag) {
+        // Horizon instead of queue workers (`cipi worker horizon enable`, or found at
+        // a deploy). Left out by a server that does not say: unknown, not "no".
+        foreach (['basic_auth', 'force_https', 'suspended', 'horizon'] as $flag) {
             if (array_key_exists($flag, $app)) {
                 $app[$flag] = $this->appFlagIsTrue($app[$flag]);
             }

@@ -12,6 +12,7 @@ use CipiGui\Support\AppEnv;
 use CipiGui\Support\BuildCommand;
 use CipiGui\Support\Clock;
 use CipiGui\Support\DeployLog;
+use CipiGui\Support\EnvText;
 use CipiGui\Support\PhpVersions;
 use CipiGui\Support\Presets;
 use Illuminate\Support\Carbon;
@@ -26,7 +27,9 @@ class AppDetail extends Component
     use InteractsWithCipiServer {
         client as protected serverClient;
     }
-    use ManagesAsyncJobs;
+    use ManagesAsyncJobs {
+        jobLiveLines as protected jobOutputLines;
+    }
 
     /** The lists the panel ships with; what the tabs show is Presets::get(), which an admin can edit. */
     public const ARTISAN_PRESETS = Presets::DEFAULTS[Presets::ARTISAN];
@@ -132,6 +135,12 @@ class AppDetail extends Component
     public bool $envUnsupported = false;
 
     public string $envNewKey = '';
+
+    /** The .env as text, while the text panel is open. */
+    public string $envText = '';
+
+    /** null (closed), `paste` (add and update from a pasted block) or `edit` (the whole list as text). */
+    public ?string $envTextMode = null;
 
     public string $envNewValue = '';
 
@@ -1400,6 +1409,24 @@ class AppDetail extends Component
         }
     }
 
+    /**
+     * The overlay of a running job follows its output. A deploy has a second
+     * source: the last lines of deploy.log, which the page already reads for
+     * the banner — so the overlay of a deploy is live on a server whose API
+     * (1.37 to 1.43) does not give a running job's output yet.
+     *
+     * @return list<string>
+     */
+    public function jobLiveLines(): array
+    {
+        $lines = $this->jobOutputLines();
+        if ($lines === [] && $this->jobRunning && $this->activeJobType === 'app-deploy' && $this->deployActive()) {
+            return array_values(array_map('strval', $this->deployTail));
+        }
+
+        return $lines;
+    }
+
     /** A deploy is running or about to: the buttons that would collide with it are off. */
     public function deployActive(): bool
     {
@@ -1864,6 +1891,66 @@ class AppDetail extends Component
     }
 
     /**
+     * Open the text panel of the .env: `paste` takes a block of KEY=value lines
+     * and adds or updates those keys; `edit` shows the whole list as text, and
+     * what is applied replaces it — a line taken out is a key removed. Either
+     * way the rows change, and nothing reaches the server before Save.
+     */
+    public function openEnvText(string $mode): void
+    {
+        if (! $this->allowed('env') || ! in_array($mode, ['paste', 'edit'], true)) {
+            return;
+        }
+
+        $this->envTextMode = $mode;
+        $this->envText = $mode === 'edit' ? EnvText::dump($this->envRows) : '';
+        $this->resetErrorBag('envText');
+    }
+
+    public function closeEnvText(): void
+    {
+        $this->envTextMode = null;
+        $this->envText = '';
+        $this->resetErrorBag('envText');
+    }
+
+    public function applyEnvText(): void
+    {
+        if (! $this->allowed('env') || $this->envTextMode === null) {
+            return;
+        }
+
+        $this->resetErrorBag('envText');
+        $parsed = EnvText::parse($this->envText);
+        if ($parsed['errors'] !== []) {
+            $more = count($parsed['errors']) - 5;
+            $this->addError('envText', implode(' ', array_slice($parsed['errors'], 0, 5)).($more > 0 ? " (+{$more} more)" : ''));
+
+            return;
+        }
+
+        $replace = $this->envTextMode === 'edit';
+        if (! $replace && $parsed['vars'] === []) {
+            $this->addError('envText', 'Paste at least one KEY=value line.');
+
+            return;
+        }
+
+        $result = EnvText::apply($this->envRows, $parsed['vars'], $replace);
+        $this->envRows = $result['rows'];
+        $this->closeEnvText();
+
+        $parts = array_filter([
+            $result['added'] ? $result['added'].' added' : null,
+            $result['changed'] ? $result['changed'].' changed' : null,
+            $result['removed'] ? $result['removed'].' removed' : null,
+        ]);
+        $note = $parsed['duplicates'] !== [] ? ' '.implode(', ', array_slice($parsed['duplicates'], 0, 3)).(count($parsed['duplicates']) > 3 ? '…' : '').' appeared twice: the last value is kept.' : '';
+        $this->dispatch('notify', type: $parts === [] ? 'info' : 'success',
+            message: ($parts === [] ? 'Nothing changes: the text says what the list already says.' : implode(', ', $parts).' — check the list, then Save .env.').$note);
+    }
+
+    /**
      * Move a row of the .env (drag and drop, or the up/down buttons). Saved
      * with the other changes: the order goes with them (API 1.43 / Cipi 5.13).
      */
@@ -2044,6 +2131,8 @@ class AppDetail extends Component
         }
 
         $this->envOriginal = $normalized;
+        $this->envTextMode = null; // the text panel showed the rows that are being replaced
+        $this->envText = '';
         $this->envRows = [];
         foreach ($normalized as $key => $value) {
             $this->envRows[] = ['key' => $key, 'value' => $value];

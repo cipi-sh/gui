@@ -107,6 +107,11 @@
                         <dt>OS</dt><dd>{{ $sys['os'] ?? '—' }}</dd>
                         <dt>Cipi</dt><dd>{{ $sys['cipi'] ?? '—' }}</dd>
                         <dt>Public IP</dt><dd class="font-mono text-xs">@if($publicIp = $sys['ip'] ?? $server->ip)<x-cipi::copyable :value="$publicIp" label="Copy IP" />@else — @endif</dd>
+                        {{-- For the AAAA record of a domain: every vhost listens on IPv6 too (cipi/api 1.44+). --}}
+                        @php $publicIpv6 = is_string($sys['ipv6'] ?? null) && filter_var($sys['ipv6'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) ? $sys['ipv6'] : null; @endphp
+                        @if($publicIpv6)
+                            <dt>Public IPv6</dt><dd class="font-mono text-xs"><x-cipi::copyable :value="$publicIpv6" label="Copy IPv6" data-server-ipv6 /></dd>
+                        @endif
                         <dt>Uptime</dt><dd>{{ isset($sys['uptime']) ? preg_replace('/^up\s+/', '', $sys['uptime']) : '—' }}</dd>
                         <dt>Apps</dt><dd><a href="{{ route('cipi-gui.apps', ['server' => $server->id]) }}" class="text-link">{{ $status['apps'] ?? 0 }}</a></dd>
                     </dl>
@@ -408,7 +413,7 @@
                 <div class="card mt-4 max-w-xl">
                     <div class="card-header"><div><h2 class="card-title">Install a Node major</h2><p class="card-subtitle">From nodejs.org, checked against the release's checksums. Needs Cipi 5.9.0 and API 1.39 on the server.</p></div></div>
                     @if(count($nodeInstallable) > 0)
-                        <form wire:submit="installNode" class="flex items-end gap-2">
+                        <form wire:submit="installNode" class="flex items-start gap-2">
                             <div class="flex-1">
                                 <label for="node-major">Major</label>
                                 <select id="node-major" wire:model="nodeInstallMajor">
@@ -417,7 +422,7 @@
                                     @endforeach
                                 </select>
                             </div>
-                            <button type="submit" class="btn btn-primary"><x-cipi::icon name="download" /> Install</button>
+                            <button type="submit" class="btn btn-primary field-action"><x-cipi::icon name="download" /> Install</button>
                         </form>
                         @error('nodeInstallMajor') <p class="field-error">{{ $message }}</p> @enderror
                     @else

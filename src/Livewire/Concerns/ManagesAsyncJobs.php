@@ -9,6 +9,9 @@ use Livewire\Attributes\Locked;
 
 trait ManagesAsyncJobs
 {
+    /** How many lines of a running job's output the overlay keeps on screen. */
+    public const JOB_LIVE_LINES = 200;
+
     /**
      * The job this component started and polls. Locked, like $jobRunning: the
      * panel reads a job with its own token, and a job's output can hold
@@ -123,6 +126,12 @@ trait ManagesAsyncJobs
                 }
 
                 $this->surfaceBackgroundJob();
+            } elseif (is_string($data['output'] ?? null) && $data['output'] !== '') {
+                // cipi/api 1.44+: a running job says what its command has printed
+                // so far. The last lines are enough to follow it; the whole
+                // output comes with the finished job.
+                $lines = explode("\n", app(JobOutputParser::class)->cleanOutput($data['output']));
+                $this->activeJobOutput = implode("\n", array_slice($lines, -self::JOB_LIVE_LINES));
             }
         } catch (\Throwable $e) {
             $this->jobRunning = false;
@@ -130,6 +139,22 @@ trait ManagesAsyncJobs
             $this->activeJobError = $e instanceof CipiApiException ? $this->friendlyApiError($e) : $e->getMessage();
             $this->surfaceBackgroundJob();
         }
+    }
+
+    /**
+     * What a running job has printed so far, as lines — the terminal of the
+     * overlay follows it. [] while there is nothing yet, or on a server whose
+     * API (before 1.44) gives the output only with the finished job.
+     *
+     * @return list<string>
+     */
+    public function jobLiveLines(): array
+    {
+        if (! $this->jobRunning || ($this->activeJobOutput ?? '') === '') {
+            return [];
+        }
+
+        return explode("\n", (string) $this->activeJobOutput);
     }
 
     /**

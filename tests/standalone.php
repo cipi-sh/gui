@@ -382,6 +382,69 @@ namespace {
     $check($missing === [], 'every class of the Details card and of the header is in the stylesheet'.($missing ? ' — '.implode(', ', array_unique($missing)) : ''));
     $check(str_contains((string) file_get_contents($root.'/dev/demo/api/index.php'), "\$out['user'] = \$out['app'];"), 'the demo API answers with the user of each app');
 
+    echo "--- 4.6.0: the .env as text, live job output, commit titles, worker hooks, IPv6, aligned fields\n";
+    require_once $root.'/src/Support/EnvText.php';
+    $ET = \CipiGui\Support\EnvText::class;
+    $pasted = "\xEF\xBB\xBF# from the README\r\nexport APP_NAME=\"My \\\"shop\\\" app\"\r\n\r\nMAIL_HOST=smtp.example.com   # the relay\nMAIL_PASSWORD='p@ss #1 \$x'\n```env\nEMPTY=\nURL=https://x.test/?a=1&b=2#frag\nPATH_WIN=\"C:\\\\dir\"\nAPP_NAME=Second\n  SPACED = padded value  \n```\n";
+    $parsed = $ET::parse($pasted);
+    $check($parsed['errors'] === [] && $parsed['vars'] === ['MAIL_HOST' => 'smtp.example.com', 'MAIL_PASSWORD' => 'p@ss #1 $x', 'EMPTY' => '', 'URL' => 'https://x.test/?a=1&b=2#frag', 'PATH_WIN' => 'C:\\dir', 'APP_NAME' => 'Second', 'SPACED' => 'padded value'] && $parsed['duplicates'] === ['APP_NAME'],
+        '.env text: comments, export, quotes, an inline comment, a code fence, CRLF, a BOM; a key twice keeps the last value');
+    $rowsOf = fn (array $vars) => array_map(fn ($k, $v) => ['key' => $k, 'value' => $v], array_keys($vars), $vars);
+    $tricky = ['A' => 'plain', 'B' => 'two words', 'C' => 'has "quotes" and \\back', 'D' => "it's", 'E' => 'a#b', 'F' => 'x=y', 'G' => '$HOME `id`', 'H' => '', 'I' => ' padded ', 'J' => 'ünïcödé ¿'];
+    $check($ET::parse($ET::dump($rowsOf($tricky)))['vars'] === $tricky && $ET::dump([['key' => 'A', 'value' => 'plain'], ['key' => 'B', 'value' => 'two words'], ['key' => '', 'value' => 'x']]) === "A=plain\nB=\"two words\"",
+        '.env text: what dump() writes, parse() reads back — quoted where the CLI would quote it');
+    $bad = $ET::parse("FOO\n1BAD=x\nA=\"open\nB='open\nC=\"x\" y\nD=ok\nE=a\x01b");
+    $check($bad['vars'] === ['D' => 'ok'] && count($bad['errors']) === 6 && $bad['errors'][0] === 'Line 1: expected KEY=value.' && str_contains($bad['errors'][2], 'never closed — a value has to stay on one line') && str_contains($bad['errors'][5], 'control character'),
+        '.env text: a line that is not KEY=value, a bad key, an open quote, text after a quote, a control character — each named with its line');
+    $check($ET::parse(str_repeat('A=1', 30000))['errors'] === ['The text is too long (64 KB at most).'], '.env text: 64 KB at most');
+    $merge = $ET::apply([['key' => 'A', 'value' => '1'], ['key' => 'B', 'value' => '2']], ['B' => '3', 'C' => '4'], false);
+    $replace = $ET::apply([['key' => 'A', 'value' => '1'], ['key' => 'B', 'value' => '2']], ['B' => '2', 'C' => '4'], true);
+    $check($merge === ['rows' => [['key' => 'A', 'value' => '1'], ['key' => 'B', 'value' => '3'], ['key' => 'C', 'value' => '4']], 'added' => 1, 'changed' => 1, 'removed' => 0]
+        && $replace === ['rows' => [['key' => 'B', 'value' => '2'], ['key' => 'C', 'value' => '4']], 'added' => 1, 'changed' => 0, 'removed' => 1],
+        '.env text: pasting adds and updates in place, editing the whole text replaces the list');
+    $ad = (string) file_get_contents($root.'/src/Livewire/AppDetail.php');
+    $adv = $views[$root.'/resources/views/livewire/app-detail.blade.php'] ?? '';
+    $check((bool) preg_match('/function openEnvText\(string \$mode\): void\s*\{\s*if \(! \$this->allowed\(\'env\'\)/', $ad) && (bool) preg_match('/function applyEnvText\(\): void\s*\{\s*if \(! \$this->allowed\(\'env\'\)/', $ad) && str_contains($ad, 'EnvText::apply($this->envRows, $parsed[\'vars\'], $replace)'),
+        'the text panel needs the env ability, and changes the rows only: Save sends them');
+    $check(str_contains($adv, 'wire:click="openEnvText(\'paste\')"') && str_contains($adv, 'wire:click="openEnvText(\'edit\')"') && str_contains($adv, '<form wire:submit="applyEnvText"') && str_contains($adv, "@if(\$envTextMode !== 'edit')"),
+        'Environment tab: Paste variables, Edit as text; the rows give way to the text while it is edited');
+
+    $jobs = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesAsyncJobs.php');
+    $overlay = $views[$root.'/resources/views/partials/job-overlay.blade.php'] ?? '';
+    $terminal = $views[$root.'/resources/views/partials/terminal.blade.php'] ?? '';
+    $check(str_contains($jobs, "} elseif (is_string(\$data['output'] ?? null) && \$data['output'] !== '') {") && str_contains($jobs, 'array_slice($lines, -self::JOB_LIVE_LINES)') && str_contains($jobs, 'public function jobLiveLines(): array'),
+        'a running job that says its output so far (cipi/api 1.44) is kept: its last lines');
+    $check(str_contains($overlay, "\$liveLines = (\$jobRunning ?? false) ? \$this->jobLiveLines() : [];") && str_contains($overlay, 'data-job-live') && str_contains($overlay, "'follow' => true") && ! str_contains($overlay, 'output appears when the job finishes'),
+        'the overlay of a running job shows that output, live');
+    $check(str_contains($terminal, 'new MutationObserver(() => { if (stick) $el.scrollTop = $el.scrollHeight })') && str_contains($terminal, 'x-on:scroll.passive="stick = '), 'the terminal follows new lines, unless the reader scrolled up');
+    $check(str_contains($ad, "\$this->activeJobType === 'app-deploy' && \$this->deployActive()") && str_contains($ad, 'jobLiveLines as protected jobOutputLines;'), 'a deploy on an older API is followed through deploy.log');
+
+    $check(str_contains($adv, "\$subject = is_string(\$record['subject'] ?? null) ? trim(\$record['subject']) : '';") && str_contains($adv, 'data-commit-subject>{{ $subject }}</span>'), 'deploy audit: the commit\'s title under its release, escaped');
+    $check(str_contains($adv, "\$runsHorizon = array_key_exists('horizon', \$app) ? (bool) \$app['horizon'] : null;") && str_contains($adv, 'data-worker-hooks=') && str_contains($adv, 'Skipped: no Horizon here'), 'deploy pipeline: which of queue:restart and horizon:terminate applies to this app');
+    $norm2 = new class { use \CipiGui\Livewire\Concerns\InteractsWithCipiServer { normalizeApp as public; } };
+    $check($norm2->normalizeApp(['app' => 'shop', 'horizon' => 'true'])['horizon'] === true && $norm2->normalizeApp(['app' => 'shop', 'horizon' => null])['horizon'] === false && ! array_key_exists('horizon', $norm2->normalizeApp(['app' => 'shop'])),
+        'horizon: true, false, or not said by the server');
+    $smv = $views[$root.'/resources/views/livewire/server-manage.blade.php'] ?? '';
+    $check(str_contains($smv, "filter_var(\$sys['ipv6'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)") && str_contains($smv, '<dt>Public IPv6</dt>'), 'server page: its IPv6 address, when it is one');
+
+    $check(! str_contains($all, 'items-end'), 'no row of fields is aligned to the bottom: a hint or an error under one input no longer moves its neighbours');
+    $check((bool) preg_match('/\.check \{[^}]*margin: 0;[^}]*\}.*\.field-action \{ margin-top: 1\.59375rem; min-height: 2\.25rem; \}/s', $css), '.field-action comes after .check in the stylesheet: a checkbox of a row keeps its place on the line of the inputs');
+    $check(substr_count($all, 'field-action') >= 5 && str_contains($adv, '<form wire:submit="saveHealth" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-start">'), 'the healthcheck form and the rows with a button line up on their labels');
+    $missing = [];
+    $envPanel = (string) (preg_match('/<form wire:submit="applyEnvText".*?<\/form>/s', $adv, $em) ? $em[0] : '');
+    $hooks = (string) (preg_match('/<p class="field-hint" data-worker-hooks=.*?<\/p>/s', $adv, $hm2) ? $hm2[0] : '');
+    preg_match_all('/class="([^"]*)"/', $envPanel.$hooks.$overlay.'<span class="block font-sans text-xs text-soft truncate commit-subject">', $cm);
+    foreach ($cm[1] as $list) {
+        foreach (preg_split('/\s+/', trim((string) preg_replace('/\{\{.*?\}\}/', '', $list))) as $c) {
+            if ($c !== '' && preg_match('/^[a-z][a-z0-9:\/.-]*$/', $c) && ! preg_match('/\.'.preg_quote(str_replace([':', '.'], ['\\:', '\\.'], $c), '/').'(?=[\s,{:.>\[)])/', $css)) {
+                $missing[] = $c;
+            }
+        }
+    }
+    $check($envPanel !== '' && $hooks !== '' && $missing === [], 'every class of the text panel, the hooks note, the overlay and the commit title is in the stylesheet'.($missing ? ' — '.implode(', ', array_unique($missing)) : ''));
+    $demo = (string) file_get_contents($root.'/dev/demo/api/index.php');
+    $check(str_contains($demo, 'function liveOutput(string $type, float $seconds): string') && str_contains((string) file_get_contents($root.'/dev/demo/api/fixtures.php'), "'subject' => 'Fix checkout tax rounding'") && str_contains((string) file_get_contents($root.'/dev/demo/api/fixtures.php'), "'ipv6' => '2001:db8:24::1'"), 'demo API: live output of running jobs, commit titles, an IPv6 address');
+
     $check((bool) preg_match("/VERSION = '4\\.6\\.\\d+'/", $theme) && str_contains($theme, "API = '1.44'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.6.0]'), 'version 4.6.0 for API 1.44');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";

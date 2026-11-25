@@ -231,14 +231,14 @@
                     <div class="card-header"><div><h2 class="card-title">SSH login attempts</h2><p class="card-subtitle">Failed SSH logins, within {{ F::duration($f2b['findtime'] ?? null) }}, before fail2ban bans the address for {{ F::duration($f2b['bantime'] ?? null) }} — longer for repeat offenders.</p></div></div>
                     @if($canManage && ! empty($f2b['installed']))
                         <form wire:submit="saveAttempts" class="space-y-3">
-                            <div class="flex items-end gap-2">
+                            <div class="flex items-start gap-2">
                                 <div class="flex-1">
                                     <label for="fw-attempts">Failed logins → ban</label>
                                     <input id="fw-attempts" type="number" min="1" max="100" wire:model="attempts" class="font-mono">
+                                    @error('attempts') <p class="field-error">{{ $message }}</p> @enderror
                                 </div>
-                                <button type="submit" class="btn btn-primary" wire:loading.attr="disabled" wire:target="saveAttempts">Save</button>
+                                <button type="submit" class="btn btn-primary field-action" wire:loading.attr="disabled" wire:target="saveAttempts">Save</button>
                             </div>
-                            @error('attempts') <p class="field-error">{{ $message }}</p> @enderror
                         </form>
                         <p class="field-hint mt-3">
                             Default {{ $f2b['attempts_default'] ?? 3 }}.

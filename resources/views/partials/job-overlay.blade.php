@@ -80,7 +80,13 @@
                 </div>
             @endif
 
-            @if($activeJobOutput)
+            @php $liveLines = ($jobRunning ?? false) ? $this->jobLiveLines() : []; @endphp
+            @if($liveLines !== [])
+                {{-- The job is running and its command has printed something: follow it. --}}
+                <div data-job-live>
+                    @include('cipi-gui::partials.terminal', ['lines' => $liveLines, 'title' => 'cipi · '.($activeJobType ?? 'output'), 'subtitle' => 'live', 'follow' => true])
+                </div>
+            @elseif($activeJobOutput)
                 @include('cipi-gui::partials.terminal', ['lines' => explode("\n", $activeJobOutput), 'title' => 'cipi · '.($activeJobType ?? 'output')])
             @elseif($activeJobResult && $secrets === [])
                 @include('cipi-gui::partials.terminal', [
@@ -96,7 +102,7 @@
                         <span class="terminal-title">waiting for the server…</span>
                     </div>
                     <div class="terminal-body">
-                        <div class="terminal-line dim">$ queued on the Cipi API — output appears when the job finishes</div>
+                        <div class="terminal-line dim">$ queued on the Cipi API — its output shows here as the command prints it</div>
                         <div class="terminal-line"><span class="spinner" style="width:.75rem;height:.75rem;vertical-align:middle;"></span></div>
                     </div>
                 </div>

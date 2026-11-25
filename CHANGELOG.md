@@ -2,7 +2,7 @@
 
 ## [4.6.0] — 2026-11-25
 
-Two-factor authentication an admin can require for every account, the firewall of each server — UFW, fail2ban, CrowdSec — from its page, its optional packages installed and removed from the panel, and the app page saying which user and which IP to connect to. For Cipi 5.14.0 and cipi/api 1.44; the 2FA requirement and the app page need nothing on the servers.
+Two-factor authentication an admin can require for every account, the firewall of each server — UFW, fail2ban, CrowdSec — from its page, its optional packages installed and removed from the panel, and the app page saying which user and which IP to connect to, the `.env` edited as text and a job's output while it runs. For Cipi 5.14.0 and cipi/api 1.44; the 2FA requirement and the app page need nothing on the servers.
 
 ### Added
 
@@ -41,9 +41,20 @@ Two-factor authentication an admin can require for every account, the firewall o
   - only an IP address and a user name ever reach the command — anything else is dropped (`AppDetail::serverIp()`, `AppDetail::sshCommand()`, `user` in `normalizeApp()`).
   - Whoever may view the app sees them, as they see the server's IP on the dashboard. The command is `ssh` on the default port: with another port, add `-p`.
 - Demo API: every app answers with its `user`.
+- **Environment tab: the `.env` as text.** Variables that arrive as a block — from a README, a chat, another `.env` — no longer have to be typed one row at a time:
+  - **Paste variables** takes `KEY=value` lines and splits them into the list: keys already there take the new value in place, new ones go to the end, nothing is removed;
+  - **Edit as text** shows the whole list as text to edit by hand; what is applied replaces the list — a line taken out removes that key, the order of the lines becomes the order of the file;
+  - quotes, `export`, comments, blank lines, an inline ` # comment`, CRLF and the fence of a pasted code block are understood (`Support\EnvText`, read the way Laravel's dotenv reads a file and written the way `cipi app env --set` writes it); a line that is not `KEY=value`, an open quote or a value over several lines is refused with its line number;
+  - either way only the rows change: the page says how many keys were added, changed and removed, and **Save .env** sends them as it does for a row edited by hand.
+- **The overlay of a running job shows its output as it comes** — it said "output appears when the job finishes" while the deploy log moved on the page behind it. On cipi/api 1.44 every job (a deploy, an install, a backup) says what its command has printed so far, and the overlay follows its last 200 lines, staying on the newest unless you scroll up; the whole output replaces them when the job ends. A deploy on an older API (1.37–1.43) is followed through the last lines of `deploy.log`, which the page already read.
+- **Deploy tab: the title of each commit** under its release and short hash in the audit list (Cipi 5.14.0 reads it from the app's clone). An older server, or a commit its clone no longer has, shows the hash alone.
+- **Deploy pipeline: which worker hook applies.** `queue:restart` and `horizon:terminate` are both on by default and looked like a contradiction, since an app runs either queue workers or Horizon. Nothing was wrong with the deploys — `horizon:terminate` runs only where `laravel/horizon` is installed, and Cipi restarts the app's workers after every deploy anyway — but the page did not say so. It now says which of the two matters for this app (it reads `horizon` from the app), and the card of the other says *Skipped: no Horizon here*.
+- **Server page: Public IPv6**, when the server has one (cipi/api 1.44 `system.ipv6`) — for a domain's AAAA record, since every vhost listens on IPv6 too.
+- Demo API: running jobs print as they go, deploys have commit titles, one server has an IPv6 address, one app runs Horizon.
 
 ### Fixed
 
+- **Fields that did not line up.** *Expected status* sat lower than *URL* in the healthcheck form: the row was aligned to the bottom, and the hint under the URL pushed its neighbour down. The same happened wherever a validation error appeared under one field of a row (the proxy form, *Disable 2FA*). Every such row — healthcheck, proxies, the two redirect forms, SSH login attempts, Node install, Disable 2FA — is now aligned on the labels, and what has no label (a button, a checkbox) takes `.field-action` to sit on the line of the inputs. `tests/standalone.php` checks that no view aligns fields to the bottom.
 - **Team → access editor: the abilities of each app were glued together** — “View☐ Deploy☐ Edit…”, each checkbox stuck to the label before it, rows wrapping anywhere. The editor used spacing utilities the panel's stylesheet does not have (`gap-x-3`, `gap-x-4`, `gap-y-1`, `sm:ml-auto`). Each app is now its name and domain, then its abilities as toggles of their own — spaced, wrapping cleanly on a phone, highlighted when on. The two roles (User, Admin) share the row instead of two thirds of it. `tests/standalone.php` checks that every class of the editor exists in the stylesheet.
 
 ### Changed

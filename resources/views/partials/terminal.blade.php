@@ -25,7 +25,14 @@
             @endif
         </div>
     </div>
-    <div class="terminal-body {{ ($tall ?? false) ? 'tall' : '' }}" @if($autoScroll ?? true) x-init="$el.scrollTop = $el.scrollHeight" @endif>
+    {{-- follow: the lines keep coming (a running job). The view stays on the last one
+         as they arrive, unless the reader has scrolled up to look at something. --}}
+    <div class="terminal-body {{ ($tall ?? false) ? 'tall' : '' }}"
+         @if($follow ?? false)
+             x-data="{ stick: true }"
+             x-on:scroll.passive="stick = $el.scrollTop + $el.clientHeight >= $el.scrollHeight - 24"
+             x-init="$el.scrollTop = $el.scrollHeight; new MutationObserver(() => { if (stick) $el.scrollTop = $el.scrollHeight }).observe($el, { childList: true, subtree: true, characterData: true })"
+         @elseif($autoScroll ?? true) x-init="$el.scrollTop = $el.scrollHeight" @endif>
         @forelse($terminalLines as $line)
             @php
                 $lower = strtolower($line);

@@ -342,6 +342,11 @@ input.input-sm, select.input-sm, .input.input-sm { min-height: 1.875rem; padding
 .check-card input { margin-top: 0.15rem; }
 .check-card-title { display: block; color: var(--text); font-weight: 500; }
 .check-card-text { display: block; margin-top: 0.125rem; font-size: 0.75rem; color: var(--text-muted); }
+/* Fields side by side line up on their labels (align-items: flex-start on the row), so what hangs
+   under one input — a hint, an error — never pushes its neighbours down. An item of the row that has
+   no label (a button, a checkbox) takes .field-action: the height of a label above it, and the
+   height of an input, so it sits on the line of the inputs. */
+.field-action { margin-top: 1.59375rem; min-height: 2.25rem; }
 .input-group { display: flex; align-items: stretch; }
 .input-group > * + * { margin-left: -1px; }
 .input-group > :first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
@@ -672,6 +677,8 @@ svg.spark:not([class*="h-"]):not([class*="w-"]) { width: 96px; height: 24px; }
 .qr-box { display: flex; justify-content: center; padding: 1rem; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); }
 .qr-box svg:not([class*="h-"]):not([class*="w-"]) { width: 220px; height: 220px; }
 
+/* The title of a deploy's commit, under its release: one line, cut where the column ends. */
+.commit-subject { max-width: 22rem; white-space: nowrap; }
 .env-row { display: grid; grid-template-columns: minmax(9rem, 15rem) 1fr auto; gap: 0.5rem; align-items: center; }
 .env-row.is-changed input { border-color: var(--accent-line); }
 .env-row.is-new input { border-color: var(--info-border); }

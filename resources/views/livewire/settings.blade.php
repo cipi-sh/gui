@@ -154,13 +154,13 @@
                         <x-cipi::alert type="info" class="mb-4" data-2fa-required>An admin requires two-factor authentication for every account on this panel: it stays on. A new phone? Move it there.</x-cipi::alert>
                         <button type="button" wire:click="startTwoFactorSetup" class="btn btn-secondary"><x-cipi::icon name="shield" /> Move to a new device</button>
                     @else
-                        <form wire:submit="disableTwoFactor" class="flex flex-wrap items-end gap-3">
+                        <form wire:submit="disableTwoFactor" class="flex flex-wrap items-start gap-3">
                             <div class="flex-1" style="min-width: 14rem;">
                                 <label for="tfa-pass">Confirm with your password to turn it off</label>
                                 <input id="tfa-pass" type="password" wire:model="disablePassword" autocomplete="current-password">
                                 @error('disablePassword') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
-                            <button type="submit" class="btn btn-danger">Disable 2FA</button>
+                            <button type="submit" class="btn btn-danger field-action">Disable 2FA</button>
                         </form>
                         <p class="field-hint mt-3"><button type="button" wire:click="startTwoFactorSetup" class="text-link">Move it to a new device</button> · Locked out? On the server: <code>cipi gui reset-user</code>.</p>
                     @endif
