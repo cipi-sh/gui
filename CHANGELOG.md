@@ -31,7 +31,7 @@ Two-factor authentication an admin can require for every account, the firewall o
   - for a partial install, what is missing, and **Complete install**;
   - for an *Upstream* entry — a release Cipi pins by version and SHA-256 (`sec-nuclei`, `sec-zap`, `sec-nikto`, `sec-wpscan`, `sec-trivy`, `sec-semgrep`, `sec-checkov`) — its version, and when an older one is installed *Update available* with **Update to x.y.z**;
   - **Install** and **Remove**, confirmed, as jobs (apt takes from seconds to a few minutes). Removing takes only what no other package on the server still needs; the server computes it.
-  - Changing needs Manage on the server; every action takes only an id the page lists, and the server's catalog is closed whatever is sent. An older server answers with the Cipi version it needs.
+  - Changing needs Manage on the server; every action takes only an id the page lists, and the server's catalog is closed whatever is sent. An older server answers with the Cipi version it needs, and one whose API has no route for it yet (cipi/api before 1.44) gets what to update instead of "route not found".
 - `packages-manage` in the token command on Connections.
 - Demo API: the whole catalog, installed and removed as jobs.
 

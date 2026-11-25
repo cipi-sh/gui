@@ -142,6 +142,22 @@ class PackagesTest extends TestCase
     }
 
     #[Test]
+    public function a_server_whose_api_has_no_route_for_it_says_what_to_update(): void
+    {
+        $this->answers['POST /api/packages/browsershot'] = [['message' => 'The route api/packages/browsershot could not be found.'], 404];
+        $this->answers['DELETE /api/packages/imagemagick'] = [['message' => 'The DELETE method is not supported for route api/packages/imagemagick. Supported methods: GET, HEAD.'], 405];
+
+        $this->tab()->call('installPackage', 'browsershot')
+            ->assertSee('cipi/api 1.44+')->assertDontSee('could not be found');
+        $this->tab()->call('removePackage', 'imagemagick')
+            ->assertSee('cipi/api 1.44+')->assertDontSee('not supported for route');
+
+        // The API's own 404 (an id it does not have) is passed on as it is.
+        $this->answers['POST /api/packages/browsershot'] = [['error' => "'browsershot' is not in this server's package catalog (cipi package list)"], 404];
+        $this->tab()->call('installPackage', 'browsershot')->assertSee("is not in this server's package catalog");
+    }
+
+    #[Test]
     public function an_older_server_says_why(): void
     {
         $this->answers['POST /api/packages/browsershot'] = [['error' => 'Installing and removing packages from the panel needs Cipi 5.14.0+ — this server runs Cipi 5.13.1. Run: cipi self-update'], 503];

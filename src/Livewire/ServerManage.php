@@ -446,7 +446,7 @@ class ServerManage extends Component
         }
 
         $label = ! empty($pkg['outdated']) && ! empty($pkg['version']) ? 'Update '.$id.' to '.$pkg['version'] : 'Install '.$id;
-        $this->startJob($label, fn (CipiApiClient $api) => $api->installPackage($id));
+        $this->startPackageJob($label, fn (CipiApiClient $api) => $api->installPackage($id));
     }
 
     public function removePackage(string $id): void
@@ -456,7 +456,30 @@ class ServerManage extends Component
             return;
         }
 
-        $this->startJob('Remove '.$id, fn (CipiApiClient $api) => $api->removePackage($id));
+        $this->startPackageJob('Remove '.$id, fn (CipiApiClient $api) => $api->removePackage($id));
+    }
+
+    /**
+     * A server whose API is older than 1.44 lists the catalog but has no route
+     * to change it: say what to update instead of "route not found".
+     */
+    protected function startPackageJob(string $label, callable $request): void
+    {
+        try {
+            $this->dispatchJob($request($this->client()), $label);
+        } catch (CipiApiException $e) {
+            $noRoute = in_array($e->getStatusCode(), [404, 405], true)
+                && preg_match('/could not be found|not supported for route|^Not Found$/i', $e->getMessage()) === 1;
+            if (! $noRoute) {
+                $this->handleApiError($e);
+
+                return;
+            }
+
+            $message = 'This server cannot install or remove packages from the panel yet: it needs Cipi 5.14.0+ and cipi/api 1.44+ (cipi self-update && cipi api update). Until then: cipi package install <id> on the server.';
+            $this->error = $message;
+            $this->dispatch('notify', type: 'error', message: $message);
+        }
     }
 
     /**
