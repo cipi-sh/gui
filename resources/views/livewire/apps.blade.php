@@ -157,7 +157,7 @@
                                 <th>Runtime</th>
                                 <th>Database</th>
                                 <th>Branch</th>
-                                @if(! $deploysLoaded || $deploysSupported)<th title="The last finished deploy or rollback, whoever started it (Cipi 5.9.0+)">Last deploy</th>@endif
+                                @if(! $deploysLoaded || $deploysSupported)<th title="The last finished deploy or rollback, whoever started it">Last deploy</th>@endif
                                 <th>Status</th>
                                 <th class="text-right">Actions</th>
                             </tr>
@@ -226,7 +226,7 @@
                                                     {{ $cell['when'] }}@if($cell['state'] === 'failed') <span class="text-danger">failed</span>@elseif($cell['state'] === 'rollback') <span class="text-muted">rollback</span>@endif
                                                 </span>
                                             @else
-                                                <span class="text-subtle" title="This server does not report it (needs Cipi 5.9.0 and API 1.39)">—</span>
+                                                <span class="text-subtle" title="This server does not report it yet: update Cipi on it">—</span>
                                             @endif
                                         </td>
                                     @endif
@@ -368,13 +368,13 @@
                         </div>
                         <p class="field-hint sm:col-span-2 self-center">
                             Tells the environments of a project apart — production, staging, development, testing or your own word (lowercase letters, digits, <code>-</code> and <code>_</code>).
-                            Shown as a badge in the lists, and deploys read <code>cipi-&lt;environment&gt;.yml</code> before <code>cipi.yml</code>. Servers before cipi/api 1.36 keep every app as production.
+                            Shown as a badge in the lists, and deploys read <code>cipi-&lt;environment&gt;.yml</code> before <code>cipi.yml</code>. A server that does not know environments yet keeps every app as production.
                         </p>
                     </div>
 
                     @if($appKind === 'node')
                         @if($nodeUnsupported)
-                            <x-cipi::alert type="warn">Node apps need API 1.31+ / Cipi 5.4+ and the <code>node-view</code> ability. You can still submit — the server answers if it cannot.</x-cipi::alert>
+                            <x-cipi::alert type="warn">Node apps need an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>node-view</code> ability. You can still submit — the server answers if it cannot.</x-cipi::alert>
                         @endif
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div>
@@ -468,13 +468,13 @@
                                 <input type="checkbox" wire:model="octane">
                                 <span>
                                     <span class="check-card-title">Laravel Octane (FrankenPHP)</span>
-                                    <span class="check-card-text">Nginx proxies to a long-lived Octane worker instead of PHP-FPM. Needs <code>laravel/octane</code> in the repo and more RAM. Cipi 5.0+.</span>
+                                    <span class="check-card-text">Nginx proxies to a long-lived Octane worker instead of PHP-FPM. Needs <code>laravel/octane</code> in the repo and more RAM.</span>
                                 </span>
                             </label>
                             <div>
                                 <label for="app-asset-build">Build command <span class="text-subtle font-normal">(optional)</span></label>
                                 <input id="app-asset-build" type="text" wire:model="assetBuild" class="font-mono" placeholder="{{ $buildPlaceholder }}" maxlength="{{ $buildMaxLength }}" autocomplete="off" spellcheck="false">
-                                <p class="field-hint">Front-end assets: runs on every deploy after <code>composer install</code>, before the release goes live. Starts with npm, npx, yarn, pnpm, bun or node; <code>&amp;&amp;</code> and <code>;</code> are allowed, pipes and redirects are not. Empty to skip. Cipi 5.6+ (older servers ignore it: set it later under Deploy → Deploy pipeline).</p>
+                                <p class="field-hint">Front-end assets: runs on every deploy after <code>composer install</code>, before the release goes live. Starts with npm, npx, yarn, pnpm, bun or node; <code>&amp;&amp;</code> and <code>;</code> are allowed, pipes and redirects are not. Empty to skip. A server that does not know it yet ignores it: set it later under Deploy → Deploy pipeline.</p>
                                 @error('assetBuild') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
                         @endif

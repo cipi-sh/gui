@@ -206,10 +206,10 @@ class FirewallTest extends TestCase
     public function an_older_server_says_what_to_update(): void
     {
         $this->answers['GET /api/firewall'] = [['message' => 'Not Found'], 404];
-        $this->tab()->assertSet('unsupported', true)->assertSee('Cipi 5.14.0')->assertSee('firewall-manage');
+        $this->tab()->assertSet('unsupported', true)->assertSee('an up-to-date Cipi')->assertSee('firewall-manage')->assertDontSee('5.14.0');
 
         $this->answers['GET /api/firewall'] = [['error' => 'The firewall from the panel needs Cipi 5.14.0+ — this server runs Cipi 5.13.1. Run: cipi self-update'], 503];
-        $this->tab()->assertSet('unsupported', true)->assertSee('this server runs Cipi 5.13.1');
+        $this->tab()->assertSet('unsupported', true)->assertSee('needs an update of Cipi on this server')->assertDontSee('5.13.1');
     }
 
     #[Test]

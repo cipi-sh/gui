@@ -12,8 +12,10 @@ use Livewire\Component;
 /**
  * Notifications (API 1.42+ / Cipi ≥ 5.12.0): the server's Notifications tab.
  * Every channel — SMTP, Resend, SES, Slack, Discord, Mattermost, Google Chat,
- * Telegram, ntfy, Pushover, webhook — and every trigger. Every enabled
- * trigger reaches every enabled channel.
+ * Telegram, ntfy, Pushover, webhook — and every trigger. An enabled trigger
+ * reaches every enabled channel that takes it: everything, or only the
+ * categories (and "urgent": failures and security events) it was given —
+ * when the server keeps them (it lists its `categories`).
  *
  * Reading needs a level on the server; changing needs `manage`. Secrets are
  * never sent back by the API: in the form, an empty secret of an existing
@@ -71,6 +73,18 @@ class Notifications extends Component
 
     public bool $formClearSecret = false;
 
+    /** The server's categories of triggers, [{id, label, triggers}]; empty: it does not keep events per channel. */
+    public array $categories = [];
+
+    /** all: the channel takes everything; some: only $formEvents (and $formEventsExtra). */
+    public string $formEventsMode = 'all';
+
+    /** selector => chosen: "urgent" and the category ids */
+    public array $formEvents = [];
+
+    /** Single triggers the channel takes (set at the server): kept as they are. */
+    public array $formEventsExtra = [];
+
     public function mount(?int $serverId = null): void
     {
         $this->serverId = $serverId ?? (int) session('cipi_gui_server_id');
@@ -125,6 +139,42 @@ class Notifications extends Component
     {
         $this->channels = array_values(array_filter((array) ($status['channels'] ?? []), 'is_array'));
         $this->summary = (array) ($status['triggers'] ?? []);
+        $this->categories = array_values(array_filter((array) ($status['categories'] ?? []),
+            fn ($c) => is_array($c) && is_string($c['id'] ?? null) && preg_match('/^[a-z][a-z0-9-]{0,40}$/', $c['id']) === 1));
+    }
+
+    /** Whether the server keeps what each channel takes. */
+    public function supportsEvents(): bool
+    {
+        return $this->categories !== [];
+    }
+
+    /** The form's choice from a channel's events (or everything, for a new one). */
+    protected function fillEventsForm(?array $events): void
+    {
+        $known = array_merge([N::URGENT], array_column($this->categories, 'id'));
+        $this->formEventsMode = $events === null ? 'all' : 'some';
+        $this->formEvents = array_fill_keys($known, false);
+        $this->formEventsExtra = [];
+        foreach ($events ?? [] as $e) {
+            if (in_array($e, $known, true)) {
+                $this->formEvents[$e] = true;
+            } else {
+                $this->formEventsExtra[] = $e;
+            }
+        }
+    }
+
+    /** @return list<string>|null what the form says the channel takes */
+    protected function formEventsValue(): ?array
+    {
+        if ($this->formEventsMode !== 'some') {
+            return null;
+        }
+        $known = array_merge([N::URGENT], array_column($this->categories, 'id'));
+        $picked = array_values(array_filter($known, fn ($e) => ! empty($this->formEvents[$e])));
+
+        return array_values(array_unique(array_merge($picked, array_filter($this->formEventsExtra, 'is_string'))));
     }
 
     protected function syncTriggers(array $data): void
@@ -175,6 +225,7 @@ class Notifications extends Component
         $this->formEnabled = true;
         $this->formTest = true;
         $this->formClearSecret = false;
+        $this->fillEventsForm(null);
     }
 
     public function setFormType(string $type): void
@@ -228,6 +279,7 @@ class Notifications extends Component
         $this->formEnabled = (bool) ($ch['enabled'] ?? true);
         $this->formTest = false;
         $this->formClearSecret = false;
+        $this->fillEventsForm(N::events($ch));
     }
 
     public function closeForm(): void
@@ -293,6 +345,12 @@ class Notifications extends Component
             $messages["form.{$field}.required"] = $label.' is required.';
         }
         $this->validate($rules, $messages);
+        $events = $this->supportsEvents() ? $this->formEventsValue() : null;
+        if ($this->supportsEvents() && $events === []) {
+            $this->addError('formEvents', 'Choose at least one kind of event — or Everything.');
+
+            return;
+        }
 
         $payload = [];
         foreach (array_keys($fields) as $field) {
@@ -314,6 +372,16 @@ class Notifications extends Component
         }
         if ($adding || $this->formEnabled !== (bool) ($this->channel($this->editing)['enabled'] ?? true)) {
             $payload['enabled'] = $this->formEnabled;
+        }
+        $sorted = function (?array $e): ?array {
+            if ($e !== null) {
+                sort($e);
+            }
+
+            return $e;
+        };
+        if ($this->supportsEvents() && ($adding ? $events !== null : $sorted($events) !== $sorted(N::events((array) $this->channel($this->editing))))) {
+            $payload['events'] = $events;
         }
         if ($this->formTest) {
             $payload['test'] = true;

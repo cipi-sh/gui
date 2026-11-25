@@ -18,7 +18,7 @@
         </div>
     @elseif($unsupported)
         <x-cipi::alert type="warn" title="Notifications are not available on this server" data-notifications-unsupported>
-            Channels and triggers need <strong>Cipi 5.12.0</strong> and <strong>cipi/api 1.42.0</strong> on the server:
+            Channels and triggers need an up-to-date Cipi on the server:
             <code>cipi self-update &amp;&amp; cipi api update</code>.
             @if($unsupportedReason !== '')
                 <p class="mt-2">The server answered: <span class="font-mono text-xs break-words">{{ $unsupportedReason }}</span></p>
@@ -37,7 +37,7 @@
                 <div class="card-header p-5 mb-0">
                     <div>
                         <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="signal" /> Channels</h2>
-                        <p class="card-subtitle">Where notifications go. Every trigger that is on reaches every channel that is on · {{ $active }} of {{ count($channels) }} on · secrets are never sent back to the panel.</p>
+                        <p class="card-subtitle">Where notifications go. A trigger that is on reaches every channel that is on and takes it — everything, or only the events you choose per channel · {{ $active }} of {{ count($channels) }} on · secrets are never sent back to the panel.</p>
                     </div>
                     @if($canManage)
                         <div class="btn-group">
@@ -62,7 +62,7 @@
                 @else
                     <div class="table-scroll">
                         <table>
-                            <thead><tr><th>Channel</th><th>Type</th><th>Sends to</th><th></th></tr></thead>
+                            <thead><tr><th>Channel</th><th>Type</th><th>Sends to</th>@if($this->supportsEvents())<th>Receives</th>@endif<th></th></tr></thead>
                             <tbody>
                                 @foreach($channels as $ch)
                                     @php $cid = (string) $ch['id']; $test = $tests[$cid] ?? null; @endphp
@@ -83,6 +83,19 @@
                                                 </p>
                                             @endif
                                         </td>
+                                        @if($this->supportsEvents())
+                                            <td class="text-xs" data-channel-events="{{ N::events($ch) === null ? 'all' : implode(',', N::events($ch)) }}">
+                                                @if(N::events($ch) === null)
+                                                    <span class="text-muted">Everything</span>
+                                                @else
+                                                    <span class="flex flex-wrap gap-1">
+                                                        @foreach(N::events($ch) as $e)
+                                                            <span class="badge {{ $e === N::URGENT ? 'badge-amber' : 'badge-neutral' }}">{{ $e === N::URGENT ? 'Urgent' : (array_column($categories, 'label', 'id')[$e] ?? $e) }}</span>
+                                                        @endforeach
+                                                    </span>
+                                                @endif
+                                            </td>
+                                        @endif
                                         <td class="text-right">
                                             @if($canManage)
                                                 <div class="btn-actions">
@@ -174,7 +187,7 @@
         @if($formOpen && $canManage)
             @php $fields = N::FIELDS[$formType] ?? []; @endphp
             <x-cipi::modal :title="$editing === null ? 'Add a notification channel' : 'Edit '.$editing" close="closeForm" size="lg" persistent
-                :subtitle="$editing === null ? 'Every trigger that is on reaches it as soon as it is saved.' : N::label($formType).' · secrets left empty keep their stored value.'">
+                :subtitle="$editing === null ? 'The triggers that are on reach it as soon as it is saved — all of them, or the events you choose below.' : N::label($formType).' · secrets left empty keep their stored value.'">
                 <form wire:submit="saveChannel" data-channel-form="{{ $formType }}">
                     <div class="modal-body space-y-5">
                         @if($editing === null)
@@ -226,6 +239,33 @@
                                 </div>
                             @endforeach
                         </div>
+
+                        @if($this->supportsEvents())
+                            <div data-channel-events-form>
+                                <label>What it receives</label>
+                                <div class="segmented mb-3" role="radiogroup" aria-label="What this channel receives">
+                                    <button type="button" role="radio" aria-checked="{{ $formEventsMode === 'all' ? 'true' : 'false' }}" wire:click="$set('formEventsMode', 'all')" class="segmented-item {{ $formEventsMode === 'all' ? 'active' : '' }}">Everything</button>
+                                    <button type="button" role="radio" aria-checked="{{ $formEventsMode === 'some' ? 'true' : 'false' }}" wire:click="$set('formEventsMode', 'some')" class="segmented-item {{ $formEventsMode === 'some' ? 'active' : '' }}">Only some events</button>
+                                </div>
+                                @if($formEventsMode === 'some')
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                        <label class="check" title="Failures and security events: a failed deploy, backup or cron, a health check down, a service or a worker stopped, the disk filling up, an SSH login, sudo, malware found…">
+                                            <input type="checkbox" wire:model="formEvents.{{ N::URGENT }}"> <strong>Urgent</strong> <span class="text-subtle">— failures and security</span>
+                                        </label>
+                                        @foreach($categories as $cat)
+                                            <label class="check" wire:key="ev-{{ $cat['id'] }}">
+                                                <input type="checkbox" wire:model="formEvents.{{ $cat['id'] }}"> {{ $cat['label'] }} <span class="text-subtle tabular-nums">{{ (int) ($cat['triggers'] ?? 0) }}</span>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                    @if($formEventsExtra !== [])
+                                        <p class="field-hint mt-2">Also, set at the server: @foreach($formEventsExtra as $e)<code>{{ $e }}</code>@if(! $loop->last), @endif @endforeach — kept as they are.</p>
+                                    @endif
+                                    <p class="field-hint mt-2">A trigger reaches this channel when it is on (Triggers, below) and is in one of the kinds chosen here. For a single trigger: <code>cipi notification events {{ $formType === 'smtp' ? 'smtp' : ($formId ?: '<id>') }} backup_fail,…</code> at the server.</p>
+                                @endif
+                                @error('formEvents') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                        @endif
 
                         <div class="flex flex-wrap items-center gap-4">
                             @if($formType === 'smtp')

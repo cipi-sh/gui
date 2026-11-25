@@ -24,7 +24,7 @@
         </div>
     @elseif($unsupported)
         <x-cipi::alert type="warn" title="Metrics are not available on this server" data-metrics-unsupported>
-            The history needs <strong>Cipi 5.11.0</strong> on the server and <strong>cipi/api 1.41.0</strong>, with a token that has the
+            The history needs an up-to-date Cipi on the server, with a token that has the
             <code>metrics-view</code> ability (and <code>metrics-manage</code> to change the retention). On the server:
             <code>cipi self-update &amp;&amp; cipi api update</code>, then recreate the token from
             <a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>.

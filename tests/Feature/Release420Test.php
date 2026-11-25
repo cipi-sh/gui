@@ -437,7 +437,7 @@ class Release420Test extends TestCase
         $this->missing = ['/api/backups'];
 
         Livewire::withQueryParams(['tab' => 'backups'])->test(ServerManage::class, ['serverId' => $this->server->id])->call('init')
-            ->assertSee('Not available on this server')->assertSee('Cipi 5.9.0+');
+            ->assertSee('Not available on this server')->assertSee('backups-manage')->assertDontSee('5.9.0');
     }
 
     // ── saved commands ────────────────────────────────────────────────

@@ -73,6 +73,6 @@ class DeployTimesTest extends TestCase
 
         Livewire::test(AppDetail::class, ['name' => 'shop'])->call('setTab', 'deploy')
             ->assertSet('auditTook', [])
-            ->assertSee('No timing yet')->assertSee('Cipi 5.6+');
+            ->assertSee('No timing yet')->assertSee('from the next deploy');
     }
 }

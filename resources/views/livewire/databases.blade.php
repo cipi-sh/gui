@@ -3,12 +3,12 @@
     <x-cipi::page-header title="Databases">
         <x-slot:meta>
             @if($scopeServer)
-                MariaDB and PostgreSQL databases on <strong class="text-strong">{{ $scopeServer->name }}</strong>.
+                {{ $mysqlLabel }} and PostgreSQL databases on <strong class="text-strong">{{ $scopeServer->name }}</strong>.
                 @if($multiServer)<button type="button" wire:click="setScope(0)" class="text-link">Show every server</button>@endif
             @elseif($multiServer)
-                MariaDB and PostgreSQL databases on every connected server.
+                {{ $mysqlLabel }} and PostgreSQL databases on every connected server.
             @elseif($servers->isNotEmpty())
-                MariaDB and PostgreSQL databases on <strong class="text-strong">{{ $servers->first()->name }}</strong>.
+                {{ $mysqlLabel }} and PostgreSQL databases on <strong class="text-strong">{{ $servers->first()->name }}</strong>.
             @endif
         </x-slot:meta>
         @if($servers->isNotEmpty())
@@ -57,7 +57,7 @@
                 @foreach($engineCards as $card)
                     <div class="card" wire:key="engine-card-{{ $card['engine'] }}">
                         <div class="flex items-center justify-between gap-2">
-                            <p class="stat-label">{{ $this->engineLabel($card['engine']) }}</p>
+                            <p class="stat-label">{{ $card['label'] }}</p>
                             @if($card['default'])
                                 <span class="badge badge-accent">Default</span>
                             @endif
@@ -73,7 +73,7 @@
                 @endforeach
             </div>
         @elseif(! $loading && $enginesUnsupported !== [])
-            <x-cipi::alert type="info" class="mb-4">Engine details need API 1.12+ (Cipi 4.8). Databases are listed without engine information.</x-cipi::alert>
+            <x-cipi::alert type="info" class="mb-4">This server does not report its engines yet (update Cipi on it): databases are listed without engine information.</x-cipi::alert>
         @endif
 
         <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -93,7 +93,7 @@
                 <div class="segmented" role="tablist" aria-label="Filter by engine">
                     <button type="button" wire:click="setEngineFilter('all')" class="segmented-item {{ $engineFilter === 'all' ? 'active' : '' }}">All<span class="count">{{ $counts['all'] }}</span></button>
                     @foreach($engineCards as $card)
-                        <button type="button" wire:click="setEngineFilter('{{ $card['engine'] }}')" class="segmented-item {{ $engineFilter === $card['engine'] ? 'active' : '' }}">{{ $this->engineLabel($card['engine']) }}<span class="count">{{ $counts[$card['engine']] ?? 0 }}</span></button>
+                        <button type="button" wire:click="setEngineFilter('{{ $card['engine'] }}')" class="segmented-item {{ $engineFilter === $card['engine'] ? 'active' : '' }}">{{ $card['label'] }}<span class="count">{{ $counts[$card['engine']] ?? 0 }}</span></button>
                     @endforeach
                 </div>
             </div>
@@ -132,7 +132,7 @@
                 <div class="table-scroll">
                     <table>
                         <thead>
-                            <tr><th>Database</th>@if($multiServer && $scopeId === 0)<th>Server</th>@endif @if($showAppColumn)<th title="The app a database belongs to: created with it, named after it, or linked here (Cipi 5.9.0+)">App</th>@endif<th>Engine</th><th>User</th><th class="text-right">Size</th><th>Last backup</th><th class="text-right">Actions</th></tr>
+                            <tr><th>Database</th>@if($multiServer && $scopeId === 0)<th>Server</th>@endif @if($showAppColumn)<th title="The app a database belongs to: created with it, named after it, or linked here">App</th>@endif<th>Engine</th><th>User</th><th class="text-right">Size</th><th>Last backup</th><th class="text-right">Actions</th></tr>
                         </thead>
                         <tbody>
                             @foreach($visible as $db)
@@ -150,7 +150,7 @@
                                             @elseif($db['linkable'])
                                                 <span class="text-subtle">—</span>
                                             @else
-                                                <span class="text-subtle" title="This server does not report it (needs Cipi 5.9.0 and API 1.39)">n/a</span>
+                                                <span class="text-subtle" title="This server does not report it yet: update Cipi on it">n/a</span>
                                             @endif
                                         </td>
                                     @endif

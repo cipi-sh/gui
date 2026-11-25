@@ -90,7 +90,7 @@ class LegacyPhpTest extends TestCase
             ->assertSeeHtml('data-php-legacy="8.2">legacy</span>')
             ->assertDontSeeHtml('data-php-legacy="8.4"')
             ->assertDontSeeHtml('data-php-legacy="8.5"')
-            ->assertSee('PHP 8.1, 8.2: legacy, installed before Cipi 4.5.4')
+            ->assertSee('PHP 8.1, 8.2: legacy, installed by an older Cipi')
             ->assertSeeHtml('<option value="8.3">PHP 8.3</option>')
             ->assertSeeHtml('<option value="8.6">PHP 8.6</option>')
             ->assertDontSeeHtml('<option value="8.1">')

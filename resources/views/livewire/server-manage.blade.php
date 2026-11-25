@@ -73,7 +73,7 @@
                 This section needs a newer Cipi API or a token with the matching abilities.
                 Run <code>cipi self-update &amp;&amp; cipi api update</code> on the server and recreate the token from
                 <a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>.
-                @if($activeTab === 'backups') (API 1.39+ / Cipi 5.9.0+, whose migration lets the panel run <code>cipi backup</code>; abilities <code>backups-view</code> and <code>backups-manage</code>) @elseif(in_array($activeTab, ['node', 'search', 'packages', 'monitor', 'zt'], true)) (API 1.31+ / Cipi 5.4.1+) @elseif($activeTab === 'metrics') (API 1.41+ / Cipi 5.11.0+; abilities <code>metrics-view</code> and <code>metrics-manage</code>) @elseif($activeTab === 'disk') (API 1.33+ / Cipi 5.5.2+, whose migration lets the API run <code>cipi disk</code>) @elseif($activeTab === 'smtp') (abilities <code>smtp-view</code> and <code>smtp-manage</code>, or <code>notifications-view</code> and <code>notifications-manage</code>) @endif
+                @if($activeTab === 'backups') (abilities <code>backups-view</code> and <code>backups-manage</code>) @elseif($activeTab === 'metrics') (abilities <code>metrics-view</code> and <code>metrics-manage</code>) @elseif($activeTab === 'smtp') (abilities <code>smtp-view</code> and <code>smtp-manage</code>, or <code>notifications-view</code> and <code>notifications-manage</code>) @endif
                 @if(($unsupportedReason[$activeTab] ?? '') !== '')
                     <p class="mt-2" data-tab-reason>The server answered: <span class="font-mono text-xs break-words">{{ $unsupportedReason[$activeTab] }}</span></p>
                 @endif
@@ -316,7 +316,7 @@
                         <tbody>
                             @forelse($phpData['versions'] as $row)
                                 <tr>
-                                    <td class="font-semibold text-strong">PHP {{ $row['version'] }}@if(in_array((string) $row['version'], $legacyPhp, true)) <span class="badge badge-gray" title="Installed before Cipi 4.5.4. Apps on it keep running; no app can be created on it or moved to it." data-php-legacy="{{ $row['version'] }}">legacy</span>@endif</td>
+                                    <td class="font-semibold text-strong">PHP {{ $row['version'] }}@if(in_array((string) $row['version'], $legacyPhp, true)) <span class="badge badge-gray" title="Installed by an older Cipi. Apps on it keep running; no app can be created on it or moved to it." data-php-legacy="{{ $row['version'] }}">legacy</span>@endif</td>
                                     <td><span class="badge {{ ($row['status'] ?? '') === 'running' ? 'badge-green' : 'badge-amber' }}">{{ $row['status'] ?? 'unknown' }}</span></td>
                                     <td class="tabular-nums">{{ $row['apps'] ?? 0 }}</td>
                                     <td class="text-right">@if(!empty($row['default']) || ($phpData['default'] ?? null) === $row['version'])<span class="badge badge-accent">CLI default</span>@endif</td>
@@ -327,7 +327,7 @@
                         </tbody>
                     </table>
                     @if($legacyPhp !== [])
-                        <p class="field-hint p-5 pt-3">PHP {{ implode(', ', $legacyPhp) }}: legacy, installed before Cipi 4.5.4. The apps on {{ count($legacyPhp) === 1 ? 'it' : 'them' }} keep running and can be moved to a current version from their configuration; no app can be created on or moved to a legacy version, and a server with Deployer 8 refuses to deploy one that is. Remove a version no app uses on the host: <code>cipi php remove &lt;version&gt;</code>.</p>
+                        <p class="field-hint p-5 pt-3">PHP {{ implode(', ', $legacyPhp) }}: legacy, installed by an older Cipi. The apps on {{ count($legacyPhp) === 1 ? 'it' : 'them' }} keep running and can be moved to a current version from their configuration; no app can be created on or moved to a legacy version, and a server with Deployer 8 refuses to deploy one that is. Remove a version no app uses on the host: <code>cipi php remove &lt;version&gt;</code>.</p>
                     @endif
                 </div>
                 <div class="card">
@@ -411,7 +411,7 @@
             </div>
             @if($canManage)
                 <div class="card mt-4 max-w-xl">
-                    <div class="card-header"><div><h2 class="card-title">Install a Node major</h2><p class="card-subtitle">From nodejs.org, checked against the release's checksums. Needs Cipi 5.9.0 and API 1.39 on the server.</p></div></div>
+                    <div class="card-header"><div><h2 class="card-title">Install a Node major</h2><p class="card-subtitle">From nodejs.org, checked against the release's checksums.</p></div></div>
                     @if(count($nodeInstallable) > 0)
                         <form wire:submit="installNode" class="flex items-start gap-2">
                             <div class="flex-1">
@@ -467,7 +467,7 @@
                     <div class="card text-muted">No engine information.</div>
                 @endforelse
             </div>
-            <p class="field-hint mt-3">Per-database sizes: <button type="button" wire:click="setTab('disk')" class="text-link">Disk tab</button> (API 1.33+).</p>
+            <p class="field-hint mt-3">Per-database sizes: <button type="button" wire:click="setTab('disk')" class="text-link">Disk tab</button>.</p>
 
         @elseif($activeTab === 'services')
             <div class="card card-flush">
@@ -549,7 +549,7 @@
 
         @elseif($activeTab === 'smtp')
             <x-cipi::alert type="info" class="mb-4" data-notifications-legacy>
-                This server manages only email from the panel. With <strong>Cipi 5.12</strong> and <strong>cipi/api 1.42</strong>
+                This server manages only email from the panel. With an up-to-date Cipi
                 (<code>cipi self-update &amp;&amp; cipi api update</code>) this tab manages every channel — Slack, Discord, Telegram, ntfy,
                 Pushover, Resend, SES, webhooks — and which events notify.
             </x-cipi::alert>
@@ -734,7 +734,7 @@
                     <div class="card text-muted">No packages returned.</div>
                 @endforelse
             </div>
-            <p class="field-hint mt-3">A closed catalog: the server installs only these entries — from Ubuntu's own repositories, or, marked <em>Upstream</em>, releases Cipi pins by version and SHA-256 (the <code>sec-*</code> scanners Hackly runs) — and removes only what no other package needs. Installing and removing from the panel needs Cipi 5.14.0+ (API 1.44+) and a token with <code>packages-manage</code>; on older servers run <code>cipi package install &lt;id&gt;</code> on the host.</p>
+            <p class="field-hint mt-3">A closed catalog: the server installs only these entries — from Ubuntu's own repositories, or, marked <em>Upstream</em>, releases Cipi pins by version and SHA-256 (the <code>sec-*</code> scanners Hackly runs) — and removes only what no other package needs. Installing and removing from the panel needs an up-to-date Cipi and a token with <code>packages-manage</code>; until then run <code>cipi package install &lt;id&gt;</code> on the host.</p>
 
         @elseif($activeTab === 'zt')
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">

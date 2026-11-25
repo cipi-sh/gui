@@ -257,7 +257,7 @@
                         <div>
                             <label for="bp-expaths">Paths to leave out <span class="text-subtle font-normal">— optional</span></label>
                             <input id="bp-expaths" type="text" wire:model="bpExcludePaths" class="font-mono" placeholder="storage/app/uploads, *.mp4">
-                            <p class="field-hint">Relative to the app, comma-separated; <code>shop:storage/app/uploads</code> for some apps only. A large uploads folder is better kept with rsync. Needs Cipi 5.13.</p>
+                            <p class="field-hint">Relative to the app, comma-separated; <code>shop:storage/app/uploads</code> for some apps only. A large uploads folder is better kept with rsync.</p>
                             @error('bpExcludePaths') <p class="field-error">{{ $message }}</p> @enderror
                         </div>
                     @endif

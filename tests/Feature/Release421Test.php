@@ -216,8 +216,9 @@ class Release421Test extends TestCase
     {
         Livewire::test(Settings::class)
             ->assertDontSee('1.31 ready')
-            ->assertSee('Built for Cipi API')
-            ->assertSee(Theme::API.'+')
+            // 4.7.0: no API version claimed at all — the panel is version-agnostic.
+            ->assertDontSee('Built for Cipi API')
+            ->assertDontSee(Theme::API.'+')
             ->assertSee('Each server shows the Cipi and API versions it runs');
 
         $this->assertMatchesRegularExpression('/^\d+\.\d+$/', Theme::API);

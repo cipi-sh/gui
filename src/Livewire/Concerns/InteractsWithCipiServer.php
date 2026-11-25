@@ -138,7 +138,7 @@ trait InteractsWithCipiServer
 
     protected function friendlyApiError(CipiApiException $e): string
     {
-        $message = self::plainCliText($e->getMessage());
+        $message = self::versionless(self::plainCliText($e->getMessage()));
 
         return match (true) {
             $message === 'Server Error' || str_starts_with($message, 'API request failed with status 500') => 'Panel API error (HTTP 500). On the managed server run: cipi self-update && cipi api update',
@@ -147,6 +147,25 @@ trait InteractsWithCipiServer
             $e->getStatusCode() === 403 && str_contains($message, 'IP not allowed') => $message.' — add this panel to the API IP whitelist on the server (cipi api ip-whitelist).',
             default => $message,
         };
+    }
+
+    /**
+     * A server's message without the version numbers it names: the panel
+     * says what to do, not which release of Cipi or of its API has it.
+     * "The firewall from the panel needs Cipi 5.14.0+ — this server runs Cipi
+     * 5.13.1" reads "The firewall from the panel needs an update of Cipi on
+     * this server (cipi self-update && cipi api update)".
+     */
+    public static function versionless(string $message): string
+    {
+        $update = 'an update of Cipi on this server (cipi self-update && cipi api update)';
+        $message = (string) preg_replace_callback('/\b(?i:needs|requires)\s+(?:Cipi(?: CLI)?|cipi\/api|API|the API)\s*(?:≥|>=)?\s*v?\d+(?:\.\d+){0,2}\+?(?:\s*(?:and|\/|or)\s*(?:Cipi(?: CLI)?|cipi\/api|API)\s*(?:≥|>=)?\s*v?\d+(?:\.\d+){0,2}\+?)*(?:\s*[—–-]+\s*this server runs (?:Cipi(?: CLI)?|cipi\/api|API)\s*v?\d+(?:\.\d+){0,2})?/u', fn (array $m) => (ctype_upper($m[0][0]) ? 'Needs ' : 'needs ').$update, $message);
+        $message = (string) preg_replace('/\b(?:Cipi(?: CLI)?|cipi\/api|API)\s*(?:≥|>=)?\s*v?\d+(?:\.\d+){0,2}\+?\s+is required/u', 'an update of Cipi is required', $message);
+        $message = (string) preg_replace('/\s*\((?:Cipi(?: CLI)?|cipi\/api|API)\s*(?:≥|>=)?\s*v?\d+(?:\.\d+){0,2}\+?(?:\s+required)?\)/u', '', $message);
+        $message = (string) preg_replace('/\b(Cipi(?: CLI)?|cipi\/api|API)\s*(?:≥|>=)\s*v?\d+(?:\.\d+){0,2}\+?/u', '$1', $message);
+        $message = (string) preg_replace('/\b(Cipi(?: CLI)?|cipi\/api|API) v?\d+\.\d+(?:\.\d+)?\+?/u', '$1', $message);
+
+        return $message;
     }
 
     /** True when the endpoint is missing (older API) or the token lacks the ability. */

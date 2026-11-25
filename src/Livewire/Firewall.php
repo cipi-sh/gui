@@ -18,7 +18,9 @@ use Livewire\Component;
  *    what the panel or `cipi firewall allow` opened, blocking an address;
  *  - fail2ban: failed SSH logins before a ban, the banned addresses, unban;
  *  - CrowdSec: on/off (jobs), its allowlist, its decisions (unbanned with the
- *    same button as fail2ban's).
+ *    same button as fail2ban's);
+ *  - the visitor's address behind Cloudflare (`cipi nginx real-ip`): on,
+ *    Cloudflare's ranges fetched again, off — what fail2ban and CrowdSec ban.
  *
  * Reading needs a level on the server; changing needs `manage`. What keeps the
  * server reachable — its SSH port, 80, 443, a Zero Trust lock, the panel's own
@@ -244,6 +246,45 @@ class Firewall extends Component
         }
 
         $this->change(fn (CipiApiClient $api) => $api->firewallUnban($ip), 'Unbanned '.$ip.'.');
+    }
+
+    // ── The visitor's address behind Cloudflare ───────────────────────
+
+    public function enableRealIp(): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
+        $was = (bool) ($this->firewall['real_ip']['enabled'] ?? false);
+        $this->change(fn (CipiApiClient $api) => $api->firewallRealIpEnable(), $was
+            ? 'Cloudflare\'s ranges fetched again.'
+            : 'nginx now takes the visitor\'s address from Cloudflare.');
+    }
+
+    public function refreshRealIp(): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
+        $this->change(fn (CipiApiClient $api) => $api->firewallRealIpRefresh(), 'Cloudflare\'s ranges fetched again.');
+    }
+
+    /** Only what the server says may be turned off: on, and kept by this setting alone (not Zero Trust). */
+    public function disableRealIp(): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
+        if (! ($this->firewall['real_ip']['can_disable'] ?? false)) {
+            $this->dispatch('notify', type: 'error', message: 'This is not turned off from the panel.');
+
+            return;
+        }
+
+        $this->change(fn (CipiApiClient $api) => $api->firewallRealIpDisable(), 'nginx sees the address of each connection again.');
     }
 
     // ── CrowdSec ──────────────────────────────────────────────────────

@@ -476,7 +476,7 @@ class ServerManage extends Component
                 return;
             }
 
-            $message = 'This server cannot install or remove packages from the panel yet: it needs Cipi 5.14.0+ and cipi/api 1.44+ (cipi self-update && cipi api update). Until then: cipi package install <id> on the server.';
+            $message = 'This server cannot install or remove packages from the panel yet: it needs an up-to-date Cipi (cipi self-update && cipi api update). Until then: cipi package install <id> on the server.';
             $this->error = $message;
             $this->dispatch('notify', type: 'error', message: $message);
         }

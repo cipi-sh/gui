@@ -475,7 +475,67 @@ namespace {
     $check(str_contains((string) file_get_contents($root.'/config/cipi-gui.php'), "'proxies-view', 'proxies-manage', 'nginx-view', 'nginx-manage',"), 'the token abilities include nginx-view and nginx-manage');
     $check(str_contains((string) file_get_contents($root.'/dev/demo/api/index.php'), "case \$sub === '/nginx' && \$method === 'PUT':"), 'demo API: an app\'s nginx directives');
 
-    $check((bool) preg_match("/VERSION = '4\\.6\\.\\d+'/", $theme) && str_contains($theme, "API = '1.44'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.6.0]'), 'version 4.6.0 for API 1.44');
+    $check(version_compare((string) (preg_match("/VERSION = '([0-9.]+)'/", $theme, $vm) ? $vm[1] : '0'), '4.6.0', '>=') && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.6.0]'), 'version 4.6.0+ (changelog 4.6.0)');
+
+    echo "--- 4.7.0: Cloudflare real IP, events per channel, MySQL on 3306, version-agnostic text, the heartbeat field\n";
+    $fwView = (string) file_get_contents($root.'/resources/views/livewire/firewall.blade.php');
+    $fwComp = (string) file_get_contents($root.'/src/Livewire/Firewall.php');
+    $check(str_contains($fwView, 'data-firewall-real-ip') && str_contains($fwView, 'wire:click="enableRealIp"') && str_contains($fwView, 'wire:click="refreshRealIp"') && str_contains($fwView, 'wire:click="disableRealIp"'), 'Firewall tab: the Cloudflare real IP card — on, fetch the ranges again, off');
+    $check(str_contains($fwView, "@if(! empty(\$rip['can_disable']))") && str_contains($fwView, "! empty(\$rip['bans_active'])") && str_contains($fwView, 'data-real-ip-unsupported'), '…off only when the server says it may be, the warning when fail2ban or CrowdSec run, a word for an older server');
+    $check(str_contains($fwComp, "if (! (\$this->firewall['real_ip']['can_disable'] ?? false)) {") && substr_count($fwComp, "serverAllowed(Access::MANAGE") >= 12, '…the component checks can_disable and Manage on every action');
+    $check(str_contains($client, "firewallChange('put', '/firewall/real-ip', [])") && str_contains($client, "firewallChange('delete', '/firewall/real-ip', [])") && str_contains($client, "firewallChange('post', '/firewall/real-ip/refresh', [])"), 'the client: the real-ip routes');
+    $check(str_contains((string) file_get_contents($root.'/dev/demo/api/index.php'), "'real_ip' => ['enabled' => false"), 'demo API: real_ip');
+
+    $N = \CipiGui\Support\Notifications::class;
+    $cats = [['id' => 'security', 'label' => 'Security'], ['id' => 'deploy', 'label' => 'Deploy']];
+    $check($N::events(['events' => null]) === null && $N::events(['events' => []]) === null && $N::events(['events' => ['deploy', 'all']]) === null && $N::events([]) === null, 'events: null, [], a list with all, none — everything');
+    $check($N::events(['events' => ['security', 'urgent', 'security', 'Bad Id', 7]]) === ['security', 'urgent'], 'events: selectors only, once each');
+    $check($N::eventsLabel(['events' => ['urgent', 'security', 'backup_fail']], $cats) === 'Urgent, Security, backup_fail' && $N::eventsLabel(['events' => null], $cats) === 'Everything', 'events: labels for people');
+    $nView = (string) file_get_contents($root.'/resources/views/livewire/notifications.blade.php');
+    $nComp = (string) file_get_contents($root.'/src/Livewire/Notifications.php');
+    $check(str_contains($nView, 'data-channel-events-form') && str_contains($nView, "wire:model=\"formEvents.{{ N::URGENT }}\"") && str_contains($nView, '<th>Receives</th>') && str_contains($nView, '@if($this->supportsEvents())'), 'Notifications: what each channel receives — the column and the form, only where the server keeps it');
+    $check(str_contains($nComp, "\$payload['events'] = \$events;") && str_contains($nComp, "'Choose at least one kind of event — or Everything.'") && str_contains($nComp, '$this->formEventsExtra'), '…sent only when it changed, never empty, single triggers set at the server kept');
+
+    $dbComp = (string) file_get_contents($root.'/src/Livewire/Databases.php');
+    $dbView = (string) file_get_contents($root.'/resources/views/livewire/databases.blade.php');
+    $check(str_contains($dbComp, "'MariaDB / MySQL'") && str_contains($dbComp, "\$engineCards[\$engine]['label'] = \$engine === 'mariadb' ? \$mysqlLabel") && substr_count($dbView, "{{ \$card['label'] }}") === 2 && str_contains($dbView, '{{ $mysqlLabel }} and PostgreSQL'), 'Databases: the filter, the card and the intro say MySQL where port 3306 runs it (both names across a fleet with both)');
+    eval('namespace CipiGui\\Livewire\\Probe; class D { '.(preg_match('/public static function isClientNoise\(string \$name\): bool\s*\{.*?\n    \}/s', $dbComp, $mm) ? $mm[0] : '').' }');
+    $check(\CipiGui\Livewire\Probe\D::isClientNoise('mysql: [Warning] Using a password on the command line interface can be insecure.') && \CipiGui\Livewire\Probe\D::isClientNoise('WARNING: database "x" has a collation version mismatch') && ! \CipiGui\Livewire\Probe\D::isClientNoise('mysql_archive') && ! \CipiGui\Livewire\Probe\D::isClientNoise('shop'), 'Databases: a client\'s warning is not a database, a name like mysql_archive is');
+
+    $concern = (string) file_get_contents($root.'/src/Livewire/Concerns/InteractsWithCipiServer.php');
+    eval('namespace CipiGui\\Livewire\\Probe; class V { '.(preg_match('/public static function versionless\(string \$message\): string\s*\{.*?\n    \}/s', $concern, $mm) ? $mm[0] : '').' }');
+    $V = \CipiGui\Livewire\Probe\V::class;
+    $check($V::versionless('The firewall from the panel needs Cipi 5.14.0+ — this server runs Cipi 5.13.1') === 'The firewall from the panel needs an update of Cipi on this server (cipi self-update && cipi api update)', "versionless: the API's \"needs Cipi x+ — this server runs Cipi y\"");
+    $check($V::versionless('cipi notification status --json returned no JSON (Cipi CLI ≥ 5.12.0 required)') === 'cipi notification status --json returned no JSON' && $V::versionless('PHP 8.4 is not installed') === 'PHP 8.4 is not installed' && ! preg_match('/\d+\.\d+/', $V::versionless('This server cannot edit nginx directives yet: Cipi 5.14.0+ is required (cipi self-update).')), 'versionless: a version in brackets or "is required" goes, PHP versions stay');
+    $check(str_contains($concern, '$message = self::versionless(self::plainCliText($e->getMessage()));'), "friendlyApiError: the server's messages without versions");
+
+    // No user-facing text names a version of Cipi or of its API: comments aside, nothing like "API 1.39+" or "Cipi 5.14.0".
+    $hits = [];
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root.'/resources/views', FilesystemIterator::SKIP_DOTS)) as $f) {
+        foreach (file((string) $f) as $i => $line) {
+            $code = (string) preg_replace('/\{\{--.*?--\}\}/', '', $line);
+            if (preg_match('/^\s*(\{\{--|\/\/|\*)/', $code)) {
+                continue;
+            }
+            if (preg_match('/\b(API|Cipi(?: CLI)?|cipi\/api|cipi\/gui)\s*(?:≥|>=)?\s*v?\d+\.\d+(?:\.\d+)?\+?/', $code)) {
+                $hits[] = basename((string) $f).':'.($i + 1);
+            }
+        }
+    }
+    foreach (glob($root.'/src/Livewire/*.php') as $f) {
+        foreach (file($f) as $i => $line) {
+            if (! preg_match('/^\s*(\/\/|\*|\/\*)/', $line) && preg_match("/'[^']*\b(API|Cipi|cipi\/api)\s*(?:≥|>=)?\s*\d+\.\d+[^']*'/", $line)) {
+                $hits[] = basename($f).':'.($i + 1);
+            }
+        }
+    }
+    $check($hits === [], 'no version of Cipi or of its API in what the panel shows'.($hits ? ': '.implode(', ', $hits) : ''));
+    $check(! str_contains((string) file_get_contents($root.'/src/Livewire/Settings.php'), "'Built for Cipi API'") && ! str_contains((string) file_get_contents($root.'/resources/views/livewire/servers.blade.php'), 'abilities the panel uses with API'), 'Settings claims no API version; the token command names none');
+
+    $ms = (string) file_get_contents($root.'/resources/views/partials/metrics-settings.blade.php');
+    $check(str_contains($ms, '<label class="label" for="m-hb">Heartbeat URL</label>') && str_contains($ms, '<label class="label" for="m-hb-every">Every</label>') && str_contains($ms, '<div class="flex items-start gap-2">') && ! str_contains($ms, 'class="input-group"'), 'Metrics: the heartbeat is a field like the retention\'s — labelled URL and interval on the line of their inputs');
+
+    $check((bool) preg_match("/VERSION = '4\\.7\\.\\d+'/", $theme) && str_contains($theme, "API = '1.45'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.7.0]'), 'version 4.7.0 for API 1.45');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);
