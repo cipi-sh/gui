@@ -132,8 +132,13 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Theme assets (bump after CSS changes to bust browser cache)
+    | Theme assets
     |--------------------------------------------------------------------------
+    |
+    | Not read by the panel, kept for configs that publish it. A CSS change
+    | needs no bump: the stylesheet is inlined in every page, and its md5
+    | (Theme::fingerprint) clears the compiled views when it changes.
+    |
     */
     'assets_version' => '9',
 

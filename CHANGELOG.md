@@ -35,6 +35,7 @@ Two-factor authentication an admin can require for every account, and the firewa
 
 - `TwoFactorService::qrCodeSvg()` draws the QR code for Settings and the setup page; `TwoFactorService::setupRequired()`.
 - `Theme::VERSION` 4.6.0, `Theme::API` 1.44.
+- `config/cipi-gui.php`: `assets_version` said to bump it after a CSS change; nothing reads it. The stylesheet is inlined and fingerprinted (`Theme::fingerprint`), so a CSS change reaches the browser without a bump — the comment says so now.
 
 ## [4.5.1] — 2026-11-24
 
