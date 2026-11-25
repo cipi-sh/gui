@@ -445,13 +445,14 @@ class ServerManage extends Component
             return;
         }
 
-        $this->startJob('Install '.$id, fn (CipiApiClient $api) => $api->installPackage($id));
+        $label = ! empty($pkg['outdated']) && ! empty($pkg['version']) ? 'Update '.$id.' to '.$pkg['version'] : 'Install '.$id;
+        $this->startJob($label, fn (CipiApiClient $api) => $api->installPackage($id));
     }
 
     public function removePackage(string $id): void
     {
         $pkg = $this->knownPackage($id);
-        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || $pkg === null || (empty($pkg['installed']) && empty($pkg['partial']))) {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || $pkg === null || (empty($pkg['installed']) && empty($pkg['partial']) && empty($pkg['outdated']))) {
             return;
         }
 

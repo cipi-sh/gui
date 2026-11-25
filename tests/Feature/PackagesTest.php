@@ -37,10 +37,15 @@ class PackagesTest extends TestCase
                     'binaries' => [], 'missing' => ['libnss3', 'libgbm1', 'fonts-liberation'], 'installed' => false, 'partial' => false],
                 ['id' => 'ffmpeg', 'packages' => ['ffmpeg'], 'description' => 'Audio/video transcoding', 'kind' => 'tools',
                     'binaries' => ['ffmpeg', 'ffprobe'], 'missing' => ['ffmpeg'], 'installed' => false, 'partial' => false],
+                ['id' => 'sec-zap', 'packages' => ['openjdk-21-jre-headless'], 'description' => 'OWASP ZAP for Hackly', 'kind' => 'tools',
+                    'binaries' => ['zap.sh'], 'missing' => [], 'installed' => false, 'partial' => false,
+                    'source' => 'upstream', 'version' => '2.17.0', 'installed_version' => '2.16.1', 'outdated' => true],
             ]]], 200],
             'POST /api/packages/browsershot' => $job,
             'POST /api/packages/image-optimizers' => $job,
             'DELETE /api/packages/imagemagick' => $job,
+            'POST /api/packages/sec-zap' => $job,
+            'DELETE /api/packages/sec-zap' => $job,
         ];
 
         Http::fake(function (Request $request) {
@@ -89,6 +94,21 @@ class PackagesTest extends TestCase
 
         $page->call('dismissJob')->call('removePackage', 'imagemagick');
         $this->assertSame(1, $this->sent('DELETE', '/api/packages/imagemagick'));
+    }
+
+    #[Test]
+    public function an_upstream_entry_shows_its_pinned_version_and_updates(): void
+    {
+        $page = $this->tab()
+            ->assertSee('Upstream 2.17.0')->assertSee('Update available')
+            ->assertSee('2.16.1 is installed; this Cipi pins 2.17.0.')
+            ->assertSee('Update to 2.17.0');
+
+        $page->call('installPackage', 'sec-zap');                        // outdated: install updates it
+        $this->assertSame(1, $this->sent('POST', '/api/packages/sec-zap'));
+
+        $page->call('dismissJob')->call('removePackage', 'sec-zap');      // and it may be removed
+        $this->assertSame(1, $this->sent('DELETE', '/api/packages/sec-zap'));
     }
 
     #[Test]

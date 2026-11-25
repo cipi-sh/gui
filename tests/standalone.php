@@ -334,6 +334,7 @@ namespace {
     $pkgTab = (string) (preg_match("/@elseif\(\\\$activeTab === 'packages'\)(.*?)@elseif\(\\\$activeTab === 'zt'\)/s", $smv, $pm) ? $pm[1] : '');
     $check($pkgTab !== '' && ! str_contains($pkgTab, 'Read-only by design') && str_contains($pkgTab, 'wire:click="installPackage(@js($pkgId))" data-confirm=') && str_contains($pkgTab, 'wire:click="removePackage(@js($pkgId))" data-confirm=') && str_contains($pkgTab, '@if($canManage && $pkgId !== \'\')'), 'the packages tab: Install and Remove, confirmed, only with manage access');
     $check(str_contains($pkgTab, "\$pkg['binaries']") && str_contains($pkgTab, "\$pkg['missing']") && str_contains($pkgTab, '>Libraries</span>'), 'it shows the commands, what is missing, and which entries are libraries');
+    $check(str_contains($pkgTab, '>Upstream{{') && str_contains($pkgTab, "'Update to '.\$pkgVersion") && str_contains($pkgTab, '@if($pkgInstalled || $pkgPartial || $pkgOutdated)') && str_contains($sm, "empty(\$pkg['outdated'])"), 'upstream entries: their pinned version, Update when outdated, removable');
     $missing = [];
     preg_match_all('/class="([^"]*)"/', $pkgTab, $cm);
     foreach ($cm[1] as $list) {
@@ -345,7 +346,7 @@ namespace {
     }
     $check($missing === [], 'every class of the packages tab is in the stylesheet'.($missing ? ' — '.implode(', ', array_unique($missing)) : ''));
     $fx = (string) file_get_contents($root.'/dev/demo/api/fixtures.php');
-    $check(substr_count($fx, "        ['") >= 11 && str_contains($fx, "['browsershot', [") && str_contains($fx, "['tesseract', ["), 'the demo lists the whole 5.14.0 catalog');
+    $check(substr_count($fx, "        ['") >= 20 && str_contains($fx, "['browsershot', [") && str_contains($fx, "['tesseract', [") && str_contains($fx, "['sec-nuclei', [], ['nuclei']") && str_contains($fx, "'sec-zap' => '2.16.1'"), 'the demo lists the whole 5.14.0 catalog, sec entries and an outdated one included');
 
     $check((bool) preg_match("/VERSION = '4\\.6\\.\\d+'/", $theme) && str_contains($theme, "API = '1.44'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.6.0]'), 'version 4.6.0 for API 1.44');
 

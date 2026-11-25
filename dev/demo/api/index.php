@@ -269,7 +269,7 @@ function handle(string $method, string $route, array $body, array $query, string
         if ($method === 'POST' && $entry['installed']) {
             throw new DemoHttpError(409, "{$id} is already installed");
         }
-        if ($method === 'DELETE' && ! $entry['installed'] && ! $entry['partial']) {
+        if ($method === 'DELETE' && ! $entry['installed'] && ! $entry['partial'] && empty($entry['outdated'])) {
             throw new DemoHttpError(409, "{$id} is not installed");
         }
 
@@ -1195,14 +1195,26 @@ function runJob(array &$s, string $type, array $p): array
             $apt = [];
             foreach ($s['packages'] as &$pkg) {
                 if ($pkg['id'] === $p['package']) {
-                    $apt = $install ? ($pkg['missing'] ?: $pkg['packages']) : $pkg['packages'];
+                    $upstream = ($pkg['source'] ?? 'ubuntu') === 'upstream';
+                    $apt = $install ? ($upstream ? $pkg['packages'] : ($pkg['missing'] ?: $pkg['packages'])) : $pkg['packages'];
                     $pkg['installed'] = $install;
                     $pkg['partial'] = false;
-                    $pkg['missing'] = $install ? [] : $pkg['packages'];
+                    $pkg['missing'] = $install ? [] : ($upstream ? $pkg['binaries'] : $pkg['packages']);
+                    if ($upstream) {
+                        $pkg['installed_version'] = $install ? $pkg['version'] : null;
+                        $pkg['outdated'] = false;
+                        $version = $pkg['version'];
+                    }
                 }
             }
             unset($pkg);
             $list = implode(' ', $apt);
+
+            if (isset($version)) {
+                return $install
+                    ? [true, "→ Downloading {$p['package']} {$version}...\n[INFO] SHA-256 matches the pin\n\n✓ {$p['package']} {$version} installed", ['package' => $p['package'], 'version' => $version, 'installed' => true]]
+                    : [true, "→ Removing {$p['package']}\n\n✓ {$p['package']} removed", ['package' => $p['package'], 'removed' => true, 'apt' => []]];
+            }
 
             return $install
                 ? [true, "→ Installing {$p['package']}: {$list}\n  ✓ apt packages\n\n✓ {$p['package']} installed", ['package' => $p['package'], 'installed' => true]]

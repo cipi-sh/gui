@@ -17,9 +17,10 @@ $date = fn (int $ts): string => gmdate('Y-m-d', $ts);
 
 /**
  * The closed catalog as `cipi package list --json` returns it (Cipi 5.14.0):
- * $installed are complete, $partial maps an id to the apt packages it lacks.
+ * $installed are complete, $partial maps an id to the apt packages it lacks,
+ * $outdated an upstream id to the older version installed.
  */
-$packageCatalog = function (array $installed = [], array $partial = []): array {
+$packageCatalog = function (array $installed = [], array $partial = [], array $outdated = []): array {
     $catalog = [
         ['image-optimizers', ['jpegoptim', 'optipng', 'pngquant', 'gifsicle', 'webp'], ['jpegoptim', 'optipng', 'pngquant', 'gifsicle', 'cwebp'], 'Image optimisers for spatie/laravel-image-optimizer'],
         ['avif', ['libavif-bin'], ['avifenc'], 'AVIF encoder (avifenc) for spatie/laravel-image-optimizer'],
@@ -32,17 +33,30 @@ $packageCatalog = function (array $installed = [], array $partial = []): array {
         ['libreoffice', ['libreoffice-writer-nogui', 'libreoffice-calc-nogui'], ['soffice'], 'Headless LibreOffice: DOCX, XLSX and ODT to PDF (soffice --convert-to)'],
         ['pandoc', ['pandoc'], ['pandoc'], 'Document conversion (Markdown, HTML, DOCX, ODT, EPUB) for ueberdosis/pandoc'],
         ['tesseract', ['tesseract-ocr', 'tesseract-ocr-eng', 'tesseract-ocr-ita', 'tesseract-ocr-deu', 'tesseract-ocr-fra', 'tesseract-ocr-spa'], ['tesseract'], 'OCR for thiagoalessio/tesseract_ocr (English, Italian, German, French, Spanish)'],
+        ['sec-recon', ['nmap', 'bind9-dnsutils', 'whois'], ['nmap', 'dig', 'whois'], 'Port scanning, DNS and WHOIS for security scanners (Hackly target scans)'],
+        ['sec-gitleaks', ['gitleaks'], ['gitleaks'], 'Secrets in source code (Gitleaks) for security scanners (Hackly repository scans)'],
+        ['sec-nuclei', [], ['nuclei'], 'Template-based vulnerability scanner (nuclei) for Hackly DAST, path discovery and pentests', '3.11.1'],
+        ['sec-zap', ['openjdk-21-jre-headless'], ['zap.sh'], 'OWASP ZAP, headless, with a Java runtime, for Hackly baseline and pentest scans', '2.17.0'],
+        ['sec-nikto', ['perl', 'libnet-ssleay-perl', 'libio-socket-ssl-perl', 'libxml-writer-perl'], ['nikto'], 'Nikto web server scanner, 2.6 with JSON reports (Ubuntu ships 2.1.5), for Hackly pentests', '2.6.1'],
+        ['sec-wpscan', ['ruby', 'libcurl4t64'], ['wpscan'], 'WPScan WordPress scanner for Hackly pentests of WordPress targets', '3.8.28'],
+        ['sec-trivy', [], ['trivy'], 'Trivy dependency and misconfiguration scanner for Hackly repository scans (SCA)', '0.76.2'],
+        ['sec-semgrep', ['python3-venv'], ['semgrep'], 'Semgrep static analysis for Hackly repository scans (SAST)', '1.185.0'],
+        ['sec-checkov', ['python3-venv'], ['checkov'], 'Checkov infrastructure-as-code scanner for Hackly repository scans', '3.3.26'],
     ];
 
-    return array_map(function (array $row) use ($installed, $partial): array {
+    return array_map(function (array $row) use ($installed, $partial, $outdated): array {
         [$id, $apt, $bins, $description] = $row;
+        $version = $row[4] ?? null;
         $done = in_array($id, $installed, true);
-        $missing = $done ? [] : ($partial[$id] ?? $apt);
+        $old = $version !== null && ! $done ? ($outdated[$id] ?? null) : null;
+        $missing = $done || $old !== null ? [] : ($version !== null ? $bins : ($partial[$id] ?? $apt));
 
         return [
             'id' => $id, 'packages' => $apt, 'description' => $description,
             'kind' => $bins === [] ? 'libraries' : 'tools', 'binaries' => $bins,
-            'missing' => $missing, 'installed' => $done, 'partial' => ! $done && isset($partial[$id]),
+            'missing' => $missing, 'installed' => $done, 'partial' => ! $done && $version === null && isset($partial[$id]),
+            'source' => $version === null ? 'ubuntu' : 'upstream', 'version' => $version,
+            'installed_version' => $done ? $version : $old, 'outdated' => $old !== null,
         ];
     }, $catalog);
 };
@@ -643,7 +657,7 @@ return [
         ],
         'smtp' => ['configured' => false, 'enabled' => false, 'host' => null, 'port' => null, 'user' => null, 'from' => null, 'to' => null, 'tls' => null],
         'search' => ['installed' => false, 'running' => false, 'apps' => []],
-        'packages' => $packageCatalog(),
+        'packages' => $packageCatalog(['sec-recon', 'sec-gitleaks', 'sec-nuclei', 'sec-trivy'], [], ['sec-zap' => '2.16.1']),
         'monitor' => [
             'reminder_minutes' => 240,
             'checks' => [

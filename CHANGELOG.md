@@ -26,9 +26,10 @@ Two-factor authentication an admin can require for every account, the firewall o
   - Reading needs a level on the server, changing needs Manage. Every action takes only what the page lists — a removable rule, a ban, a block, an allowlist entry — and the server refuses what keeps it reachable whatever is sent: its SSH port, 80, 443, a Zero Trust lock, the panel's own address. An older server shows *not available* with what to update.
 - `firewall-view` and `firewall-manage` in the token command on Connections.
 - Demo API: the firewall, with its jobs.
-- **Packages tab: install and remove** — Cipi 5.14.0, cipi/api 1.44, ability `packages-manage`. The tab was read-only; it now lists the server's whole catalog, eleven entries in 5.14.0 (image optimisers, AVIF, ffmpeg, ImageMagick, poppler-utils, **browsershot**, CJK fonts, pdftk, headless LibreOffice, pandoc, Tesseract OCR), each with:
+- **Packages tab: install and remove** — Cipi 5.14.0, cipi/api 1.44, ability `packages-manage`. The tab was read-only; it now lists the server's whole catalog, twenty entries in 5.14.0 (image optimisers, AVIF, ffmpeg, ImageMagick, poppler-utils, **browsershot**, CJK fonts, pdftk, headless LibreOffice, pandoc, Tesseract OCR, and the `sec-*` security scanners [Hackly](https://github.com/andreapollastri/hackly) runs), each with:
   - the commands it brings (`ffmpeg, ffprobe`), or **Libraries** for entries with none (browsershot, CJK fonts), and for browsershot that Chrome itself comes from Puppeteer in the app;
   - for a partial install, what is missing, and **Complete install**;
+  - for an *Upstream* entry — a release Cipi pins by version and SHA-256 (`sec-nuclei`, `sec-zap`, `sec-nikto`, `sec-wpscan`, `sec-trivy`, `sec-semgrep`, `sec-checkov`) — its version, and when an older one is installed *Update available* with **Update to x.y.z**;
   - **Install** and **Remove**, confirmed, as jobs (apt takes from seconds to a few minutes). Removing takes only what no other package on the server still needs; the server computes it.
   - Changing needs Manage on the server; every action takes only an id the page lists, and the server's catalog is closed whatever is sent. An older server answers with the Cipi version it needs.
 - `packages-manage` in the token command on Connections.

@@ -647,7 +647,7 @@ class CipiApiClient
     // ── Host insights (API 1.31+; packages install/remove 1.44+) ──────
 
     /**
-     * @return list<array{id: string, packages: list<string>, description?: string, kind?: string, binaries?: list<string>, missing?: list<string>, installed: bool, partial?: bool}>
+     * @return list<array{id: string, packages: list<string>, description?: string, kind?: string, binaries?: list<string>, missing?: list<string>, installed: bool, partial?: bool, source?: string, version?: ?string, installed_version?: ?string, outdated?: bool}>
      */
     public function listPackages(): array
     {
@@ -660,7 +660,7 @@ class CipiApiClient
         return is_array($data) ? array_values($data) : [];
     }
 
-    /** Install one entry of the server's closed catalog — a job (`package-install`; API 1.44+ / Cipi ≥ 5.14.0, `packages-manage`). */
+    /** Install one entry of the server's closed catalog, or update an outdated upstream one — a job (`package-install`; API 1.44+ / Cipi ≥ 5.14.0, `packages-manage`). */
     public function installPackage(string $id): array
     {
         return $this->post('/packages/'.rawurlencode($id));
