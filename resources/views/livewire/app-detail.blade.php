@@ -675,6 +675,50 @@
                             </div>
                         </form>
                     </div>
+
+                    {{-- The app's own nginx directives (cipi/api 1.44, Cipi 5.14.0). nginx configuration
+                         sits next to every other app's: the card is for whoever manages the server. --}}
+                    @if($canManageNginx)
+                        <div class="card lg:col-span-2" data-nginx-directives>
+                            <div class="card-header">
+                                <div>
+                                    <h2 class="card-title">Nginx directives</h2>
+                                    <p class="card-subtitle">Headers, caching, limits, rewrites, <code>location</code> blocks of this app's own. Cipi keeps them and includes them in the app's server block, so they survive every change of the vhost. Tested with <code>nginx -t</code> before nginx reloads: a refused text changes nothing.</p>
+                                </div>
+                                @if($nginxLoaded && trim($nginxSaved) !== '')
+                                    <span class="badge {{ $nginxActive ? 'badge-green' : 'badge-amber' }}">{{ $nginxActive ? 'Live' : 'Saved — not in the vhost now' }}</span>
+                                @endif
+                            </div>
+                            @if($nginxUnavailable)
+                                <p class="text-muted" data-nginx-unavailable>{{ $nginxUnavailable }}</p>
+                            @elseif(! $nginxLoaded)
+                                <div class="skeleton h-24 w-full"></div>
+                            @else
+                                <form wire:submit="saveNginx">
+                                    <label for="nginx-config" class="sr-only">Nginx directives of {{ $app['app'] }}</label>
+                                    <textarea id="nginx-config" wire:model="nginxConfig" class="font-mono text-xs" rows="{{ min(24, max(8, substr_count($nginxConfig, "\n") + 3)) }}"
+                                              spellcheck="false" autocomplete="off" autocapitalize="none"
+                                              placeholder="client_max_body_size 512M;&#10;&#10;location ^~ /downloads/ {&#10;    add_header Cache-Control &quot;public, max-age=31536000, immutable&quot;;&#10;}"></textarea>
+                                    @if($nginxReasons !== [])
+                                        <x-cipi::alert type="danger" title="Refused — nothing changed on the server" class="mt-3" data-nginx-refused>
+                                            <ul class="space-y-1 mt-1">
+                                                @foreach($nginxReasons as $reason)
+                                                    <li class="font-mono text-xs">{{ $reason }}</li>
+                                                @endforeach
+                                            </ul>
+                                        </x-cipi::alert>
+                                    @endif
+                                    <p class="field-hint">From the panel a subset of nginx's language is accepted: no <code>access_log</code> or <code>error_log</code> path, <code>include</code>, <code>listen</code>, <code>server_name</code>, <code>*_pass</code> or certificates; <code>root</code> and <code>alias</code> under <code>/home/{{ $app['app'] }}/</code>. Reverse proxies and redirects are the cards above. The whole language is <code>cipi nginx edit {{ $app['app'] }}</code> on the server.</p>
+                                    <div class="btn-group mt-3">
+                                        <button type="submit" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="saveNginx">Save and reload nginx</button>
+                                        @if(trim($nginxSaved) !== '')
+                                            <button type="button" wire:click="resetNginx" data-confirm="Remove the nginx directives of {{ $app['app'] }}?" class="btn btn-ghost btn-sm danger">Remove</button>
+                                        @endif
+                                    </div>
+                                </form>
+                            @endif
+                        </div>
+                    @endif
                 </div>
             @endif
 

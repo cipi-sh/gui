@@ -53,7 +53,7 @@ return [
         'apps-view', 'apps-create', 'apps-edit', 'apps-delete', 'apps-suspend', 'apps-basicauth',
         'apps-env', 'apps-auth', 'apps-artisan', 'apps-run', 'apps-deploy-config',
         'aliases-view', 'aliases-create', 'aliases-delete', 'www-manage',
-        'redirects-view', 'redirects-manage', 'proxies-view', 'proxies-manage',
+        'redirects-view', 'redirects-manage', 'proxies-view', 'proxies-manage', 'nginx-view', 'nginx-manage',
         'node-view', 'node-manage', 'node-runtimes-manage', 'search-view', 'search-manage',
         'deploy-manage', 'ssl-manage', 'dbs-view', 'dbs-create', 'dbs-manage',
         'php-view', 'php-manage', 'ssh-view', 'ssh-manage', 'services-view', 'services-manage',

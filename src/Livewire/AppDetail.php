@@ -136,6 +136,25 @@ class AppDetail extends Component
 
     public string $envNewKey = '';
 
+    /** The app's own nginx directives, as the form holds them. */
+    public string $nginxConfig = '';
+
+    /** …and as the server has them. */
+    public string $nginxSaved = '';
+
+    public bool $nginxLoaded = false;
+
+    /** In the app's vhost right now (not while the app is suspended). */
+    public bool $nginxActive = false;
+
+    public int $nginxMaxBytes = 32768;
+
+    /** Why the card cannot be used on this server; null when it can. */
+    public ?string $nginxUnavailable = null;
+
+    /** @var list<string> why the last text was refused, line by line */
+    public array $nginxReasons = [];
+
     /** The .env as text, while the text panel is open. */
     public string $envText = '';
 
@@ -507,7 +526,7 @@ class AppDetail extends Component
     {
         match ($tab) {
             'domains' => $this->loadWwwStatus(),
-            'routing' => $this->loadRouting(),
+            'routing' => [$this->loadRouting(), $this->loadNginx()],
             'deploy' => $this->loadDeployTab(),
             'yml' => $this->loadYml(),
             'env' => $this->loadEnv(),
@@ -962,6 +981,98 @@ class AppDetail extends Component
     }
 
     // ── Routing: app/path redirects + proxies ─────────────────────────
+
+    // ── nginx directives of the app ──────────────────────────────────
+
+    /**
+     * The directives are nginx configuration: a wrong line takes the site down,
+     * and they sit next to every other app's. So they are for whoever manages
+     * the server, not for an ability on one app.
+     */
+    public function canManageNginx(): bool
+    {
+        return Access::canManageServer($this->panelUser(), (int) ($this->serverId ?? 0));
+    }
+
+    public function loadNginx(): void
+    {
+        $this->nginxLoaded = false;
+        $this->nginxUnavailable = null;
+        $this->nginxReasons = [];
+        if (! $this->canManageNginx()) {
+            return;
+        }
+
+        try {
+            $this->syncNginx($this->client()->showNginx($this->appName));
+        } catch (CipiApiException $e) {
+            $this->nginxUnavailable = match (true) {
+                $e->getStatusCode() === 403 => 'The panel\'s token lacks the nginx-view and nginx-manage abilities: create a new one from Connections.',
+                in_array($e->getStatusCode(), [404, 405, 501], true) => 'Editing nginx directives needs cipi/api 1.44+ and Cipi 5.14.0+ on this server (cipi self-update && cipi api update).',
+                default => self::plainCliText($e->getMessage()),
+            };
+        }
+    }
+
+    /** @param  array<string, mixed>  $data */
+    protected function syncNginx(array $data): void
+    {
+        $this->nginxSaved = is_string($data['config'] ?? null) ? $data['config'] : '';
+        $this->nginxConfig = $this->nginxSaved;
+        $this->nginxActive = (bool) ($data['active'] ?? false);
+        $this->nginxMaxBytes = is_numeric($data['max_bytes'] ?? null) && (int) $data['max_bytes'] > 0 ? (int) $data['max_bytes'] : 32768;
+        $this->nginxReasons = [];
+        $this->nginxLoaded = true;
+    }
+
+    public function saveNginx(): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) ($this->serverId ?? 0))) {
+            return;
+        }
+
+        $this->nginxReasons = [];
+        $config = str_replace(["\r\n", "\r"], "\n", $this->nginxConfig);
+        if (strlen($config) > $this->nginxMaxBytes) {
+            $this->nginxReasons = ['The directives are too long ('.intdiv($this->nginxMaxBytes, 1024).' KB at most).'];
+
+            return;
+        }
+        if (preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $config)) {
+            $this->nginxReasons = ['The directives hold a control character.'];
+
+            return;
+        }
+
+        try {
+            $empty = trim($config) === '';
+            $this->syncNginx($empty ? $this->client()->resetNginx($this->appName) : $this->client()->updateNginx($this->appName, $config));
+            $this->dispatch('notify', type: 'success', message: $empty ? 'nginx directives removed.' : 'nginx directives saved — nginx reloaded with them.');
+        } catch (CipiApiException $e) {
+            if ($e->getStatusCode() === 422) {
+                // The text was refused — by the subset the API takes, or by nginx -t — and nothing changed.
+                $reasons = $e->getDetails()['reasons'] ?? [];
+                $this->nginxReasons = array_slice(array_map(fn ($r) => self::plainCliText((string) $r), $reasons ?: [$e->getMessage()]), 0, 25);
+
+                return;
+            }
+            $this->handleApiError($e);
+        }
+    }
+
+    public function resetNginx(): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) ($this->serverId ?? 0))) {
+            return;
+        }
+
+        try {
+            $this->syncNginx($this->client()->resetNginx($this->appName));
+            $this->dispatch('notify', type: 'success', message: 'nginx directives removed.');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
 
     public function loadRouting(): void
     {
@@ -2548,6 +2659,7 @@ class AppDetail extends Component
             'presetsCustom' => [Presets::ARTISAN => Presets::isCustom(Presets::ARTISAN), Presets::RUN => Presets::isCustom(Presets::RUN)],
             'canEditPresets' => Access::isAdmin($this->panelUser()),
             'isAdmin' => Access::isAdmin($this->panelUser()),
+            'canManageNginx' => $this->app !== null && $this->canManageNginx(),
             'envSuggestions' => AppEnv::SUGGESTIONS,
             'envMaxLength' => AppEnv::MAX_LENGTH,
         ])->title($this->appName.($server ? ' · '.$server->name : ''));

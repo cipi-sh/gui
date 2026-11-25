@@ -569,6 +569,25 @@ class CipiApiClient
         return $this->request('delete', "/apps/{$app}/proxies", data: ['prefix' => $prefix])['data'] ?? [];
     }
 
+    // An app's own nginx directives (API 1.44+ / Cipi ≥ 5.14.0). Synchronous:
+    // nginx is tested and reloaded before the answer; a refused text is a 422
+    // whose `reasons` say why, and nothing has changed.
+
+    public function showNginx(string $app): array
+    {
+        return $this->get("/apps/{$app}/nginx")['data'] ?? [];
+    }
+
+    public function updateNginx(string $app, string $config): array
+    {
+        return $this->put("/apps/{$app}/nginx", ['config' => $config])['data'] ?? [];
+    }
+
+    public function resetNginx(string $app): array
+    {
+        return $this->request('delete', "/apps/{$app}/nginx")['data'] ?? [];
+    }
+
     // ── Node apps + runtimes (API 1.31+ / Cipi ≥ 5.4.0) ───────────────
 
     /**

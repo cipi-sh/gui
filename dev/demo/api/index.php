@@ -529,6 +529,33 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
 
             return [200, ['data' => ['app' => $name, 'proxies' => $info['proxies']]]];
 
+        // An app's own nginx directives (cipi/api 1.44). The real server tests them with
+        // nginx -t and takes a subset of the language from the API; here a few words stand in.
+        case $sub === '/nginx' && $method === 'GET':
+            return [200, ['data' => nginxView($name, $info)]];
+        case $sub === '/nginx' && $method === 'PUT':
+            $config = str_replace(["\r\n", "\r"], "\n", (string) ($body['config'] ?? ''));
+            $reasons = [];
+            foreach (explode("\n", $config) as $i => $line) {
+                if (preg_match('/^\s*(access_log\s+\/|error_log|include|listen|server_name|\w+_pass)\b/', $line, $m)) {
+                    $reasons[] = 'line '.($i + 1).': `'.trim(preg_replace('/\s.*$/', '', trim($m[1]))).'` is not allowed from the API';
+                } elseif (preg_match('/^\s*boom\b/', $line)) {
+                    $reasons[] = 'line '.($i + 1).': unknown directive "boom"';
+                }
+            }
+            if ($reasons !== []) {
+                $first = str_contains($reasons[0], 'unknown directive') ? 'nginx refused the directives — nothing changed' : 'Not accepted from the API — the whole nginx language is for \'cipi nginx edit '.$name.'\' at the server';
+
+                return [422, ['error' => $first, 'reasons' => array_merge([$first], $reasons)]];
+            }
+            $info['nginx'] = trim($config) === '' ? '' : rtrim($config, "\n")."\n";
+
+            return [200, ['data' => nginxView($name, $info)]];
+        case $sub === '/nginx' && $method === 'DELETE':
+            $info['nginx'] = '';
+
+            return [200, ['data' => nginxView($name, $info)]];
+
         // Node
         case $sub === '/node' && $method === 'GET':
             return [200, ['data' => array_filter([
@@ -1458,6 +1485,13 @@ function publicApp(array $info, bool $show): array
     }
 
     return $out;
+}
+
+function nginxView(string $name, array $info): array
+{
+    $config = (string) ($info['nginx'] ?? '');
+
+    return ['app' => $name, 'config' => $config, 'bytes' => strlen($config), 'max_bytes' => 32768, 'active' => $config !== '' && empty($info['suspended']), 'suspended' => ! empty($info['suspended'])];
 }
 
 function wwwStatus(string $name, array $info): array

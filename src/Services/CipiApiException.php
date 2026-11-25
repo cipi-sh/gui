@@ -35,6 +35,10 @@ class CipiApiException extends Exception
         if (isset($body['errors']) && is_array($body['errors'])) {
             $details = $body['errors'];
         }
+        // A refused change says why line by line (nginx directives, cipi/api 1.44).
+        if (isset($body['reasons']) && is_array($body['reasons'])) {
+            $details = ($details ?? []) + ['reasons' => array_values(array_filter($body['reasons'], 'is_string'))];
+        }
 
         return new self($message, $status, $details);
     }

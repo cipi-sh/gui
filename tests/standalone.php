@@ -445,6 +445,36 @@ namespace {
     $demo = (string) file_get_contents($root.'/dev/demo/api/index.php');
     $check(str_contains($demo, 'function liveOutput(string $type, float $seconds): string') && str_contains((string) file_get_contents($root.'/dev/demo/api/fixtures.php'), "'subject' => 'Fix checkout tax rounding'") && str_contains((string) file_get_contents($root.'/dev/demo/api/fixtures.php'), "'ipv6' => '2001:db8:24::1'"), 'demo API: live output of running jobs, commit titles, an IPv6 address');
 
+    echo "--- 4.6.0: Routing → Nginx directives\n";
+    $ex = \CipiGui\Services\CipiApiException::fromResponse(422, ['error' => 'nginx refused the directives', 'reasons' => ['nginx refused the directives', 5, 'line 2: unknown directive "boom"']]);
+    $check($ex->getStatusCode() === 422 && $ex->getMessage() === 'nginx refused the directives' && $ex->getDetails() === ['reasons' => ['nginx refused the directives', 'line 2: unknown directive "boom"']]
+        && \CipiGui\Services\CipiApiException::fromResponse(422, ['message' => 'x', 'errors' => ['config' => ['too long']]])->getDetails() === ['config' => ['too long']],
+        'a refused change keeps its reasons; validation errors are what they were');
+    $client = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    $check(str_contains($client, 'return $this->get("/apps/{$app}/nginx")[\'data\'] ?? [];') && str_contains($client, 'return $this->put("/apps/{$app}/nginx", [\'config\' => $config])[\'data\'] ?? [];') && str_contains($client, 'return $this->request(\'delete\', "/apps/{$app}/nginx")[\'data\'] ?? [];'),
+        'client: GET, PUT and DELETE /api/apps/{app}/nginx');
+    $ad = (string) file_get_contents($root.'/src/Livewire/AppDetail.php');
+    $adv = $views[$root.'/resources/views/livewire/app-detail.blade.php'] ?? '';
+    $check((bool) preg_match('/function saveNginx\(\): void\s*\{\s*if \(! \$this->serverAllowed\(Access::MANAGE/', $ad) && (bool) preg_match('/function resetNginx\(\): void\s*\{\s*if \(! \$this->serverAllowed\(Access::MANAGE/', $ad)
+        && (bool) preg_match('/function loadNginx\(\): void\s*\{.*?if \(! \$this->canManageNginx\(\)\) \{\s*return;/s', $ad) && str_contains($ad, 'return Access::canManageServer($this->panelUser(), (int) ($this->serverId ?? 0));'),
+        'nginx directives are read and changed only by who manages the server — an ability on the app is not enough');
+    $check(str_contains($ad, "\$reasons = \$e->getDetails()['reasons'] ?? [];") && str_contains($ad, "'routing' => [\$this->loadRouting(), \$this->loadNginx()],"), 'a 422 becomes the list of reasons; the card loads with the Routing tab');
+    $ngCard = (string) (preg_match('/@if\(\$canManageNginx\)\s*<div class="card lg:col-span-2" data-nginx-directives>.*?<\/form>\s*@endif\s*<\/div>\s*@endif/s', $adv, $nm) ? $nm[0] : '');
+    $check($ngCard !== '' && str_contains($ngCard, '<form wire:submit="saveNginx">') && str_contains($ngCard, 'wire:click="resetNginx" data-confirm=') && str_contains($ngCard, 'data-nginx-refused') && str_contains($ngCard, 'data-nginx-unavailable'),
+        'Routing tab: the card, only for who manages the server; Remove is confirmed; a refusal and an older server are said');
+    $missing = [];
+    preg_match_all('/class="([^"]*)"/', $ngCard, $cm);
+    foreach ($cm[1] as $list) {
+        foreach (preg_split('/\s+/', trim((string) preg_replace('/\{\{.*?\}\}/', '', $list))) as $c) {
+            if ($c !== '' && preg_match('/^[a-z][a-z0-9:\/.-]*$/', $c) && ! preg_match('/\.'.preg_quote(str_replace([':', '.'], ['\\:', '\\.'], $c), '/').'(?=[\s,{:.>\[)])/', $css)) {
+                $missing[] = $c;
+            }
+        }
+    }
+    $check($missing === [] && str_contains($css, '.badge-amber') && str_contains($css, '.badge-green'), 'every class of the card is in the stylesheet'.($missing ? ' — '.implode(', ', array_unique($missing)) : ''));
+    $check(str_contains((string) file_get_contents($root.'/config/cipi-gui.php'), "'proxies-view', 'proxies-manage', 'nginx-view', 'nginx-manage',"), 'the token abilities include nginx-view and nginx-manage');
+    $check(str_contains((string) file_get_contents($root.'/dev/demo/api/index.php'), "case \$sub === '/nginx' && \$method === 'PUT':"), 'demo API: an app\'s nginx directives');
+
     $check((bool) preg_match("/VERSION = '4\\.6\\.\\d+'/", $theme) && str_contains($theme, "API = '1.44'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.6.0]'), 'version 4.6.0 for API 1.44');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";

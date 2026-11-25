@@ -2,7 +2,7 @@
 
 ## [4.6.0] — 2026-11-25
 
-Two-factor authentication an admin can require for every account, the firewall of each server — UFW, fail2ban, CrowdSec — from its page, its optional packages installed and removed from the panel, and the app page saying which user and which IP to connect to, the `.env` edited as text and a job's output while it runs. For Cipi 5.14.0 and cipi/api 1.44; the 2FA requirement and the app page need nothing on the servers.
+Two-factor authentication an admin can require for every account, the firewall of each server — UFW, fail2ban, CrowdSec — from its page, its optional packages installed and removed from the panel, and the app page saying which user and which IP to connect to, the `.env` edited as text, an app's nginx directives and a job's output while it runs. For Cipi 5.14.0 and cipi/api 1.44; the 2FA requirement and the app page need nothing on the servers.
 
 ### Added
 
@@ -41,6 +41,14 @@ Two-factor authentication an admin can require for every account, the firewall o
   - only an IP address and a user name ever reach the command — anything else is dropped (`AppDetail::serverIp()`, `AppDetail::sshCommand()`, `user` in `normalizeApp()`).
   - Whoever may view the app sees them, as they see the server's IP on the dashboard. The command is `ssh` on the default port: with another port, add `-p`.
 - Demo API: every app answers with its `user`.
+- **Routing tab: Nginx directives** — cipi/api 1.44, Cipi 5.14.0, abilities `nginx-view` / `nginx-manage`. The text an app adds to its own nginx server block (headers, caching, limits, rewrites, `location` blocks), which Cipi keeps and includes in the vhost:
+  - a card under the proxies with the text, **Save and reload nginx** and **Remove** (confirmed), and *Live* when the vhost includes it;
+  - saving is synchronous: the server tests with `nginx -t` before the reload. A refused text **changes nothing**: the card lists the reasons line by line (`line 2: unknown directive "boom"`, or the directive the API does not take) and keeps what you typed;
+  - from the panel, as from the API, a subset of nginx's language — no log path, `include`, `listen`, `server_name`, `*_pass`, certificates; the card says so, and where the whole language is (`cipi nginx edit <app>` on the server);
+  - **for whoever manages the server.** nginx configuration sits next to every other app's and a wrong line takes a site down: every ability on the app is not enough, the card is not drawn and its actions refuse (checked on each call, like the Packages tab);
+  - an older server says what it needs (cipi/api 1.44 and Cipi 5.14.0, or a new token); the rest of the tab works as before.
+- `nginx-view` and `nginx-manage` in the token command on Connections. `CipiApiException` keeps the `reasons` of a refused change.
+- Demo API: an app's nginx directives, with a refusal.
 - **Environment tab: the `.env` as text.** Variables that arrive as a block — from a README, a chat, another `.env` — no longer have to be typed one row at a time:
   - **Paste variables** takes `KEY=value` lines and splits them into the list: keys already there take the new value in place, new ones go to the end, nothing is removed;
   - **Edit as text** shows the whole list as text to edit by hand; what is applied replaces the list — a line taken out removes that key, the order of the lines becomes the order of the file;
