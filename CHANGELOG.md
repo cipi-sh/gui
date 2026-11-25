@@ -1,5 +1,76 @@
 # Changelog
 
+## [4.6.0] — 2026-11-25
+
+Two-factor authentication an admin can require for every account, the firewall of each server — UFW, fail2ban, CrowdSec — from its page, its optional packages installed and removed from the panel, and the app page saying which user and which IP to connect to, the `.env` edited as text, an app's nginx directives and a job's output while it runs. For Cipi 5.14.0 and cipi/api 1.44; the 2FA requirement and the app page need nothing on the servers.
+
+### Added
+
+- **Two-factor authentication required for every account** (Team → Two-factor authentication; setting `enforce_2fa`, off by default) — for policies that ask it of every account (ISO 27001, NIS2) without chasing people one by one:
+  - an account that signs in with a password and has no 2FA is taken to **its setup before anything else** — a page of its own, `/2fa/setup`: QR code, setup key, the first code to confirm, a way to sign out — and then to the page it had asked for;
+  - **a session already open** when the requirement is turned on is taken there at its next page; a Livewire action from a page left open is refused the same way (the 2FA middleware is now a persistent Livewire middleware — it also covers the code step of accounts that have 2FA);
+  - an invite link opens on the setup; `cipi gui reset-user` and **Reset 2FA** (below) send the account back to it at its next sign-in;
+  - while it is required, 2FA cannot be turned off in Settings: it can be **moved to a new device** (the old one works until a code of the new one checks out — also available when it is optional);
+  - **sign-ins through SSO are left to the identity provider's MFA**, as they always were: the panel never asks for its code after SSO, so it does not ask an SSO session to set one up either. The same account signing in with its password is asked;
+  - an admin turns it on only once their own session passes it (2FA on, or signed in through SSO) — otherwise the next page would take them to the setup too;
+  - Team shows the requirement, who has not set 2FA up yet (*Setup pending*; *Via SSO* for linked accounts) and, per account, **Reset 2FA** — after a lost phone, instead of `cipi gui reset-user` at the server. Not for your own account (Settings).
+  - `cipi compliance` (Cipi 5.14.0), control `gui_2fa`, reads the policy: required and everyone enrolled is a pass.
+- **Firewall tab** on the server page (`?tab=firewall`; `Livewire\Firewall`, a component of its own) — Cipi 5.14.0, cipi/api 1.44:
+  - at a glance: UFW active or not and its default policy, the ports always kept open (SSH, 80, 443), fail2ban and its threshold, CrowdSec, how many addresses are banned; the Zero Trust locks when there are;
+  - **rules** in UFW's order — port or range, protocol, action, source, IPv4/IPv6 — with *Kept open* on what keeps the server reachable, the Cipi feature that owns a rule (Zero Trust, Metrics, CrowdSec rescue) and **Remove** on what may be removed;
+  - **open a port** or a range, TCP or UDP, to everyone or to one address or range;
+  - **blocked addresses** — every port refused to them, ahead of every allow, until unblocked — with **Block** and **Unblock**;
+  - **banned now**: fail2ban's jails and CrowdSec's decisions in one list, an address once with everything that bans it, **Unban** lifting all of it;
+  - **SSH login attempts** before a ban, back to the default, and a warning when fail2ban still runs an older value or is not running;
+  - **CrowdSec**: enable (a job of a few minutes; what would stop it — RAM, a reverse proxy without real_ip — is said before trying, and the button waits), its bouncer and rescue listener, the addresses it never bans (add, remove), disable (a job; fail2ban stays).
+  - Reading needs a level on the server, changing needs Manage. Every action takes only what the page lists — a removable rule, a ban, a block, an allowlist entry — and the server refuses what keeps it reachable whatever is sent: its SSH port, 80, 443, a Zero Trust lock, the panel's own address. An older server shows *not available* with what to update.
+- `firewall-view` and `firewall-manage` in the token command on Connections.
+- Demo API: the firewall, with its jobs.
+- **Packages tab: install and remove** — Cipi 5.14.0, cipi/api 1.44, ability `packages-manage`. The tab was read-only; it now lists the server's whole catalog, twenty entries in 5.14.0 (image optimisers, AVIF, ffmpeg, ImageMagick, poppler-utils, **browsershot**, CJK fonts, pdftk, headless LibreOffice, pandoc, Tesseract OCR, and the `sec-*` security scanners [Hackly](https://github.com/andreapollastri/hackly) runs), each with:
+  - the commands it brings (`ffmpeg, ffprobe`), or **Libraries** for entries with none (browsershot, CJK fonts), and for browsershot that Chrome itself comes from Puppeteer in the app;
+  - for a partial install, what is missing, and **Complete install**;
+  - for an *Upstream* entry — a release Cipi pins by version and SHA-256 (`sec-nuclei`, `sec-zap`, `sec-nikto`, `sec-wpscan`, `sec-trivy`, `sec-semgrep`, `sec-checkov`) — its version, and when an older one is installed *Update available* with **Update to x.y.z**;
+  - **Install** and **Remove**, confirmed, as jobs (apt takes from seconds to a few minutes). Removing takes only what no other package on the server still needs; the server computes it.
+  - Changing needs Manage on the server; every action takes only an id the page lists, and the server's catalog is closed whatever is sent. An older server answers with the Cipi version it needs, and one whose API has no route for it yet (cipi/api before 1.44) gets what to update instead of "route not found".
+- `packages-manage` in the token command on Connections.
+- Demo API: the whole catalog, installed and removed as jobs.
+- **App page: the user and the server's IP** — the page showed the server's name and the app's home, never the two things an SFTP client or a terminal asks for:
+  - Overview → Details has **User** (the app's Linux user, the one that signs in over SSH and SFTP — on Cipi it is named after the app), **Server IP** and, made of the two, the **SSH** command (`ssh shop@203.0.113.24`); each copies itself with a click, like the IP on the server page;
+  - the IP is also in the header, next to the server's name, on every tab;
+  - the address is the one the panel already keeps for the server (typed on Connections, or read from the server's status on the dashboard): nothing more is asked of the server, and it works with every Cipi and API version. A server whose address the panel does not know yet says so, and no command is offered;
+  - only an IP address and a user name ever reach the command — anything else is dropped (`AppDetail::serverIp()`, `AppDetail::sshCommand()`, `user` in `normalizeApp()`).
+  - Whoever may view the app sees them, as they see the server's IP on the dashboard. The command is `ssh` on the default port: with another port, add `-p`.
+- Demo API: every app answers with its `user`.
+- **Routing tab: Nginx directives** — cipi/api 1.44, Cipi 5.14.0, abilities `nginx-view` / `nginx-manage`. The text an app adds to its own nginx server block (headers, caching, limits, rewrites, `location` blocks), which Cipi keeps and includes in the vhost:
+  - a card under the proxies with the text, **Save and reload nginx** and **Remove** (confirmed), and *Live* when the vhost includes it;
+  - saving is synchronous: the server tests with `nginx -t` before the reload. A refused text **changes nothing**: the card lists the reasons line by line (`line 2: unknown directive "boom"`, or the directive the API does not take) and keeps what you typed;
+  - from the panel, as from the API, a subset of nginx's language — no log path, `include`, `listen`, `server_name`, `*_pass`, certificates; the card says so, and where the whole language is (`cipi nginx edit <app>` on the server);
+  - **for whoever manages the server.** nginx configuration sits next to every other app's and a wrong line takes a site down: every ability on the app is not enough, the card is not drawn and its actions refuse (checked on each call, like the Packages tab);
+  - an older server says what it needs (cipi/api 1.44 and Cipi 5.14.0, or a new token); the rest of the tab works as before.
+- `nginx-view` and `nginx-manage` in the token command on Connections. `CipiApiException` keeps the `reasons` of a refused change.
+- Demo API: an app's nginx directives, with a refusal.
+- **Environment tab: the `.env` as text.** Variables that arrive as a block — from a README, a chat, another `.env` — no longer have to be typed one row at a time:
+  - **Paste variables** takes `KEY=value` lines and splits them into the list: keys already there take the new value in place, new ones go to the end, nothing is removed;
+  - **Edit as text** shows the whole list as text to edit by hand; what is applied replaces the list — a line taken out removes that key, the order of the lines becomes the order of the file;
+  - quotes, `export`, comments, blank lines, an inline ` # comment`, CRLF and the fence of a pasted code block are understood (`Support\EnvText`, read the way Laravel's dotenv reads a file and written the way `cipi app env --set` writes it); a line that is not `KEY=value`, an open quote or a value over several lines is refused with its line number;
+  - either way only the rows change: the page says how many keys were added, changed and removed, and **Save .env** sends them as it does for a row edited by hand.
+- **The overlay of a running job shows its output as it comes** — it said "output appears when the job finishes" while the deploy log moved on the page behind it. On cipi/api 1.44 every job (a deploy, an install, a backup) says what its command has printed so far, and the overlay follows its last 200 lines, staying on the newest unless you scroll up; the whole output replaces them when the job ends. A deploy on an older API (1.37–1.43) is followed through the last lines of `deploy.log`, which the page already read.
+- **Deploy tab: the title of each commit** under its release and short hash in the audit list (Cipi 5.14.0 reads it from the app's clone). An older server, or a commit its clone no longer has, shows the hash alone.
+- **Deploy pipeline: which worker hook applies.** `queue:restart` and `horizon:terminate` are both on by default and looked like a contradiction, since an app runs either queue workers or Horizon. Nothing was wrong with the deploys — `horizon:terminate` runs only where `laravel/horizon` is installed, and Cipi restarts the app's workers after every deploy anyway — but the page did not say so. It now says which of the two matters for this app (it reads `horizon` from the app), and the card of the other says *Skipped: no Horizon here*.
+- **Server page: Public IPv6**, when the server has one (cipi/api 1.44 `system.ipv6`) — for a domain's AAAA record, since every vhost listens on IPv6 too.
+- Demo API: running jobs print as they go, deploys have commit titles, one server has an IPv6 address, one app runs Horizon.
+
+### Fixed
+
+- **Fields that did not line up.** *Expected status* sat lower than *URL* in the healthcheck form: the row was aligned to the bottom, and the hint under the URL pushed its neighbour down. The same happened wherever a validation error appeared under one field of a row (the proxy form, *Disable 2FA*). Every such row — healthcheck, proxies, the two redirect forms, SSH login attempts, Node install, Disable 2FA — is now aligned on the labels, and what has no label (a button, a checkbox) takes `.field-action` to sit on the line of the inputs. `tests/standalone.php` checks that no view aligns fields to the bottom.
+- **Team → access editor: the abilities of each app were glued together** — “View☐ Deploy☐ Edit…”, each checkbox stuck to the label before it, rows wrapping anywhere. The editor used spacing utilities the panel's stylesheet does not have (`gap-x-3`, `gap-x-4`, `gap-y-1`, `sm:ml-auto`). Each app is now its name and domain, then its abilities as toggles of their own — spaced, wrapping cleanly on a phone, highlighted when on. The two roles (User, Admin) share the row instead of two thirds of it. `tests/standalone.php` checks that every class of the editor exists in the stylesheet.
+
+### Changed
+
+- `TwoFactorService::qrCodeSvg()` draws the QR code for Settings and the setup page; `TwoFactorService::setupRequired()`.
+- `Theme::VERSION` 4.6.0, `Theme::API` 1.44.
+- `config/cipi-gui.php`: `assets_version` said to bump it after a CSS change; nothing reads it. The stylesheet is inlined and fingerprinted (`Theme::fingerprint`), so a CSS change reaches the browser without a bump — the comment says so now.
+
 ## [4.5.1] — 2026-11-24
 
 ### Fixed

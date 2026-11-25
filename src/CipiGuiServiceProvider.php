@@ -54,6 +54,7 @@ class CipiGuiServiceProvider extends ServiceProvider
         Livewire::component('cipi-gui.log-viewer', \CipiGui\Livewire\LogViewer::class);
         Livewire::component('cipi-gui.metrics', \CipiGui\Livewire\Metrics::class);
         Livewire::component('cipi-gui.notifications', \CipiGui\Livewire\Notifications::class);
+        Livewire::component('cipi-gui.firewall', \CipiGui\Livewire\Firewall::class);
         Livewire::component('cipi-gui.settings', \CipiGui\Livewire\Settings::class);
         Livewire::component('cipi-gui.team', \CipiGui\Livewire\Team::class);
         // Parts of the layout that follow the data they show (see the classes).
@@ -73,8 +74,24 @@ class CipiGuiServiceProvider extends ServiceProvider
         }
 
         Route::aliasMiddleware('cipi-gui.2fa', EnsureTwoFactorVerified::class);
+        $this->registerPersistentMiddleware();
         Route::aliasMiddleware('cipi-gui.admin', EnsureAdmin::class);
         Route::aliasMiddleware('cipi-gui.noindex', PreventSearchIndexing::class);
+    }
+
+    /**
+     * Livewire runs a component's actions on its own endpoint, without the
+     * middleware of the page it is on — except those listed here. The 2FA
+     * check is one of them (4.6.0): a page left open since before 2FA was
+     * required, or before its code was given, cannot go on acting.
+     */
+    private function registerPersistentMiddleware(): void
+    {
+        $livewire = Livewire::getFacadeRoot();
+
+        if (is_object($livewire) && method_exists($livewire, 'addPersistentMiddleware')) {
+            $livewire->addPersistentMiddleware([EnsureTwoFactorVerified::class]);
+        }
     }
 
     private function registerRoutes(): void

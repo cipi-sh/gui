@@ -5,6 +5,7 @@ namespace CipiGui\Http\Controllers\Auth;
 use CipiGui\Services\Access;
 use CipiGui\Services\OidcClient;
 use CipiGui\Services\OidcException;
+use CipiGui\Services\TwoFactorService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -75,8 +76,9 @@ class SsoController
 
         Auth::login($user);
         $request->session()->regenerate();
-        // The identity provider is the authority for MFA; the panel's own 2FA step is not asked for again.
-        $request->session()->put('cipi_gui_2fa_verified', true);
+        // The identity provider is the authority for MFA; the panel's own 2FA step is not asked for again,
+        // and a panel that requires 2FA for everyone (4.6.0) does not ask an SSO session to set it up.
+        $request->session()->put(['cipi_gui_2fa_verified' => true, TwoFactorService::SSO_SESSION => true]);
 
         return redirect()->intended(route('cipi-gui.dashboard'));
     }

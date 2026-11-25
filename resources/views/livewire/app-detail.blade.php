@@ -20,6 +20,8 @@
             $isLaravel = $kind === 'laravel';
             $isSsr = $isNode && ($app['node_mode'] ?? '') === 'ssr';
             $repoUrl = $this->repositoryUrl();
+            // A page left open across an update of the panel still carries an app without `user`.
+            $appUser = (string) ($app['user'] ?? '');
         @endphp
 
         <x-cipi::page-header :title="$app['app']">
@@ -42,6 +44,7 @@
                     <a href="{{ $this->siteUrl() }}" target="_blank" rel="noopener" class="text-sm text-soft inline-flex items-center gap-1 ml-1">{{ $app['domain'] }} <x-cipi::icon name="external" class="h-3.5 w-3.5" /></a>
                     @if($server)
                         <a href="{{ route('cipi-gui.server-manage', ['serverId' => $server->id]) }}" class="text-sm text-soft inline-flex items-center gap-1 ml-1" title="Open the server this app runs on" data-server-link><x-cipi::icon name="server" class="h-3.5 w-3.5" /> {{ $server->name }}</a>
+                        @if($serverIp)<x-cipi::copyable :value="$serverIp" label="Copy server IP" class="font-mono text-xs text-soft" />@endif
                     @endif
                 </span>
             </x-slot:meta>
@@ -200,6 +203,28 @@
                             {{ $app['domain'] }}
                             @foreach($aliases as $alias)<br><span class="text-muted">{{ $alias }}</span>@endforeach
                         </dd>
+                        {{-- Where to connect and as whom: the app's Linux user, the address of its server. --}}
+                        <dt>User</dt>
+                        <dd>
+                            @if($appUser !== '')
+                                <x-cipi::copyable :value="$appUser" label="Copy user" class="font-mono text-xs" data-app-user /> <span class="text-xs text-muted">· SSH and SFTP</span>
+                            @else
+                                —
+                            @endif
+                        </dd>
+                        <dt>Server IP</dt>
+                        <dd>
+                            @if($serverIp)
+                                <x-cipi::copyable :value="$serverIp" label="Copy server IP" class="font-mono text-xs" data-server-ip />@if($server) <span class="text-xs text-muted">· {{ $server->name }}</span>@endif
+                            @else
+                                <span class="text-muted" data-server-ip-unknown>Not known yet</span>
+                                <span class="text-xs text-muted">· read from the server's status when the dashboard loads, or typed under @if($isAdmin)<a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>@else Connections by an admin @endif</span>
+                            @endif
+                        </dd>
+                        @if($sshCommand)
+                            <dt>SSH</dt>
+                            <dd><x-cipi::copyable :value="$sshCommand" label="Copy SSH command" class="font-mono text-xs" data-ssh-command /></dd>
+                        @endif
                         <dt>Home</dt><dd class="font-mono text-xs">/home/{{ $app['app'] }}</dd>
                         <dt>Created</dt><dd>{{ $app['created_at'] ?: '—' }}</dd>
                     </dl>
@@ -333,12 +358,12 @@
                     @if($healthUnsupported)
                         <p class="text-muted">Healthchecks need API 1.16+ / Cipi 5.0.7+ and the <code>health-view</code> / <code>health-manage</code> abilities.</p>
                     @else
-                        <form wire:submit="saveHealth" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                        <form wire:submit="saveHealth" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-start">
                             <div class="sm:col-span-3">
                                 <label for="health-url">URL</label>
                                 <input id="health-url" type="text" wire:model="healthUrl" placeholder="https://{{ $app['domain'] }}/up">
                                 @error('healthUrl') <p class="field-error">{{ $message }}</p> @enderror
-                                <p class="text-xs text-muted mt-1">Laravel answers <code>/up</code> only with the health route on (<code>bootstrap/app.php</code>: <code>health: '/up'</code>); without it the check gets a 404.</p>
+                                <p class="field-hint">Laravel answers <code>/up</code> only with the health route on (<code>bootstrap/app.php</code>: <code>health: '/up'</code>); without it the check gets a 404.</p>
                             </div>
                             <div>
                                 <label for="health-expect">Expected status</label>
@@ -523,7 +548,7 @@
                                 <input id="redirect-to" type="text" wire:model="redirectTo" placeholder="https://new.example.com">
                                 @error('redirectTo') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
-                            <div class="flex flex-wrap items-end gap-4">
+                            <div class="flex flex-wrap items-start gap-4">
                                 <div class="w-48">
                                     <label for="redirect-code">Status</label>
                                     <select id="redirect-code" wire:model="redirectCode">
@@ -532,7 +557,7 @@
                                         @endforeach
                                     </select>
                                 </div>
-                                <label class="check pb-2"><input type="checkbox" wire:model="redirectKeepPath"> Keep path and query</label>
+                                <label class="check field-action"><input type="checkbox" wire:model="redirectKeepPath"> Keep path and query</label>
                             </div>
                             <div class="btn-group">
                                 <button type="submit" class="btn btn-primary btn-sm">Save redirect</button>
@@ -579,7 +604,7 @@
                                     @error('pathRedirectTo') <p class="field-error">{{ $message }}</p> @enderror
                                 </div>
                             </div>
-                            <div class="flex flex-wrap items-end gap-4">
+                            <div class="flex flex-wrap items-start gap-4">
                                 <div class="w-32">
                                     <label for="pr-code">Status</label>
                                     <select id="pr-code" wire:model="pathRedirectCode">
@@ -588,8 +613,8 @@
                                         @endforeach
                                     </select>
                                 </div>
-                                <label class="check pb-2"><input type="checkbox" wire:model="pathRedirectKeepPath"> Keep path</label>
-                                <button type="submit" class="btn btn-secondary btn-sm ml-auto mb-1">Add redirect</button>
+                                <label class="check field-action"><input type="checkbox" wire:model="pathRedirectKeepPath"> Keep path</label>
+                                <button type="submit" class="btn btn-secondary field-action ml-auto">Add redirect</button>
                             </div>
                         </form>
                     </div>
@@ -627,7 +652,7 @@
                                 </table>
                             </div>
                         @endif
-                        <form wire:submit="addProxy" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                        <form wire:submit="addProxy" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-start">
                             <div>
                                 <label for="px-prefix">Prefix</label>
                                 <input id="px-prefix" type="text" wire:model="proxyPrefix" placeholder="/api/" class="font-mono">
@@ -650,6 +675,50 @@
                             </div>
                         </form>
                     </div>
+
+                    {{-- The app's own nginx directives (cipi/api 1.44, Cipi 5.14.0). nginx configuration
+                         sits next to every other app's: the card is for whoever manages the server. --}}
+                    @if($canManageNginx)
+                        <div class="card lg:col-span-2" data-nginx-directives>
+                            <div class="card-header">
+                                <div>
+                                    <h2 class="card-title">Nginx directives</h2>
+                                    <p class="card-subtitle">Headers, caching, limits, rewrites, <code>location</code> blocks of this app's own. Cipi keeps them and includes them in the app's server block, so they survive every change of the vhost. Tested with <code>nginx -t</code> before nginx reloads: a refused text changes nothing.</p>
+                                </div>
+                                @if($nginxLoaded && trim($nginxSaved) !== '')
+                                    <span class="badge {{ $nginxActive ? 'badge-green' : 'badge-amber' }}">{{ $nginxActive ? 'Live' : 'Saved — not in the vhost now' }}</span>
+                                @endif
+                            </div>
+                            @if($nginxUnavailable)
+                                <p class="text-muted" data-nginx-unavailable>{{ $nginxUnavailable }}</p>
+                            @elseif(! $nginxLoaded)
+                                <div class="skeleton h-24 w-full"></div>
+                            @else
+                                <form wire:submit="saveNginx">
+                                    <label for="nginx-config" class="sr-only">Nginx directives of {{ $app['app'] }}</label>
+                                    <textarea id="nginx-config" wire:model="nginxConfig" class="font-mono text-xs" rows="{{ min(24, max(8, substr_count($nginxConfig, "\n") + 3)) }}"
+                                              spellcheck="false" autocomplete="off" autocapitalize="none"
+                                              placeholder="client_max_body_size 512M;&#10;&#10;location ^~ /downloads/ {&#10;    add_header Cache-Control &quot;public, max-age=31536000, immutable&quot;;&#10;}"></textarea>
+                                    @if($nginxReasons !== [])
+                                        <x-cipi::alert type="danger" title="Refused — nothing changed on the server" class="mt-3" data-nginx-refused>
+                                            <ul class="space-y-1 mt-1">
+                                                @foreach($nginxReasons as $reason)
+                                                    <li class="font-mono text-xs">{{ $reason }}</li>
+                                                @endforeach
+                                            </ul>
+                                        </x-cipi::alert>
+                                    @endif
+                                    <p class="field-hint">From the panel a subset of nginx's language is accepted: no <code>access_log</code> or <code>error_log</code> path, <code>include</code>, <code>listen</code>, <code>server_name</code>, <code>*_pass</code> or certificates; <code>root</code> and <code>alias</code> under <code>/home/{{ $app['app'] }}/</code>. Reverse proxies and redirects are the cards above. The whole language is <code>cipi nginx edit {{ $app['app'] }}</code> on the server.</p>
+                                    <div class="btn-group mt-3">
+                                        <button type="submit" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="saveNginx">Save and reload nginx</button>
+                                        @if(trim($nginxSaved) !== '')
+                                            <button type="button" wire:click="resetNginx" data-confirm="Remove the nginx directives of {{ $app['app'] }}?" class="btn btn-ghost btn-sm danger">Remove</button>
+                                        @endif
+                                    </div>
+                                </form>
+                            @endif
+                        </div>
+                    @endif
                 </div>
             @endif
 
@@ -762,6 +831,9 @@
                                             <td class="font-mono text-xs whitespace-nowrap">
                                                 {{ $record['release'] ?? '—' }}
                                                 @if(!empty($record['commit']))<span class="text-subtle"> · {{ substr((string) $record['commit'], 0, 7) }}</span>@endif
+                                                {{-- The commit's title, read from the app's clone (Cipi 5.14.0+): whoever pushes writes it. --}}
+                                                @php $subject = is_string($record['subject'] ?? null) ? trim($record['subject']) : ''; @endphp
+                                                @if($subject !== '')<span class="block font-sans text-xs text-soft truncate commit-subject" title="{{ $subject }}" data-commit-subject>{{ $subject }}</span>@endif
                                             </td>
                                             <td class="text-right tabular-nums text-xs {{ isset($auditTook[$loop->index]) ? 'text-soft' : 'text-subtle' }}">{{ isset($auditTook[$loop->index]) ? \CipiGui\Support\DeployLog::format($auditTook[$loop->index]) : '—' }}</td>
                                             <td class="text-xs"><span class="badge badge-neutral">{{ $record['origin'] ?? '—' }}</span>@if(!empty($record['trigger']))<span class="text-subtle"> {{ $record['trigger'] }}</span>@endif</td>
@@ -807,13 +879,16 @@
                             <div class="skeleton h-20 w-full"></div>
                         @else
                             <form wire:submit="saveDeployConfig" class="space-y-4">
+                                {{-- queue:restart and horizon:terminate are both on by default, and an app runs
+                                     either queue workers or Horizon: say which of the two hooks does something here. --}}
+                                @php $runsHorizon = array_key_exists('horizon', $app) ? (bool) $app['horizon'] : null; @endphp
                                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
                                     @foreach([
                                         'dcMigrate' => ['migrate', 'Run migrations'],
                                         'dcOptimize' => ['optimize', 'Cache config & routes'],
                                         'dcStorageLink' => ['storage:link', 'Public storage link'],
-                                        'dcQueueRestart' => ['queue:restart', 'Reload workers'],
-                                        'dcHorizonTerminate' => ['horizon:terminate', 'Restart Horizon'],
+                                        'dcQueueRestart' => ['queue:restart', $runsHorizon ? 'Reload Horizon\'s workers' : 'Reload workers'],
+                                        'dcHorizonTerminate' => ['horizon:terminate', $runsHorizon === false ? 'Skipped: no Horizon here' : 'Restart Horizon'],
                                         'dcPredeploySnapshot' => ['DB snapshot', 'Dump before migrating'],
                                     ] as $prop => [$title, $text])
                                         <label class="check-card">
@@ -822,6 +897,16 @@
                                         </label>
                                     @endforeach
                                 </div>
+                                <p class="field-hint" data-worker-hooks="{{ $runsHorizon === null ? 'unknown' : ($runsHorizon ? 'horizon' : 'workers') }}">
+                                    @if($runsHorizon)
+                                        This app runs <strong>Horizon</strong>: <code>horizon:terminate</code> is the hook that matters here. <code>queue:restart</code> only asks Horizon's workers to reload — harmless, and it can be turned off.
+                                    @elseif($runsHorizon === false)
+                                        This app does not run Horizon: <code>horizon:terminate</code> is skipped on every deploy — it runs only where <code>laravel/horizon</code> is installed — so leaving it on changes nothing, and <code>queue:restart</code> is the hook that matters here.
+                                    @else
+                                        <code>queue:restart</code> and <code>horizon:terminate</code> can both stay on: <code>horizon:terminate</code> runs only where <code>laravel/horizon</code> is installed and is skipped everywhere else.
+                                    @endif
+                                    Either way Cipi restarts the app's workers after each deploy (5.13.0+).
+                                </p>
                                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div>
                                         <label for="dc-keep">Releases to keep</label>
@@ -1029,8 +1114,10 @@
                         <p class="card-subtitle"><code>shared/.env</code> — changes apply on the next deploy or <code>config:cache</code>.</p>
                     </div>
                     @if($envLoaded)
-                        <div class="flex items-center gap-2">
+                        <div class="flex flex-wrap items-center gap-2">
                             <div class="search-input"><x-cipi::icon name="search" /><input type="search" x-model="filter" placeholder="Filter keys…" class="input-sm" aria-label="Filter variables"></div>
+                            <button type="button" wire:click="openEnvText('paste')" class="btn btn-secondary btn-sm" title="Paste a block of KEY=value lines: they are split into the list"><x-cipi::icon name="plus" /> Paste variables</button>
+                            <button type="button" wire:click="openEnvText('edit')" class="btn btn-secondary btn-sm" title="The whole list as text, to edit by hand"><x-cipi::icon name="code" /> Edit as text</button>
                             <button wire:click="loadEnv" class="btn btn-ghost btn-icon btn-sm" aria-label="Reload"><x-cipi::icon name="refresh" /></button>
                         </div>
                     @endif
@@ -1046,6 +1133,29 @@
                         $orderChanged = $this->envOrderChanged();
                         $envLast = count($envRows) - 1;
                     @endphp
+                    {{-- The .env as text: a block pasted from a README or a chat is split into the
+                         list (paste), or the whole list is edited by hand (edit). Applying changes
+                         the rows only; Save sends them, as it does for a row edited one by one. --}}
+                    @if($envTextMode)
+                        @php $envTextEdit = $envTextMode === 'edit'; @endphp
+                        <form wire:submit="applyEnvText" class="mb-4" data-env-text="{{ $envTextMode }}">
+                            <label for="env-text">{{ $envTextEdit ? 'The list as text' : 'Paste variables' }}</label>
+                            <textarea id="env-text" wire:model="envText" class="font-mono text-xs" rows="{{ $envTextEdit ? min(24, max(8, count($envRows) + 2)) : 8 }}"
+                                      spellcheck="false" autocomplete="off" autocapitalize="none" x-init="$nextTick(() => $el.focus())"
+                                      placeholder="APP_NAME=&quot;My app&quot;&#10;MAIL_MAILER=smtp&#10;MAIL_HOST=smtp.example.com"></textarea>
+                            @error('envText') <p class="field-error">{{ $message }}</p> @enderror
+                            @if($envTextEdit)
+                                <p class="field-hint">One <code>KEY=value</code> per line, every value in clear. What you apply replaces the list: a line you take out removes that key, a new line adds one, the order of the lines becomes the order of the file. Comments are not shown here and stay in the file with their keys.</p>
+                            @else
+                                <p class="field-hint">One <code>KEY=value</code> per line — quotes, <code>export</code>, comments and blank lines are understood. Keys already in the list take the new value, new ones are added at the end, nothing is removed.</p>
+                            @endif
+                            <div class="btn-group mt-3">
+                                <button type="submit" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="applyEnvText">{{ $envTextEdit ? 'Apply to the list' : 'Add to the list' }}</button>
+                                <button type="button" wire:click="closeEnvText" class="btn btn-ghost btn-sm">Cancel</button>
+                            </div>
+                        </form>
+                    @endif
+                    @if($envTextMode !== 'edit')
                     {{-- Drag a row by its handle (or focus the handle and use the arrow keys) to
                          reorder the file; comments above a key move with it. Off while filtering.
                          The server is told keys, never positions, and every row is keyed by its
@@ -1105,6 +1215,7 @@
                         <button type="submit" class="btn btn-secondary btn-sm"><x-cipi::icon name="plus" /> Add</button>
                     </form>
                     @error('envNewKey') <p class="field-error">{{ $message }}</p> @enderror
+                    @endif
 
                     <div class="flex flex-wrap items-center justify-between gap-3 mt-4">
                         <p class="text-xs {{ $changes ? 'text-accent' : 'text-subtle' }}">{{ $changes ? $changes.' unsaved '.\Illuminate\Support\Str::plural('change', $changes).($orderChanged ? ' · new order' : '') : count($envRows).' variables · drag ⠿ to reorder · sensitive values are hidden' }}</p>

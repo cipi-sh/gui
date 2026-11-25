@@ -569,6 +569,25 @@ class CipiApiClient
         return $this->request('delete', "/apps/{$app}/proxies", data: ['prefix' => $prefix])['data'] ?? [];
     }
 
+    // An app's own nginx directives (API 1.44+ / Cipi ≥ 5.14.0). Synchronous:
+    // nginx is tested and reloaded before the answer; a refused text is a 422
+    // whose `reasons` say why, and nothing has changed.
+
+    public function showNginx(string $app): array
+    {
+        return $this->get("/apps/{$app}/nginx")['data'] ?? [];
+    }
+
+    public function updateNginx(string $app, string $config): array
+    {
+        return $this->put("/apps/{$app}/nginx", ['config' => $config])['data'] ?? [];
+    }
+
+    public function resetNginx(string $app): array
+    {
+        return $this->request('delete', "/apps/{$app}/nginx")['data'] ?? [];
+    }
+
     // ── Node apps + runtimes (API 1.31+ / Cipi ≥ 5.4.0) ───────────────
 
     /**
@@ -644,10 +663,10 @@ class CipiApiClient
         return $this->post("/apps/{$app}/search/disable")['data'] ?? [];
     }
 
-    // ── Host insights (read-only — API 1.31+) ─────────────────────────
+    // ── Host insights (API 1.31+; packages install/remove 1.44+) ──────
 
     /**
-     * @return list<array{id: string, packages: list<string>, description?: string, installed: bool, partial?: bool}>
+     * @return list<array{id: string, packages: list<string>, description?: string, kind?: string, binaries?: list<string>, missing?: list<string>, installed: bool, partial?: bool, source?: string, version?: ?string, installed_version?: ?string, outdated?: bool}>
      */
     public function listPackages(): array
     {
@@ -658,6 +677,18 @@ class CipiApiClient
         }
 
         return is_array($data) ? array_values($data) : [];
+    }
+
+    /** Install one entry of the server's closed catalog, or update an outdated upstream one — a job (`package-install`; API 1.44+ / Cipi ≥ 5.14.0, `packages-manage`). */
+    public function installPackage(string $id): array
+    {
+        return $this->post('/packages/'.rawurlencode($id));
+    }
+
+    /** Remove one catalog entry, and only what nothing else needs — a job (`package-remove`). */
+    public function removePackage(string $id): array
+    {
+        return $this->delete('/packages/'.rawurlencode($id));
     }
 
     public function monitorStatus(): array
@@ -793,6 +824,82 @@ class CipiApiClient
     public function allowAllIpWhitelist(): array
     {
         return $this->post('/ip-whitelist/allow-all')['data'] ?? [];
+    }
+
+    // ── Firewall: UFW, fail2ban, CrowdSec (API 1.44+ / Cipi ≥ 5.14.0) ─
+
+    /** UFW rules, protected ports, Zero Trust locks, fail2ban, CrowdSec: `cipi firewall status --json`. */
+    public function firewall(): array
+    {
+        return $this->get('/firewall')['data'] ?? [];
+    }
+
+    /** @return array{data: ?array, message: string} the firewall after the change, and what the CLI said */
+    public function firewallAllow(string $port, ?string $from = null, string $proto = 'tcp'): array
+    {
+        return $this->firewallChange('post', '/firewall/rules', ['port' => $port, 'from' => $from, 'proto' => $proto]);
+    }
+
+    /** The rule `allow` (or, with $action deny, `deny`) made: the same port, source and protocol. */
+    public function firewallRemove(string $port, ?string $from = null, string $proto = 'tcp', string $action = 'allow'): array
+    {
+        return $this->firewallChange('delete', '/firewall/rules', ['port' => $port, 'from' => $from, 'proto' => $proto, 'action' => $action]);
+    }
+
+    public function firewallBlock(string $address): array
+    {
+        return $this->firewallChange('post', '/firewall/blocks', ['address' => $address]);
+    }
+
+    public function firewallUnblock(string $address): array
+    {
+        return $this->firewallChange('delete', '/firewall/blocks', ['address' => $address]);
+    }
+
+    /** null: back to the default. */
+    public function firewallAttempts(?int $attempts): array
+    {
+        return $this->firewallChange('put', '/firewall/attempts', ['attempts' => $attempts]);
+    }
+
+    /** fail2ban's jails and CrowdSec's decisions alike. */
+    public function firewallUnban(string $ip): array
+    {
+        return $this->firewallChange('delete', '/firewall/bans', ['ip' => $ip]);
+    }
+
+    public function crowdsecAllow(string $address): array
+    {
+        return $this->firewallChange('post', '/firewall/crowdsec/allowlist', ['address' => $address]);
+    }
+
+    public function crowdsecUnallow(string $address): array
+    {
+        return $this->firewallChange('delete', '/firewall/crowdsec/allowlist', ['address' => $address]);
+    }
+
+    /** Async job (`crowdsec-enable`): the panel's address goes on CrowdSec's allowlist. */
+    public function crowdsecEnable(): array
+    {
+        return $this->post('/firewall/crowdsec/enable');
+    }
+
+    /** Async job (`crowdsec-disable`); fail2ban stays. */
+    public function crowdsecDisable(): array
+    {
+        return $this->post('/firewall/crowdsec/disable');
+    }
+
+    /** @return array{data: ?array, message: string} */
+    protected function firewallChange(string $method, string $path, array $data): array
+    {
+        $data = array_filter($data, fn ($v) => $v !== '' && ! ($v === null && $path !== '/firewall/attempts'));
+        $response = $this->request($method, $path, data: $data);
+
+        return [
+            'data' => is_array($response['data'] ?? null) ? $response['data'] : null,
+            'message' => (string) ($response['message'] ?? ''),
+        ];
     }
 
     // ── WWW redirects (Cipi 4.8+ / API 1.12+) ─────────────────────────

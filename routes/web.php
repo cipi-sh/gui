@@ -49,6 +49,9 @@ Route::post('/logout', [LoginController::class, 'logout'])
 Route::middleware(['auth'])->group(function () {
     Route::get('/2fa', [TwoFactorController::class, 'show'])->name('cipi-gui.2fa');
     Route::post('/2fa', [TwoFactorController::class, 'verify'])->name('cipi-gui.2fa.verify');
+    // Required by an admin for every account (Team, 4.6.0): set up before anything else.
+    Route::get('/2fa/setup', [TwoFactorController::class, 'setup'])->name('cipi-gui.2fa.setup');
+    Route::post('/2fa/setup', [TwoFactorController::class, 'enable'])->name('cipi-gui.2fa.enable');
 });
 
 Route::middleware(['auth', 'cipi-gui.2fa'])->group(function () {

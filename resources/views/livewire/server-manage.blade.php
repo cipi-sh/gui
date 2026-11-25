@@ -7,7 +7,7 @@
                 @if(!empty($status['system']['cipi'])) · Cipi {{ $status['system']['cipi'] }}@endif
                 @if(!empty($status['system']['api'])) · API {{ $status['system']['api'] }}@endif
             @else
-                Connect a server to manage PHP, Node, services, notifications and API access.
+                Connect a server to manage PHP, Node, services, notifications, the firewall and API access.
             @endif
         </x-slot:meta>
         @if($server)
@@ -107,6 +107,11 @@
                         <dt>OS</dt><dd>{{ $sys['os'] ?? '—' }}</dd>
                         <dt>Cipi</dt><dd>{{ $sys['cipi'] ?? '—' }}</dd>
                         <dt>Public IP</dt><dd class="font-mono text-xs">@if($publicIp = $sys['ip'] ?? $server->ip)<x-cipi::copyable :value="$publicIp" label="Copy IP" />@else — @endif</dd>
+                        {{-- For the AAAA record of a domain: every vhost listens on IPv6 too (cipi/api 1.44+). --}}
+                        @php $publicIpv6 = is_string($sys['ipv6'] ?? null) && filter_var($sys['ipv6'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) ? $sys['ipv6'] : null; @endphp
+                        @if($publicIpv6)
+                            <dt>Public IPv6</dt><dd class="font-mono text-xs"><x-cipi::copyable :value="$publicIpv6" label="Copy IPv6" data-server-ipv6 /></dd>
+                        @endif
                         <dt>Uptime</dt><dd>{{ isset($sys['uptime']) ? preg_replace('/^up\s+/', '', $sys['uptime']) : '—' }}</dd>
                         <dt>Apps</dt><dd><a href="{{ route('cipi-gui.apps', ['server' => $server->id]) }}" class="text-link">{{ $status['apps'] ?? 0 }}</a></dd>
                     </dl>
@@ -408,7 +413,7 @@
                 <div class="card mt-4 max-w-xl">
                     <div class="card-header"><div><h2 class="card-title">Install a Node major</h2><p class="card-subtitle">From nodejs.org, checked against the release's checksums. Needs Cipi 5.9.0 and API 1.39 on the server.</p></div></div>
                     @if(count($nodeInstallable) > 0)
-                        <form wire:submit="installNode" class="flex items-end gap-2">
+                        <form wire:submit="installNode" class="flex items-start gap-2">
                             <div class="flex-1">
                                 <label for="node-major">Major</label>
                                 <select id="node-major" wire:model="nodeInstallMajor">
@@ -417,7 +422,7 @@
                                     @endforeach
                                 </select>
                             </div>
-                            <button type="submit" class="btn btn-primary"><x-cipi::icon name="download" /> Install</button>
+                            <button type="submit" class="btn btn-primary field-action"><x-cipi::icon name="download" /> Install</button>
                         </form>
                         @error('nodeInstallMajor') <p class="field-error">{{ $message }}</p> @enderror
                     @else
@@ -660,6 +665,9 @@
                 </div>
             </div>
 
+        @elseif($activeTab === 'firewall')
+            @livewire('cipi-gui.firewall', ['serverId' => $serverId], key('firewall-'.$serverId))
+
         @elseif($activeTab === 'search')
             <div class="card">
                 <div class="card-header">
@@ -688,21 +696,45 @@
         @elseif($activeTab === 'packages')
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 @forelse($packages as $pkg)
-                    <div class="card">
+                    @php
+                        $pkgId = (string) ($pkg['id'] ?? '');
+                        $pkgInstalled = ! empty($pkg['installed']);
+                        $pkgPartial = ! $pkgInstalled && ! empty($pkg['partial']);
+                        $pkgLibraries = ($pkg['kind'] ?? '') === 'libraries';
+                        $pkgUpstream = ($pkg['source'] ?? '') === 'upstream';
+                        $pkgOutdated = ! $pkgInstalled && ! empty($pkg['outdated']);
+                        $pkgVersion = (string) ($pkg['version'] ?? '');
+                    @endphp
+                    <div class="card flex flex-col" data-package="{{ $pkgId }}">
                         <div class="flex items-start justify-between gap-3">
                             <div class="min-w-0">
-                                <h2 class="card-title font-mono">{{ $pkg['id'] ?? '—' }}</h2>
+                                <h2 class="card-title font-mono flex items-center gap-2">{{ $pkgId !== '' ? $pkgId : '—' }} @if($pkgLibraries)<span class="badge badge-gray" title="System libraries for software the app brings itself">Libraries</span>@endif @if($pkgUpstream)<span class="badge badge-gray" title="An upstream release pinned in Cipi by version and SHA-256: a download that does not match is refused">Upstream{{ $pkgVersion !== '' ? ' '.$pkgVersion : '' }}</span>@endif</h2>
                                 <p class="card-subtitle">{{ $pkg['description'] ?? '' }}</p>
                             </div>
-                            <span class="badge {{ !empty($pkg['installed']) ? 'badge-green' : (!empty($pkg['partial']) ? 'badge-amber' : 'badge-gray') }}">{{ !empty($pkg['installed']) ? 'Installed' : (!empty($pkg['partial']) ? 'Partial' : 'Not installed') }}</span>
+                            <span class="badge {{ $pkgInstalled ? 'badge-green' : ($pkgPartial || $pkgOutdated ? 'badge-amber' : 'badge-gray') }}">{{ $pkgInstalled ? 'Installed' : ($pkgOutdated ? 'Update available' : ($pkgPartial ? 'Partial' : 'Not installed')) }}</span>
                         </div>
+                        @if(!empty($pkg['binaries']))<p class="text-xs text-muted mt-3">Commands: <span class="font-mono">{{ implode(', ', (array) $pkg['binaries']) }}</span></p>@endif
+                        @if($pkgId === 'browsershot')<p class="text-xs text-muted mt-2">Chrome itself comes from Puppeteer in the app (<code>npm install puppeteer</code>): this entry installs the libraries it needs to start.</p>@endif
+                        @if($pkgPartial && !empty($pkg['missing']))<p class="text-xs text-warn mt-2">Missing: <span class="font-mono">{{ implode(' ', (array) $pkg['missing']) }}</span></p>@endif
+                        @if($pkgOutdated)<p class="text-xs text-warn mt-2">{{ $pkg['installed_version'] ?? 'An older version' }} is installed; this Cipi pins {{ $pkgVersion }}.</p>@endif
                         @if(!empty($pkg['packages']))<p class="font-mono text-2xs text-subtle mt-3">apt: {{ implode(' ', $pkg['packages']) }}</p>@endif
+                        @if($canManage && $pkgId !== '')
+                            <div class="flex justify-end gap-2 mt-auto pt-3">
+                                @if($pkgInstalled || $pkgPartial || $pkgOutdated)
+                                    <button type="button" wire:click="removePackage(@js($pkgId))" data-confirm="Remove {{ $pkgId }} from this server? Apps that use it stop working; what other packages still need stays installed." data-confirm-label="Remove" class="btn btn-ghost btn-sm danger" @disabled($jobRunning)>Remove</button>
+                                @endif
+                                @unless($pkgInstalled)
+                                    @php $pkgAction = $pkgOutdated ? 'Update' : ($pkgPartial ? 'Complete' : 'Install'); @endphp
+                                    <button type="button" wire:click="installPackage(@js($pkgId))" data-confirm="{{ $pkgOutdated ? 'Update '.$pkgId.' to '.$pkgVersion : $pkgAction.' '.$pkgId }} on this server? {{ $pkgUpstream ? 'The download is checked against its pinned SHA-256; it can take a few minutes.' : 'apt can take a few minutes.' }}" data-confirm-label="{{ $pkgAction }}" class="btn btn-secondary btn-sm" @disabled($jobRunning)>{{ $pkgOutdated ? 'Update to '.$pkgVersion : ($pkgPartial ? 'Complete install' : 'Install') }}</button>
+                                @endunless
+                            </div>
+                        @endif
                     </div>
                 @empty
                     <div class="card text-muted">No packages returned.</div>
                 @endforelse
             </div>
-            <p class="field-hint mt-3">Read-only by design: <code>cipi package install &lt;id&gt;</code> on the host.</p>
+            <p class="field-hint mt-3">A closed catalog: the server installs only these entries — from Ubuntu's own repositories, or, marked <em>Upstream</em>, releases Cipi pins by version and SHA-256 (the <code>sec-*</code> scanners Hackly runs) — and removes only what no other package needs. Installing and removing from the panel needs Cipi 5.14.0+ (API 1.44+) and a token with <code>packages-manage</code>; on older servers run <code>cipi package install &lt;id&gt;</code> on the host.</p>
 
         @elseif($activeTab === 'zt')
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">

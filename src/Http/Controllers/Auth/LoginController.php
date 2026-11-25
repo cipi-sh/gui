@@ -3,6 +3,7 @@
 namespace CipiGui\Http\Controllers\Auth;
 
 use CipiGui\Services\OidcClient;
+use CipiGui\Services\TwoFactorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
@@ -42,12 +43,18 @@ class LoginController
         }
 
         $request->session()->regenerate();
-        $request->session()->forget('cipi_gui_2fa_verified');
+        $request->session()->forget(['cipi_gui_2fa_verified', TwoFactorService::SSO_SESSION]);
 
         $user = Auth::user();
 
         if ($user->two_factor_enabled ?? false) {
             return redirect()->route('cipi-gui.2fa');
+        }
+
+        // 2FA required for every account and this one has none: set up first,
+        // then the page that was asked for (the intended URL is kept).
+        if (TwoFactorService::setupRequired($user, $request->session())) {
+            return redirect()->route('cipi-gui.2fa.setup');
         }
 
         return redirect()->intended(route('cipi-gui.dashboard'));

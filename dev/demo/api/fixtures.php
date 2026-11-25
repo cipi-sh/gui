@@ -15,6 +15,52 @@ $day = 86400;
 $iso = fn (int $ts): string => gmdate('Y-m-d\TH:i:s\Z', $ts);
 $date = fn (int $ts): string => gmdate('Y-m-d', $ts);
 
+/**
+ * The closed catalog as `cipi package list --json` returns it (Cipi 5.14.0):
+ * $installed are complete, $partial maps an id to the apt packages it lacks,
+ * $outdated an upstream id to the older version installed.
+ */
+$packageCatalog = function (array $installed = [], array $partial = [], array $outdated = []): array {
+    $catalog = [
+        ['image-optimizers', ['jpegoptim', 'optipng', 'pngquant', 'gifsicle', 'webp'], ['jpegoptim', 'optipng', 'pngquant', 'gifsicle', 'cwebp'], 'Image optimisers for spatie/laravel-image-optimizer'],
+        ['avif', ['libavif-bin'], ['avifenc'], 'AVIF encoder (avifenc) for spatie/laravel-image-optimizer'],
+        ['ffmpeg', ['ffmpeg'], ['ffmpeg', 'ffprobe'], 'Audio/video transcoding for pbmedia/laravel-ffmpeg'],
+        ['imagemagick', ['imagemagick'], ['convert'], 'ImageMagick CLI (the PHP extension is already installed; this is convert/magick)'],
+        ['poppler-utils', ['poppler-utils'], ['pdftotext', 'pdftoppm'], 'PDF text extraction for spatie/pdf-to-text'],
+        ['browsershot', ['libnss3', 'libnspr4', 'libatk1.0-0t64', 'libatk-bridge2.0-0t64', 'libcups2t64', 'libdrm2', 'libxkbcommon0', 'libxcomposite1', 'libxdamage1', 'libxfixes3', 'libxrandr2', 'libgbm1', 'libpango-1.0-0', 'libcairo2', 'libasound2t64', 'fonts-liberation', 'fonts-noto-color-emoji'], [], 'Libraries and fonts for the Chrome Puppeteer downloads: spatie/browsershot, spatie/laravel-pdf'],
+        ['fonts-cjk', ['fonts-noto-cjk'], [], 'Chinese, Japanese and Korean fonts for PDFs and images (Browsershot, ImageMagick)'],
+        ['pdftk', ['pdftk-java'], ['pdftk'], 'Fill forms, merge and split PDFs for mikehaertl/php-pdftk (pulls a headless Java runtime)'],
+        ['libreoffice', ['libreoffice-writer-nogui', 'libreoffice-calc-nogui'], ['soffice'], 'Headless LibreOffice: DOCX, XLSX and ODT to PDF (soffice --convert-to)'],
+        ['pandoc', ['pandoc'], ['pandoc'], 'Document conversion (Markdown, HTML, DOCX, ODT, EPUB) for ueberdosis/pandoc'],
+        ['tesseract', ['tesseract-ocr', 'tesseract-ocr-eng', 'tesseract-ocr-ita', 'tesseract-ocr-deu', 'tesseract-ocr-fra', 'tesseract-ocr-spa'], ['tesseract'], 'OCR for thiagoalessio/tesseract_ocr (English, Italian, German, French, Spanish)'],
+        ['sec-recon', ['nmap', 'bind9-dnsutils', 'whois'], ['nmap', 'dig', 'whois'], 'Port scanning, DNS and WHOIS for security scanners (Hackly target scans)'],
+        ['sec-gitleaks', ['gitleaks'], ['gitleaks'], 'Secrets in source code (Gitleaks) for security scanners (Hackly repository scans)'],
+        ['sec-nuclei', [], ['nuclei'], 'Template-based vulnerability scanner (nuclei) for Hackly DAST, path discovery and pentests', '3.11.1'],
+        ['sec-zap', ['openjdk-21-jre-headless'], ['zap.sh'], 'OWASP ZAP, headless, with a Java runtime, for Hackly baseline and pentest scans', '2.17.0'],
+        ['sec-nikto', ['perl', 'libnet-ssleay-perl', 'libio-socket-ssl-perl', 'libxml-writer-perl'], ['nikto'], 'Nikto web server scanner, 2.6 with JSON reports (Ubuntu ships 2.1.5), for Hackly pentests', '2.6.1'],
+        ['sec-wpscan', ['ruby', 'libcurl4t64'], ['wpscan'], 'WPScan WordPress scanner for Hackly pentests of WordPress targets', '3.8.28'],
+        ['sec-trivy', [], ['trivy'], 'Trivy dependency and misconfiguration scanner for Hackly repository scans (SCA)', '0.76.2'],
+        ['sec-semgrep', ['python3-venv'], ['semgrep'], 'Semgrep static analysis for Hackly repository scans (SAST)', '1.185.0'],
+        ['sec-checkov', ['python3-venv'], ['checkov'], 'Checkov infrastructure-as-code scanner for Hackly repository scans', '3.3.26'],
+    ];
+
+    return array_map(function (array $row) use ($installed, $partial, $outdated): array {
+        [$id, $apt, $bins, $description] = $row;
+        $version = $row[4] ?? null;
+        $done = in_array($id, $installed, true);
+        $old = $version !== null && ! $done ? ($outdated[$id] ?? null) : null;
+        $missing = $done || $old !== null ? [] : ($version !== null ? $bins : ($partial[$id] ?? $apt));
+
+        return [
+            'id' => $id, 'packages' => $apt, 'description' => $description,
+            'kind' => $bins === [] ? 'libraries' : 'tools', 'binaries' => $bins,
+            'missing' => $missing, 'installed' => $done, 'partial' => ! $done && $version === null && isset($partial[$id]),
+            'source' => $version === null ? 'ubuntu' : 'upstream', 'version' => $version,
+            'installed_version' => $done ? $version : $old, 'outdated' => $old !== null,
+        ];
+    }, $catalog);
+};
+
 $laravelEnv = function (string $app, string $domain, string $engine = 'mariadb', array $extra = []): array {
     $db = $engine === 'pgsql'
         ? ['DB_CONNECTION' => 'pgsql', 'DB_HOST' => '127.0.0.1', 'DB_PORT' => '5432']
@@ -167,6 +213,7 @@ return [
         'status' => [
             'system' => [
                 'ip' => '203.0.113.24',
+                'ipv6' => '2001:db8:24::1',
                 'hostname' => 'fra1-prod',
                 'os' => 'Ubuntu 24.04.3 LTS',
                 'uptime' => 'up 6 weeks, 2 days, 4 hours, 11 minutes',
@@ -235,12 +282,7 @@ return [
             'health' => 'available', 'data_size' => '412M',
             'apps' => ['shop' => ['prefix' => 'shop_', 'key' => 'scoped']],
         ],
-        'packages' => [
-            ['id' => 'image-optimizers', 'packages' => ['jpegoptim', 'optipng', 'pngquant', 'gifsicle', 'webp'], 'description' => 'Image optimisers for spatie/laravel-image-optimizer', 'installed' => true, 'partial' => false],
-            ['id' => 'ffmpeg', 'packages' => ['ffmpeg'], 'description' => 'Audio/video transcoding for pbmedia/laravel-ffmpeg', 'installed' => false, 'partial' => false],
-            ['id' => 'imagemagick', 'packages' => ['imagemagick'], 'description' => 'ImageMagick CLI (the PHP extension is already installed; this is convert/magick)', 'installed' => true, 'partial' => false],
-            ['id' => 'poppler-utils', 'packages' => ['poppler-utils'], 'description' => 'PDF text extraction for spatie/pdf-to-text', 'installed' => false, 'partial' => false],
-        ],
+        'packages' => $packageCatalog(['image-optimizers', 'imagemagick', 'browsershot', 'ffmpeg']),
         'monitor' => [
             'reminder_minutes' => 240,
             'checks' => [
@@ -305,13 +347,13 @@ return [
                 'auth' => ['http-basic' => ['nova.laravel.com' => ['username' => 'ops@example.com', 'password' => 'nova-license-key']]],
                 'deploy_config' => $deployConfig(['horizon_terminate' => true, 'predeploy_snapshot' => true, 'extra_artisan' => ['scout:sync-index-settings', 'octane:reload']]),
                 'audit' => $audit('shop', [
-                    ['at' => $now - 9 * $day, 'release' => '128', 'commit' => '3f9c2a1e7b8d4c6f0a2e5b9d1c3f7a8e2b4d6c0f', 'origin' => 'webhook', 'trigger' => 'push', 'operator' => 'github', 'ip' => '140.82.115.14'],
-                    ['at' => $now - 6 * $day, 'release' => '129', 'commit' => 'a71d0c94e2f35b8c61d7e0a9b3f4c2d1e8a7b6c5', 'origin' => 'webhook', 'trigger' => 'push', 'operator' => 'github', 'ip' => '140.82.115.14'],
-                    ['at' => $now - 6 * $day + 420, 'event' => 'failed', 'release' => '130', 'commit' => 'c02b7e5d91a84f3e6b2c0d9a7f1e3b5c8d4a2f6e', 'origin' => 'panel', 'trigger' => 'manual', 'operator' => 'alice', 'ip' => '203.0.113.10'],
-                    ['at' => $now - 6 * $day + 900, 'release' => '131', 'commit' => 'c02b7e5d91a84f3e6b2c0d9a7f1e3b5c8d4a2f6e', 'origin' => 'panel', 'trigger' => 'manual', 'operator' => 'alice', 'ip' => '203.0.113.10'],
-                    ['at' => $now - 2 * $day, 'event' => 'rollback', 'release' => '130', 'commit' => 'a71d0c94e2f35b8c61d7e0a9b3f4c2d1e8a7b6c5', 'origin' => 'cli', 'trigger' => 'manual', 'operator' => 'root', 'ip' => '198.51.100.7'],
-                    ['at' => $now - 1 * $day, 'release' => '132', 'commit' => 'e4a8b1c7d2f05e9a3b6c8d0f1a2e4b7c9d3f5a1e', 'origin' => 'webhook', 'trigger' => 'push', 'operator' => 'github', 'ip' => '140.82.115.14'],
-                    ['at' => $now - 3 * 3600, 'release' => '133', 'commit' => '9d1f3a5c7e2b4d6f8a0c1e3b5d7f9a2c4e6b8d0f', 'origin' => 'panel', 'trigger' => 'manual', 'operator' => 'alice', 'ip' => '203.0.113.10', 'claimed' => ['by' => 'cipi-gui', 'note' => 'hotfix: checkout tax rounding']],
+                    ['at' => $now - 9 * $day, 'release' => '128', 'commit' => '3f9c2a1e7b8d4c6f0a2e5b9d1c3f7a8e2b4d6c0f', 'subject' => 'Add gift cards to the checkout', 'origin' => 'webhook', 'trigger' => 'push', 'operator' => 'github', 'ip' => '140.82.115.14'],
+                    ['at' => $now - 6 * $day, 'release' => '129', 'commit' => 'a71d0c94e2f35b8c61d7e0a9b3f4c2d1e8a7b6c5', 'subject' => 'Cache the product listing per locale', 'origin' => 'webhook', 'trigger' => 'push', 'operator' => 'github', 'ip' => '140.82.115.14'],
+                    ['at' => $now - 6 * $day + 420, 'event' => 'failed', 'release' => '130', 'commit' => 'c02b7e5d91a84f3e6b2c0d9a7f1e3b5c8d4a2f6e', 'subject' => 'Move invoices to the queue', 'origin' => 'panel', 'trigger' => 'manual', 'operator' => 'alice', 'ip' => '203.0.113.10'],
+                    ['at' => $now - 6 * $day + 900, 'release' => '131', 'commit' => 'c02b7e5d91a84f3e6b2c0d9a7f1e3b5c8d4a2f6e', 'subject' => 'Move invoices to the queue', 'origin' => 'panel', 'trigger' => 'manual', 'operator' => 'alice', 'ip' => '203.0.113.10'],
+                    ['at' => $now - 2 * $day, 'event' => 'rollback', 'release' => '130', 'commit' => 'a71d0c94e2f35b8c61d7e0a9b3f4c2d1e8a7b6c5', 'subject' => 'Cache the product listing per locale', 'origin' => 'cli', 'trigger' => 'manual', 'operator' => 'root', 'ip' => '198.51.100.7'],
+                    ['at' => $now - 1 * $day, 'release' => '132', 'commit' => 'e4a8b1c7d2f05e9a3b6c8d0f1a2e4b7c9d3f5a1e', 'subject' => 'Upgrade to Laravel 13', 'origin' => 'webhook', 'trigger' => 'push', 'operator' => 'github', 'ip' => '140.82.115.14'],
+                    ['at' => $now - 3 * 3600, 'release' => '133', 'commit' => '9d1f3a5c7e2b4d6f8a0c1e3b5d7f9a2c4e6b8d0f', 'subject' => 'Fix checkout tax rounding', 'origin' => 'panel', 'trigger' => 'manual', 'operator' => 'alice', 'ip' => '203.0.113.10', 'claimed' => ['by' => 'cipi-gui', 'note' => 'hotfix: checkout tax rounding']],
                 ]),
                 'basic_auth' => ['enabled' => false, 'users' => []],
                 'health' => ['enabled' => true, 'url' => 'https://shop.example.com/up', 'expect' => 200, 'state' => 'ok', 'failcount' => 0],
@@ -333,7 +375,7 @@ return [
             ],
             'shopapi' => [
                 'info' => $app([
-                    'app' => 'shopapi', 'domain' => 'api.example.com', 'repository' => 'git@github.com:example-org/shop-api.git',
+                    'app' => 'shopapi', 'horizon' => 'true', 'domain' => 'api.example.com', 'repository' => 'git@github.com:example-org/shop-api.git',
                     'engine' => 'pgsql', 'created_at' => '2026-03-07',
                     'redirect' => null,
                 ]),
@@ -473,12 +515,7 @@ return [
             'user' => 'postmaster@mg.example.org', 'from' => 'cipi@example.org', 'to' => 'ops@example.com', 'tls' => true,
         ],
         'search' => ['installed' => false, 'running' => false, 'apps' => []],
-        'packages' => [
-            ['id' => 'image-optimizers', 'packages' => ['jpegoptim', 'optipng', 'pngquant', 'gifsicle', 'webp'], 'description' => 'Image optimisers for spatie/laravel-image-optimizer', 'installed' => false, 'partial' => true],
-            ['id' => 'ffmpeg', 'packages' => ['ffmpeg'], 'description' => 'Audio/video transcoding for pbmedia/laravel-ffmpeg', 'installed' => false, 'partial' => false],
-            ['id' => 'imagemagick', 'packages' => ['imagemagick'], 'description' => 'ImageMagick CLI (the PHP extension is already installed; this is convert/magick)', 'installed' => false, 'partial' => false],
-            ['id' => 'poppler-utils', 'packages' => ['poppler-utils'], 'description' => 'PDF text extraction for spatie/pdf-to-text', 'installed' => true, 'partial' => false],
-        ],
+        'packages' => $packageCatalog(['poppler-utils', 'libreoffice'], ['image-optimizers' => ['pngquant', 'gifsicle']]),
         'monitor' => [
             'reminder_minutes' => 240,
             'checks' => [
@@ -621,12 +658,7 @@ return [
         ],
         'smtp' => ['configured' => false, 'enabled' => false, 'host' => null, 'port' => null, 'user' => null, 'from' => null, 'to' => null, 'tls' => null],
         'search' => ['installed' => false, 'running' => false, 'apps' => []],
-        'packages' => [
-            ['id' => 'image-optimizers', 'packages' => ['jpegoptim', 'optipng', 'pngquant', 'gifsicle', 'webp'], 'description' => 'Image optimisers for spatie/laravel-image-optimizer', 'installed' => false, 'partial' => false],
-            ['id' => 'ffmpeg', 'packages' => ['ffmpeg'], 'description' => 'Audio/video transcoding for pbmedia/laravel-ffmpeg', 'installed' => false, 'partial' => false],
-            ['id' => 'imagemagick', 'packages' => ['imagemagick'], 'description' => 'ImageMagick CLI (the PHP extension is already installed; this is convert/magick)', 'installed' => false, 'partial' => false],
-            ['id' => 'poppler-utils', 'packages' => ['poppler-utils'], 'description' => 'PDF text extraction for spatie/pdf-to-text', 'installed' => false, 'partial' => false],
-        ],
+        'packages' => $packageCatalog(['sec-recon', 'sec-gitleaks', 'sec-nuclei', 'sec-trivy'], [], ['sec-zap' => '2.16.1']),
         'monitor' => [
             'reminder_minutes' => 240,
             'checks' => [

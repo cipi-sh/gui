@@ -2,7 +2,7 @@
 <div class="space-y-4">
     <div>
         <span class="label">Role</span>
-        <div class="type-picker" role="radiogroup">
+        <div class="type-picker role-picker" role="radiogroup">
             <button type="button" role="radio" aria-checked="{{ $editorRole === 'user' ? 'true' : 'false' }}" wire:click="$set('editorRole', 'user')" class="type-option {{ $editorRole === 'user' ? 'active' : '' }}" @disabled($lockRole ?? false)>
                 <strong>User</strong>
                 <span>Only the servers and apps picked below</span>
@@ -25,12 +25,12 @@
             @foreach($servers as $s)
                 @php $level = $serverLevels[$s->id] ?? ''; @endphp
                 <div class="card p-4" wire:key="access-server-{{ $s->id }}">
-                    <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="access-server-head">
                         <div class="min-w-0">
                             <p class="font-semibold text-strong">{{ $s->name }}</p>
                             <p class="text-xs text-muted truncate">{{ $s->host }}</p>
                         </div>
-                        <select wire:model.live="serverLevels.{{ $s->id }}" class="input-sm w-auto" aria-label="Access to {{ $s->name }}">
+                        <select wire:model.live="serverLevels.{{ $s->id }}" class="input-sm" aria-label="Access to {{ $s->name }}">
                             <option value="">No access</option>
                             @foreach($levels as $key => [$label, $hint])
                                 <option value="{{ $key }}">{{ $label }}</option>
@@ -38,32 +38,33 @@
                         </select>
                     </div>
                     @if($level === 'manage')
-                        <p class="text-xs text-muted mt-2">Everything on this server, every app included.</p>
+                        <p class="text-xs text-muted mt-3">Everything on this server, every app included.</p>
+                    @elseif(! $appsLoaded)
+                        <div class="skeleton h-6 w-full mt-3"></div>
+                    @elseif(isset($serverAppErrors[$s->id]))
+                        <p class="text-xs text-danger mt-3">Apps could not be listed: {{ $serverAppErrors[$s->id] }}</p>
+                    @elseif(empty($serverApps[$s->id]))
+                        <p class="text-xs text-muted mt-3">No apps on this server yet.</p>
                     @else
-                        <div class="mt-3">
-                            @if(! $appsLoaded)
-                                <div class="skeleton h-6 w-full"></div>
-                            @elseif(isset($serverAppErrors[$s->id]))
-                                <p class="text-xs text-danger">Apps could not be listed: {{ $serverAppErrors[$s->id] }}</p>
-                            @elseif(empty($serverApps[$s->id]))
-                                <p class="text-xs text-muted">No apps on this server yet.</p>
-                            @else
-                                <p class="text-xs text-subtle mb-1">Per app{{ $level === 'view' ? ' — on top of viewing every app' : '' }}</p>
-                                @foreach($serverApps[$s->id] as $app)
-                                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 border-t" wire:key="access-app-{{ $s->id }}-{{ $app['app'] }}">
-                                        <span class="font-mono text-sm text-strong" style="min-width: 7rem;">{{ $app['app'] }}</span>
-                                        <span class="text-xs text-muted truncate" style="max-width: 14rem;">{{ $app['domain'] }}</span>
-                                        <div class="flex flex-wrap gap-x-4 gap-y-1 sm:ml-auto">
-                                            @foreach($abilities as $ability => [$label, $hint])
-                                                <label class="check text-xs" title="{{ $hint }}">
-                                                    <input type="checkbox" wire:model="appGrants.{{ $s->id }}.{{ $app['app'] }}" value="{{ $ability }}"> {{ $label }}
-                                                </label>
-                                            @endforeach
-                                        </div>
+                        <p class="access-apps-title">Per app{{ $level === 'view' ? ' — on top of viewing every app' : '' }}</p>
+                        <ul class="access-apps">
+                            @foreach($serverApps[$s->id] as $app)
+                                <li class="access-app" wire:key="access-app-{{ $s->id }}-{{ $app['app'] }}">
+                                    <div class="access-app-id">
+                                        <span class="access-app-name">{{ $app['app'] }}</span>
+                                        @if($app['domain'] !== '')<span class="access-app-domain" title="{{ $app['domain'] }}">{{ $app['domain'] }}</span>@endif
                                     </div>
-                                @endforeach
-                            @endif
-                        </div>
+                                    <div class="access-abilities" role="group" aria-label="Abilities on {{ $app['app'] }}">
+                                        @foreach($abilities as $ability => [$label, $hint])
+                                            <label class="access-ability" title="{{ $hint }}">
+                                                <input type="checkbox" wire:model="appGrants.{{ $s->id }}.{{ $app['app'] }}" value="{{ $ability }}">
+                                                <span>{{ $label }}</span>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                </li>
+                            @endforeach
+                        </ul>
                     @endif
                 </div>
             @endforeach

@@ -24,7 +24,7 @@
                             @error('serverNav') <p class="field-error">{{ $message }}</p> @enderror
                         </div>
                         <div class="flex items-center justify-between gap-3">
-                            <a href="{{ route('cipi-gui.team') }}" class="text-link text-sm">Team: users, roles and invites →</a>
+                            <a href="{{ route('cipi-gui.team') }}" class="text-link text-sm">Team: users, roles, invites and required 2FA →</a>
                             <button type="submit" class="btn btn-primary">Save panel settings</button>
                         </div>
                     </form>
@@ -118,20 +118,16 @@
             <div class="card">
                 <div class="card-header">
                     <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="shield" /> Two-factor authentication</h2><p class="card-subtitle">A 6-digit code from an authenticator app (1Password, Aegis, Google Authenticator…) on every sign-in.</p></div>
-                    <span class="badge {{ $twoFactorEnabled ? 'badge-green' : 'badge-amber' }}">{{ $twoFactorEnabled ? 'On' : 'Off' }}</span>
+                    <span class="flex items-center gap-1">
+                        @if($twoFactorRequired)<span class="badge badge-accent" title="An admin requires it for every account">Required</span>@endif
+                        <span class="badge {{ $twoFactorEnabled ? 'badge-green' : 'badge-amber' }}">{{ $twoFactorEnabled ? 'On' : 'Off' }}</span>
+                    </span>
                 </div>
 
-                @if($twoFactorEnabled)
-                    <form wire:submit="disableTwoFactor" class="flex flex-wrap items-end gap-3">
-                        <div class="flex-1" style="min-width: 14rem;">
-                            <label for="tfa-pass">Confirm with your password to turn it off</label>
-                            <input id="tfa-pass" type="password" wire:model="disablePassword" autocomplete="current-password">
-                            @error('disablePassword') <p class="field-error">{{ $message }}</p> @enderror
-                        </div>
-                        <button type="submit" class="btn btn-danger">Disable 2FA</button>
-                    </form>
-                    <p class="field-hint mt-3">Locked out? On the server: <code>cipi gui reset-user</code>.</p>
-                @elseif($setupSecret)
+                @if($setupSecret)
+                    @if($twoFactorEnabled)
+                        <x-cipi::alert type="info" class="mb-4">Moving 2FA to a new device: the current one keeps working until a code from the new one checks out.</x-cipi::alert>
+                    @endif
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
                         <div>
                             @if($qrCodeSvg)<div class="qr-box">{!! $qrCodeSvg !!}</div>@endif
@@ -148,13 +144,35 @@
                                 @error('verificationCode') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
                             <div class="btn-group">
-                                <button type="submit" class="btn btn-primary">Turn on 2FA</button>
+                                <button type="submit" class="btn btn-primary">{{ $twoFactorEnabled ? 'Use the new device' : 'Turn on 2FA' }}</button>
                                 <button type="button" wire:click="cancelSetup" class="btn btn-secondary">Cancel</button>
                             </div>
                         </form>
                     </div>
+                @elseif($twoFactorEnabled)
+                    @if($twoFactorRequired)
+                        <x-cipi::alert type="info" class="mb-4" data-2fa-required>An admin requires two-factor authentication for every account on this panel: it stays on. A new phone? Move it there.</x-cipi::alert>
+                        <button type="button" wire:click="startTwoFactorSetup" class="btn btn-secondary"><x-cipi::icon name="shield" /> Move to a new device</button>
+                    @else
+                        <form wire:submit="disableTwoFactor" class="flex flex-wrap items-start gap-3">
+                            <div class="flex-1" style="min-width: 14rem;">
+                                <label for="tfa-pass">Confirm with your password to turn it off</label>
+                                <input id="tfa-pass" type="password" wire:model="disablePassword" autocomplete="current-password">
+                                @error('disablePassword') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                            <button type="submit" class="btn btn-danger field-action">Disable 2FA</button>
+                        </form>
+                        <p class="field-hint mt-3"><button type="button" wire:click="startTwoFactorSetup" class="text-link">Move it to a new device</button> · Locked out? On the server: <code>cipi gui reset-user</code>.</p>
+                    @endif
+                    @if($twoFactorRequired)
+                        <p class="field-hint mt-3">Locked out? An admin resets it from Team, or on the server: <code>cipi gui reset-user</code>.</p>
+                    @endif
                 @else
-                    <x-cipi::alert type="warn" class="mb-4">This panel can deploy and delete apps on every connected server. Protect it with a second factor.</x-cipi::alert>
+                    @if($twoFactorRequired)
+                        <x-cipi::alert type="info" class="mb-4">An admin requires two-factor authentication for every account. You signed in through single sign-on, whose MFA counts; set it up here to sign in with your password too.</x-cipi::alert>
+                    @else
+                        <x-cipi::alert type="warn" class="mb-4">This panel can deploy and delete apps on every connected server. Protect it with a second factor.</x-cipi::alert>
+                    @endif
                     <button wire:click="startTwoFactorSetup" class="btn btn-primary"><x-cipi::icon name="shield" /> Set up 2FA</button>
                 @endif
             </div>

@@ -4,6 +4,7 @@ namespace CipiGui\Livewire;
 
 use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
+use CipiGui\Models\CipiServer;
 use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
@@ -11,6 +12,7 @@ use CipiGui\Support\AppEnv;
 use CipiGui\Support\BuildCommand;
 use CipiGui\Support\Clock;
 use CipiGui\Support\DeployLog;
+use CipiGui\Support\EnvText;
 use CipiGui\Support\PhpVersions;
 use CipiGui\Support\Presets;
 use Illuminate\Support\Carbon;
@@ -25,7 +27,9 @@ class AppDetail extends Component
     use InteractsWithCipiServer {
         client as protected serverClient;
     }
-    use ManagesAsyncJobs;
+    use ManagesAsyncJobs {
+        jobLiveLines as protected jobOutputLines;
+    }
 
     /** The lists the panel ships with; what the tabs show is Presets::get(), which an admin can edit. */
     public const ARTISAN_PRESETS = Presets::DEFAULTS[Presets::ARTISAN];
@@ -131,6 +135,31 @@ class AppDetail extends Component
     public bool $envUnsupported = false;
 
     public string $envNewKey = '';
+
+    /** The app's own nginx directives, as the form holds them. */
+    public string $nginxConfig = '';
+
+    /** …and as the server has them. */
+    public string $nginxSaved = '';
+
+    public bool $nginxLoaded = false;
+
+    /** In the app's vhost right now (not while the app is suspended). */
+    public bool $nginxActive = false;
+
+    public int $nginxMaxBytes = 32768;
+
+    /** Why the card cannot be used on this server; null when it can. */
+    public ?string $nginxUnavailable = null;
+
+    /** @var list<string> why the last text was refused, line by line */
+    public array $nginxReasons = [];
+
+    /** The .env as text, while the text panel is open. */
+    public string $envText = '';
+
+    /** null (closed), `paste` (add and update from a pasted block) or `edit` (the whole list as text). */
+    public ?string $envTextMode = null;
 
     public string $envNewValue = '';
 
@@ -497,7 +526,7 @@ class AppDetail extends Component
     {
         match ($tab) {
             'domains' => $this->loadWwwStatus(),
-            'routing' => $this->loadRouting(),
+            'routing' => [$this->loadRouting(), $this->loadNginx()],
             'deploy' => $this->loadDeployTab(),
             'yml' => $this->loadYml(),
             'env' => $this->loadEnv(),
@@ -953,6 +982,98 @@ class AppDetail extends Component
 
     // ── Routing: app/path redirects + proxies ─────────────────────────
 
+    // ── nginx directives of the app ──────────────────────────────────
+
+    /**
+     * The directives are nginx configuration: a wrong line takes the site down,
+     * and they sit next to every other app's. So they are for whoever manages
+     * the server, not for an ability on one app.
+     */
+    public function canManageNginx(): bool
+    {
+        return Access::canManageServer($this->panelUser(), (int) ($this->serverId ?? 0));
+    }
+
+    public function loadNginx(): void
+    {
+        $this->nginxLoaded = false;
+        $this->nginxUnavailable = null;
+        $this->nginxReasons = [];
+        if (! $this->canManageNginx()) {
+            return;
+        }
+
+        try {
+            $this->syncNginx($this->client()->showNginx($this->appName));
+        } catch (CipiApiException $e) {
+            $this->nginxUnavailable = match (true) {
+                $e->getStatusCode() === 403 => 'The panel\'s token lacks the nginx-view and nginx-manage abilities: create a new one from Connections.',
+                in_array($e->getStatusCode(), [404, 405, 501], true) => 'Editing nginx directives needs cipi/api 1.44+ and Cipi 5.14.0+ on this server (cipi self-update && cipi api update).',
+                default => self::plainCliText($e->getMessage()),
+            };
+        }
+    }
+
+    /** @param  array<string, mixed>  $data */
+    protected function syncNginx(array $data): void
+    {
+        $this->nginxSaved = is_string($data['config'] ?? null) ? $data['config'] : '';
+        $this->nginxConfig = $this->nginxSaved;
+        $this->nginxActive = (bool) ($data['active'] ?? false);
+        $this->nginxMaxBytes = is_numeric($data['max_bytes'] ?? null) && (int) $data['max_bytes'] > 0 ? (int) $data['max_bytes'] : 32768;
+        $this->nginxReasons = [];
+        $this->nginxLoaded = true;
+    }
+
+    public function saveNginx(): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) ($this->serverId ?? 0))) {
+            return;
+        }
+
+        $this->nginxReasons = [];
+        $config = str_replace(["\r\n", "\r"], "\n", $this->nginxConfig);
+        if (strlen($config) > $this->nginxMaxBytes) {
+            $this->nginxReasons = ['The directives are too long ('.intdiv($this->nginxMaxBytes, 1024).' KB at most).'];
+
+            return;
+        }
+        if (preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $config)) {
+            $this->nginxReasons = ['The directives hold a control character.'];
+
+            return;
+        }
+
+        try {
+            $empty = trim($config) === '';
+            $this->syncNginx($empty ? $this->client()->resetNginx($this->appName) : $this->client()->updateNginx($this->appName, $config));
+            $this->dispatch('notify', type: 'success', message: $empty ? 'nginx directives removed.' : 'nginx directives saved — nginx reloaded with them.');
+        } catch (CipiApiException $e) {
+            if ($e->getStatusCode() === 422) {
+                // The text was refused — by the subset the API takes, or by nginx -t — and nothing changed.
+                $reasons = $e->getDetails()['reasons'] ?? [];
+                $this->nginxReasons = array_slice(array_map(fn ($r) => self::plainCliText((string) $r), $reasons ?: [$e->getMessage()]), 0, 25);
+
+                return;
+            }
+            $this->handleApiError($e);
+        }
+    }
+
+    public function resetNginx(): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) ($this->serverId ?? 0))) {
+            return;
+        }
+
+        try {
+            $this->syncNginx($this->client()->resetNginx($this->appName));
+            $this->dispatch('notify', type: 'success', message: 'nginx directives removed.');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
     public function loadRouting(): void
     {
         $this->routingUnsupported = false;
@@ -1397,6 +1518,24 @@ class AppDetail extends Component
         if (! $quiet && $previous !== null && self::deployActiveIn($previous) && ! self::deployActiveIn($status)) {
             $this->onExternalDeployFinished($previous, $status);
         }
+    }
+
+    /**
+     * The overlay of a running job follows its output. A deploy has a second
+     * source: the last lines of deploy.log, which the page already reads for
+     * the banner — so the overlay of a deploy is live on a server whose API
+     * (1.37 to 1.43) does not give a running job's output yet.
+     *
+     * @return list<string>
+     */
+    public function jobLiveLines(): array
+    {
+        $lines = $this->jobOutputLines();
+        if ($lines === [] && $this->jobRunning && $this->activeJobType === 'app-deploy' && $this->deployActive()) {
+            return array_values(array_map('strval', $this->deployTail));
+        }
+
+        return $lines;
     }
 
     /** A deploy is running or about to: the buttons that would collide with it are off. */
@@ -1863,6 +2002,66 @@ class AppDetail extends Component
     }
 
     /**
+     * Open the text panel of the .env: `paste` takes a block of KEY=value lines
+     * and adds or updates those keys; `edit` shows the whole list as text, and
+     * what is applied replaces it — a line taken out is a key removed. Either
+     * way the rows change, and nothing reaches the server before Save.
+     */
+    public function openEnvText(string $mode): void
+    {
+        if (! $this->allowed('env') || ! in_array($mode, ['paste', 'edit'], true)) {
+            return;
+        }
+
+        $this->envTextMode = $mode;
+        $this->envText = $mode === 'edit' ? EnvText::dump($this->envRows) : '';
+        $this->resetErrorBag('envText');
+    }
+
+    public function closeEnvText(): void
+    {
+        $this->envTextMode = null;
+        $this->envText = '';
+        $this->resetErrorBag('envText');
+    }
+
+    public function applyEnvText(): void
+    {
+        if (! $this->allowed('env') || $this->envTextMode === null) {
+            return;
+        }
+
+        $this->resetErrorBag('envText');
+        $parsed = EnvText::parse($this->envText);
+        if ($parsed['errors'] !== []) {
+            $more = count($parsed['errors']) - 5;
+            $this->addError('envText', implode(' ', array_slice($parsed['errors'], 0, 5)).($more > 0 ? " (+{$more} more)" : ''));
+
+            return;
+        }
+
+        $replace = $this->envTextMode === 'edit';
+        if (! $replace && $parsed['vars'] === []) {
+            $this->addError('envText', 'Paste at least one KEY=value line.');
+
+            return;
+        }
+
+        $result = EnvText::apply($this->envRows, $parsed['vars'], $replace);
+        $this->envRows = $result['rows'];
+        $this->closeEnvText();
+
+        $parts = array_filter([
+            $result['added'] ? $result['added'].' added' : null,
+            $result['changed'] ? $result['changed'].' changed' : null,
+            $result['removed'] ? $result['removed'].' removed' : null,
+        ]);
+        $note = $parsed['duplicates'] !== [] ? ' '.implode(', ', array_slice($parsed['duplicates'], 0, 3)).(count($parsed['duplicates']) > 3 ? '…' : '').' appeared twice: the last value is kept.' : '';
+        $this->dispatch('notify', type: $parts === [] ? 'info' : 'success',
+            message: ($parts === [] ? 'Nothing changes: the text says what the list already says.' : implode(', ', $parts).' — check the list, then Save .env.').$note);
+    }
+
+    /**
      * Move a row of the .env (drag and drop, or the up/down buttons). Saved
      * with the other changes: the order goes with them (API 1.43 / Cipi 5.13).
      */
@@ -2043,6 +2242,8 @@ class AppDetail extends Component
         }
 
         $this->envOriginal = $normalized;
+        $this->envTextMode = null; // the text panel showed the rows that are being replaced
+        $this->envText = '';
         $this->envRows = [];
         foreach ($normalized as $key => $value) {
             $this->envRows[] = ['key' => $key, 'value' => $value];
@@ -2423,19 +2624,42 @@ class AppDetail extends Component
         return preg_match('#^https?://#', $repo) ? preg_replace('/\.git$/', '', $repo) : null;
     }
 
+    /**
+     * The public address of the server the app runs on, as the panel knows it:
+     * typed on Connections, or read from the server's status. null when it is
+     * not an address — nothing is built into an `ssh` command from anything else.
+     */
+    public static function serverIp(?CipiServer $server): ?string
+    {
+        $ip = trim((string) ($server?->ip ?? ''));
+
+        return $ip !== '' && filter_var($ip, FILTER_VALIDATE_IP) ? $ip : null;
+    }
+
+    /** `ssh <user>@<address>` for the app, or null while its user or the server's address is not known. */
+    public static function sshCommand(string $user, ?string $ip): ?string
+    {
+        return $user !== '' && $ip !== null ? "ssh {$user}@{$ip}" : null;
+    }
+
     public function render()
     {
         $server = $this->currentServer();
+        $serverIp = self::serverIp($server);
 
         return view('cipi-gui::livewire.app-detail', [
             'phpVersions' => $this->installedPhpVersions !== [] || $this->legacyPhpVersions !== [] ? $this->installedPhpVersions : config('cipi-gui.php_versions'),
             'legacyPhpVersions' => $this->legacyPhpVersions,
             'server' => $server,
+            'serverIp' => $serverIp,
+            'sshCommand' => self::sshCommand((string) ($this->app['user'] ?? ''), $serverIp),
             'tabs' => $this->app ? $this->tabs() : [],
             'artisanPresets' => Presets::get(Presets::ARTISAN),
             'runPresets' => Presets::get(Presets::RUN),
             'presetsCustom' => [Presets::ARTISAN => Presets::isCustom(Presets::ARTISAN), Presets::RUN => Presets::isCustom(Presets::RUN)],
             'canEditPresets' => Access::isAdmin($this->panelUser()),
+            'isAdmin' => Access::isAdmin($this->panelUser()),
+            'canManageNginx' => $this->app !== null && $this->canManageNginx(),
             'envSuggestions' => AppEnv::SUGGESTIONS,
             'envMaxLength' => AppEnv::MAX_LENGTH,
         ])->title($this->appName.($server ? ' · '.$server->name : ''));

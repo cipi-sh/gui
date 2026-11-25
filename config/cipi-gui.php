@@ -42,7 +42,7 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Token abilities (Cipi API 1.39)
+    | Token abilities (Cipi API 1.44)
     |--------------------------------------------------------------------------
     |
     | Everything the panel calls. Shown on the Connections page as a ready-made
@@ -53,15 +53,16 @@ return [
         'apps-view', 'apps-create', 'apps-edit', 'apps-delete', 'apps-suspend', 'apps-basicauth',
         'apps-env', 'apps-auth', 'apps-artisan', 'apps-run', 'apps-deploy-config',
         'aliases-view', 'aliases-create', 'aliases-delete', 'www-manage',
-        'redirects-view', 'redirects-manage', 'proxies-view', 'proxies-manage',
+        'redirects-view', 'redirects-manage', 'proxies-view', 'proxies-manage', 'nginx-view', 'nginx-manage',
         'node-view', 'node-manage', 'node-runtimes-manage', 'search-view', 'search-manage',
         'deploy-manage', 'ssl-manage', 'dbs-view', 'dbs-create', 'dbs-manage',
         'php-view', 'php-manage', 'ssh-view', 'ssh-manage', 'services-view', 'services-manage',
         'smtp-view', 'smtp-manage', 'health-view', 'health-manage',
-        'packages-view', 'monitor-view', 'zt-view', 'disk-view', 'yml-view', 'yml-manage',
+        'packages-view', 'packages-manage', 'monitor-view', 'zt-view', 'disk-view', 'yml-view', 'yml-manage',
         'ip-whitelist-view', 'ip-whitelist-manage', 'status-view',
         'backups-view', 'backups-manage', 'metrics-view', 'metrics-manage',
         'notifications-view', 'notifications-manage',
+        'firewall-view', 'firewall-manage',
     ],
 
     /*
@@ -131,9 +132,14 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Theme assets (bump after CSS changes to bust browser cache)
+    | Theme assets
     |--------------------------------------------------------------------------
+    |
+    | Not read by the panel, kept for configs that publish it. A CSS change
+    | needs no bump: the stylesheet is inlined in every page, and its md5
+    | (Theme::fingerprint) clears the compiled views when it changes.
+    |
     */
-    'assets_version' => '8',
+    'assets_version' => '9',
 
 ];

@@ -34,6 +34,7 @@ class ServerManage extends Component
         'monitor' => 'Monitor',
         'smtp' => 'Notifications',
         'ssh' => 'SSH',
+        'firewall' => 'Firewall',
         'search' => 'Search',
         'packages' => 'Packages',
         'zt' => 'Zero Trust',
@@ -273,6 +274,8 @@ class ServerManage extends Component
             'monitor' => fn () => $this->monitor = $this->client()->monitorStatus(),
             // A component of its own (Livewire\Metrics) reads, polls and draws it.
             'metrics' => fn () => null,
+            // So does the firewall (Livewire\Firewall, API 1.44+ / Cipi 5.14.0): UFW, fail2ban, CrowdSec.
+            'firewall' => fn () => null,
             // Every channel and trigger (Livewire\Notifications, API 1.42+); the SMTP form of before otherwise.
             'smtp' => function () {
                 $this->notificationsLegacy = false;
@@ -431,6 +434,68 @@ class ServerManage extends Component
         }
 
         return false;
+    }
+
+    // ── Optional packages (API 1.44+ / Cipi ≥ 5.14.0) ─────────────────
+
+    public function installPackage(string $id): void
+    {
+        $pkg = $this->knownPackage($id);
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || $pkg === null || ! empty($pkg['installed'])) {
+            return;
+        }
+
+        $label = ! empty($pkg['outdated']) && ! empty($pkg['version']) ? 'Update '.$id.' to '.$pkg['version'] : 'Install '.$id;
+        $this->startPackageJob($label, fn (CipiApiClient $api) => $api->installPackage($id));
+    }
+
+    public function removePackage(string $id): void
+    {
+        $pkg = $this->knownPackage($id);
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || $pkg === null || (empty($pkg['installed']) && empty($pkg['partial']) && empty($pkg['outdated']))) {
+            return;
+        }
+
+        $this->startPackageJob('Remove '.$id, fn (CipiApiClient $api) => $api->removePackage($id));
+    }
+
+    /**
+     * A server whose API is older than 1.44 lists the catalog but has no route
+     * to change it: say what to update instead of "route not found".
+     */
+    protected function startPackageJob(string $label, callable $request): void
+    {
+        try {
+            $this->dispatchJob($request($this->client()), $label);
+        } catch (CipiApiException $e) {
+            $noRoute = in_array($e->getStatusCode(), [404, 405], true)
+                && preg_match('/could not be found|not supported for route|^Not Found$/i', $e->getMessage()) === 1;
+            if (! $noRoute) {
+                $this->handleApiError($e);
+
+                return;
+            }
+
+            $message = 'This server cannot install or remove packages from the panel yet: it needs Cipi 5.14.0+ and cipi/api 1.44+ (cipi self-update && cipi api update). Until then: cipi package install <id> on the server.';
+            $this->error = $message;
+            $this->dispatch('notify', type: 'error', message: $message);
+        }
+    }
+
+    /**
+     * The entry is one the page lists, from the server's own catalog (never an id the request made up).
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function knownPackage(string $id): ?array
+    {
+        foreach ($this->packages as $pkg) {
+            if (is_array($pkg) && ($pkg['id'] ?? null) === $id) {
+                return $pkg;
+            }
+        }
+
+        return null;
     }
 
     // ── SSH keys ──────────────────────────────────────────────────────

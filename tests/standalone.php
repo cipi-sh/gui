@@ -24,6 +24,7 @@ namespace {
     require $root.'/src/Http/Controllers/DbUploadController.php';
     require $root.'/src/Services/CipiApiException.php';
     require $root.'/src/Livewire/Concerns/ManagesBackups.php';
+    require $root.'/src/Support/Firewall.php';
 
     use CipiGui\Http\Controllers\DbUploadController as Up;
     use CipiGui\Support\DeployLog;
@@ -249,7 +250,232 @@ namespace {
     $client = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
     $check(str_contains($client, 'public function updateEnv(string $name, array $set = [], array $unset = [], ?array $order = null): array') && str_contains($client, "\$payload['order'] = array_values(\$order);"), 'the client sends order');
     $theme = (string) file_get_contents($root.'/src/Support/Theme.php');
-    $check((bool) preg_match("/VERSION = '4\\.5\\.\\d+'/", $theme) && str_contains($theme, "API = '1.43'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.5.0]'), 'version 4.5.0 for API 1.43');
+    preg_match("/VERSION = '([0-9.]+)'/", $theme, $tv); preg_match("/API = '([0-9.]+)'/", $theme, $ta);
+    $check(version_compare($tv[1] ?? '0', '4.5.0', '>=') && version_compare($ta[1] ?? '0', '1.43', '>=') && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.5.0]'), 'version 4.5.0 or later, for API 1.43 or later');
+
+    echo "--- 4.6.0: firewall\n";
+    $FW = \CipiGui\Support\Firewall::class;
+    $check($FW::normalizePort('8080') === '8080' && $FW::normalizePort(' 0080 ') === '80' && $FW::normalizePort('8000:8100') === '8000:8100', 'ports and ranges, without leading zeros');
+    $check(array_filter(['0', '65536', '8000:7000', '22;id', '80,443', 'ssh', '', '-1'], fn ($p) => $FW::normalizePort($p) !== null) === [], 'not a port: 0, 65536, a range backwards, shell characters, a list, a name, nothing');
+    $check($FW::isAddress('203.0.113.9') && $FW::isAddress('10.0.0.0/8') && $FW::isAddress('2001:db8::/48') && ! $FW::isAddress('1.2.3.4/33') && ! $FW::isAddress('example.com') && ! $FW::isAddress('1.2.3.4;id') && ! $FW::isAddress('') && ! $FW::isAddress('*'), 'addresses: IPv4, IPv6, CIDR — nothing else');
+    $check($FW::tooWide('0.0.0.0/0') && $FW::tooWide('10.0.0.0/7') && ! $FW::tooWide('10.0.0.0/8') && $FW::tooWide('::/0') && ! $FW::tooWide('2001:db8::/32'), 'too wide to block: below IPv4 /8, IPv6 /16');
+    $check($FW::portLabel(['port' => '8080', 'proto' => 'tcp']) === '8080/tcp' && $FW::portLabel(['port' => '3000', 'proto' => 'any']) === '3000' && $FW::portLabel(['port' => 'any', 'proto' => 'any']) === 'Every port', 'port labels');
+    $check($FW::fromLabel(['from' => 'any']) === 'Anywhere' && $FW::familyLabel('both') === 'IPv4 + IPv6' && $FW::familyLabel('v6') === 'IPv6' && $FW::managedLabel('zero-trust') === 'Zero Trust' && $FW::managedLabel('') === null, 'from, family, the feature that owns a rule');
+    $check($FW::duration(86400) === '1d' && $FW::duration(3600) === '1h' && $FW::duration(600) === '10m' && $FW::duration(45) === '45s' && $FW::duration(null) === '—', 'durations like the CLI');
+    $fwData = ['fail2ban' => ['jails' => [['jail' => 'sshd', 'banned' => ['198.51.100.20', '203.0.113.66']], ['jail' => 'recidive', 'banned' => ['198.51.100.20']], 'junk']],
+        'crowdsec' => ['decisions' => [['ip' => '203.0.113.66', 'reason' => 'crowdsecurity/ssh-bf', 'duration' => '3h'], ['ip' => '']]],
+        'ufw' => ['rules' => [['kind' => 'block', 'from' => '192.0.2.1'], ['kind' => 'port', 'port' => '22'], ['kind' => 'other', 'port' => 'any'], 'junk']]];
+    $bans = $FW::bans($fwData);
+    $check(count($bans) === 2 && $bans[0]['by'] === ['fail2ban · sshd', 'fail2ban · recidive'] && $bans[1]['by'] === ['fail2ban · sshd', 'CrowdSec'] && $bans[1]['reason'] === 'crowdsecurity/ssh-bf', 'bans: one row per address, every jail and CrowdSec named');
+    $sec = $FW::sections($fwData);
+    $check(count($sec['blocks']) === 1 && $sec['blocks'][0]['from'] === '192.0.2.1' && count($sec['rules']) === 2, 'sections: blocks apart from the rules, in order');
+    $fwc = (string) file_get_contents($root.'/src/Livewire/Firewall.php');
+    $fwv = $views[$root.'/resources/views/livewire/firewall.blade.php'] ?? '';
+    $check(str_contains($fwv, 'wire:init="init"') && str_contains($fwv, "@include('cipi-gui::partials.job-overlay')"), 'firewall: the tab paints first and asks its server after; CrowdSec jobs have their overlay');
+    $check((bool) preg_match('/#\[Locked\]\s+public array \$firewall/', $fwc), 'firewall: what the server answered is locked — actions take only what it lists');
+    foreach (['addRule', 'removeRule', 'blockAddress', 'unblock', 'saveAttempts', 'defaultAttempts', 'unban', 'enableCrowdsec', 'disableCrowdsec', 'crowdsecAllow', 'crowdsecUnallow'] as $action) {
+        $check((bool) preg_match('/function '.$action.'\([^)]*\): void\s+\{\s+if \(! \$this->serverAllowed\(Access::MANAGE/', $fwc), "firewall: {$action}() needs Manage on the server");
+    }
+    $check(str_contains($fwc, "! (\$rule['removable'] ?? false)") && str_contains($fwc, "in_array(\$ip, array_column(F::bans(\$this->firewall), 'ip'), true)") && str_contains($fwc, "in_array(\$address, \$listed, true)"), 'firewall: a rule the server marks removable, a ban and a block the page lists');
+    $sm = (string) file_get_contents($root.'/src/Livewire/ServerManage.php');
+    $check(str_contains($sm, "'firewall' => 'Firewall'") && str_contains($views[$root.'/resources/views/livewire/server-manage.blade.php'] ?? '', "@livewire('cipi-gui.firewall'"), 'the server page has a Firewall tab');
+    $cfg = (string) file_get_contents($root.'/config/cipi-gui.php');
+    $check(str_contains($cfg, "'firewall-view', 'firewall-manage'"), 'the token command on Connections asks for firewall-view and firewall-manage');
+    $check(str_contains($client, "public function firewall(): array") && str_contains($client, "'/firewall/crowdsec/enable'") && str_contains($client, "request(\$method, \$path, data: \$data)"), 'the client: the firewall routes of API 1.44');
+
+    echo "--- 4.6.0: two-factor authentication required for every account\n";
+    $mw = (string) file_get_contents($root.'/src/Http/Middleware/EnsureTwoFactorVerified.php');
+    $tfs = (string) file_get_contents($root.'/src/Services/TwoFactorService.php');
+    $check(str_contains($mw, "redirect()->route('cipi-gui.2fa')") && str_contains($mw, "TwoFactorService::setupRequired(\$user, \$session)") && str_contains($mw, "routeIs('cipi-gui.2fa*')"), 'the 2FA middleware: the code first, then the setup when required; its own pages pass');
+    $check(str_contains($mw, "\$request->user() ?? auth()->user()") && str_contains($mw, "\$request->hasSession() ? \$request->session() : app('session.store')"), '…on a request Livewire makes for a persistent middleware, user and session come from the application');
+    $check(str_contains($tfs, 'return Panel::enforceTwoFactor() && self::setupRequiredIfEnforced($user, $session);') && str_contains($tfs, '$session->get(self::SSO_SESSION)'), 'required only when an admin turned it on, never for an SSO session');
+    $sp = (string) file_get_contents($root.'/src/CipiGuiServiceProvider.php');
+    $check(str_contains($sp, 'addPersistentMiddleware([EnsureTwoFactorVerified::class])'), 'Livewire actions go through the 2FA middleware too');
+    $authGroup = substr($routes, (int) strpos($routes, "Route::middleware(['auth'])->group"), (int) strpos($routes, "Route::middleware(['auth', 'cipi-gui.2fa'])") - (int) strpos($routes, "Route::middleware(['auth'])->group"));
+    $check(str_contains($authGroup, "name('cipi-gui.2fa.setup')") && str_contains($authGroup, "name('cipi-gui.2fa.enable')"), 'the setup page is behind sign-in, outside the 2FA check (it is where the check sends)');
+    $setupView = $views[$root.'/resources/views/auth/2fa-setup.blade.php'] ?? '';
+    $check(str_contains($setupView, "route('cipi-gui.2fa.enable')") && str_contains($setupView, '@csrf') && str_contains($setupView, "route('cipi-gui.logout')") && ! str_contains($setupView, 'wire:'), 'the setup page: a plain form (no Livewire on the guest layout), CSRF, a way out');
+    $ctl = (string) file_get_contents($root.'/src/Http/Controllers/Auth/TwoFactorController.php');
+    $check(str_contains($ctl, 'TwoFactorService::SETUP_SECRET') && ! str_contains($setupView, 'name="secret"'), 'the secret being enrolled stays in the session, never in the form');
+    $login = (string) file_get_contents($root.'/src/Http/Controllers/Auth/LoginController.php');
+    $sso = (string) file_get_contents($root.'/src/Http/Controllers/Auth/SsoController.php');
+    $inv = (string) file_get_contents($root.'/src/Http/Controllers/Auth/InviteController.php');
+    $check(str_contains($login, "forget(['cipi_gui_2fa_verified', TwoFactorService::SSO_SESSION])") && str_contains($login, "redirect()->route('cipi-gui.2fa.setup')") && str_contains($sso, 'TwoFactorService::SSO_SESSION => true') && str_contains($inv, "'cipi-gui.2fa.setup'"), 'sign-in, SSO and invites: password sessions set it up, SSO sessions are marked');
+    $team = (string) file_get_contents($root.'/src/Livewire/Team.php');
+    $check(str_contains($team, 'public function setTwoFactorRequired(bool $required): void') && str_contains($team, 'setupRequiredIfEnforced(Auth::user()') && str_contains($team, 'public function resetTwoFactor(TwoFactorService $twoFactor): void') && str_contains($team, 'if (! $id || $id === (int) Auth::id())'), 'Team: require it (not before your own), reset another account\'s 2FA (not your own)');
+    $settings = (string) file_get_contents($root.'/src/Livewire/Settings.php');
+    $check((bool) preg_match('/function disableTwoFactor[^{]+\{.*?if \(Panel::enforceTwoFactor\(\)\)/s', $settings), 'Settings: required 2FA is not turned off');
+    $panel = (string) file_get_contents($root.'/src/Support/Panel.php');
+    $check(str_contains($panel, "public const ENFORCE_2FA = 'enforce_2fa';") && str_contains($panel, "self::get(self::ENFORCE_2FA, '0') === '1'"), 'the setting enforce_2fa, off by default');
+    echo "--- 4.6.0: Team → access editor\n";
+    $css = (string) file_get_contents($root.'/resources/css/cipi-gui.css');
+    $ae = $views[$root.'/resources/views/partials/access-editor.blade.php'] ?? '';
+    $missing = [];
+    preg_match_all('/class="([^"]*)"/', $ae, $cm);
+    foreach ($cm[1] as $list) {
+        foreach (preg_split('/\s+/', trim((string) preg_replace('/\{\{.*?\}\}/', '', $list))) as $c) {
+            if ($c !== '' && preg_match('/^[a-z][a-z0-9:\/-]*$/', $c) && ! preg_match('/\.'.preg_quote(str_replace(':', '\\:', $c), '/').'(?=[\s,{:.>\[)])/', $css)) {
+                $missing[] = $c;
+            }
+        }
+    }
+    $check($missing === [], 'every class of the access editor is in the stylesheet (gap-x-*, sm:ml-auto were not: the abilities were glued together)'.($missing ? ' — '.implode(', ', array_unique($missing)) : ''));
+    $check(str_contains($ae, 'class="access-ability"') && str_contains($ae, 'type-picker role-picker') && str_contains($css, '.access-ability:has(input:checked)'), 'abilities are toggles of their own; the two roles share the row');
+
+    echo "--- 4.6.0: optional packages, installed and removed from the panel\n";
+    $cfg = (string) file_get_contents($root.'/config/cipi-gui.php');
+    $check(str_contains($cfg, "'packages-view', 'packages-manage',"), 'the token abilities include packages-manage');
+    $client = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    $check(str_contains($client, "return \$this->post('/packages/'.rawurlencode(\$id));") && str_contains($client, "return \$this->delete('/packages/'.rawurlencode(\$id));"), 'client: POST and DELETE /api/packages/{id}, the id URL-encoded');
+    $sm = (string) file_get_contents($root.'/src/Livewire/ServerManage.php');
+    $check((bool) preg_match('/function installPackage\(string \$id\): void\s*\{\s*\$pkg = \$this->knownPackage\(\$id\);\s*if \(! \$this->serverAllowed\(Access::MANAGE/s', $sm) && (bool) preg_match('/function removePackage\(string \$id\): void\s*\{\s*\$pkg = \$this->knownPackage\(\$id\);\s*if \(! \$this->serverAllowed\(Access::MANAGE/s', $sm), 'install and remove need manage access and an id the page listed');
+    $check(str_contains($sm, "\$api->installPackage(\$id)") && str_contains($sm, "\$api->removePackage(\$id)"), 'both run as jobs');
+    $smv = $views[$root.'/resources/views/livewire/server-manage.blade.php'] ?? '';
+    $pkgTab = (string) (preg_match("/@elseif\(\\\$activeTab === 'packages'\)(.*?)@elseif\(\\\$activeTab === 'zt'\)/s", $smv, $pm) ? $pm[1] : '');
+    $check($pkgTab !== '' && ! str_contains($pkgTab, 'Read-only by design') && str_contains($pkgTab, 'wire:click="installPackage(@js($pkgId))" data-confirm=') && str_contains($pkgTab, 'wire:click="removePackage(@js($pkgId))" data-confirm=') && str_contains($pkgTab, '@if($canManage && $pkgId !== \'\')'), 'the packages tab: Install and Remove, confirmed, only with manage access');
+    $check(str_contains($pkgTab, "\$pkg['binaries']") && str_contains($pkgTab, "\$pkg['missing']") && str_contains($pkgTab, '>Libraries</span>'), 'it shows the commands, what is missing, and which entries are libraries');
+    $check(str_contains($pkgTab, '>Upstream{{') && str_contains($pkgTab, "'Update to '.\$pkgVersion") && str_contains($pkgTab, '@if($pkgInstalled || $pkgPartial || $pkgOutdated)') && str_contains($sm, "empty(\$pkg['outdated'])"), 'upstream entries: their pinned version, Update when outdated, removable');
+    $missing = [];
+    preg_match_all('/class="([^"]*)"/', $pkgTab, $cm);
+    foreach ($cm[1] as $list) {
+        foreach (preg_split('/\s+/', trim((string) preg_replace('/\{\{.*?\}\}/', '', $list))) as $c) {
+            if ($c !== '' && preg_match('/^[a-z][a-z0-9:\/-]*$/', $c) && ! preg_match('/\.'.preg_quote(str_replace(':', '\\:', $c), '/').'(?=[\s,{:.>\[)])/', $css)) {
+                $missing[] = $c;
+            }
+        }
+    }
+    $check($missing === [], 'every class of the packages tab is in the stylesheet'.($missing ? ' — '.implode(', ', array_unique($missing)) : ''));
+    $fx = (string) file_get_contents($root.'/dev/demo/api/fixtures.php');
+    $check(substr_count($fx, "        ['") >= 20 && str_contains($fx, "['browsershot', [") && str_contains($fx, "['tesseract', [") && str_contains($fx, "['sec-nuclei', [], ['nuclei']") && str_contains($fx, "'sec-zap' => '2.16.1'"), 'the demo lists the whole 5.14.0 catalog, sec entries and an outdated one included');
+
+    echo "--- 4.6.0: the app page says where to connect and as whom\n";
+    require_once $root.'/src/Support/AppEnv.php';
+    require_once $root.'/src/Livewire/Concerns/InteractsWithCipiServer.php';
+    $norm = new class
+    {
+        use \CipiGui\Livewire\Concerns\InteractsWithCipiServer { normalizeApp as public; }
+    };
+    $check($norm->normalizeApp(['app' => 'shop', 'user' => 'shop'])['user'] === 'shop' && $norm->normalizeApp(['app' => 'shop'])['user'] === 'shop' && $norm->normalizeApp(['app' => 'shop', 'user' => ''])['user'] === 'shop',
+        'the user of an app: what the server says, or the app\'s name when it says nothing');
+    $check($norm->normalizeApp(['app' => 'shop', 'user' => 'shop $(id)'])['user'] === 'shop' && $norm->normalizeApp(['app' => 'Shop;id', 'user' => '-oProxyCommand=x'])['user'] === '' && $norm->normalizeApp([])['user'] === '',
+        'a user name or nothing: never an option of ssh, never a shell character');
+    $ad = (string) file_get_contents($root.'/src/Livewire/AppDetail.php');
+    $adv = $views[$root.'/resources/views/livewire/app-detail.blade.php'] ?? '';
+    $check(str_contains($ad, "return \$ip !== '' && filter_var(\$ip, FILTER_VALIDATE_IP) ? \$ip : null;") && str_contains($ad, 'return $user !== \'\' && $ip !== null ? "ssh {$user}@{$ip}" : null;'),
+        'the address is an IP or nothing, and the ssh command needs both');
+    $details = (string) (preg_match('/<h2 class="card-title">Details<\/h2>(.*?)<\/dl>/s', $adv, $dm) ? $dm[1] : '');
+    $check($details !== '' && str_contains($details, '<dt>User</dt>') && str_contains($details, '<dt>Server IP</dt>') && str_contains($details, '<x-cipi::copyable :value="$appUser"') && str_contains($adv, "\$appUser = (string) (\$app['user'] ?? '');") && str_contains($details, '<x-cipi::copyable :value="$serverIp"') && str_contains($details, '<x-cipi::copyable :value="$sshCommand"'),
+        'Details: User, Server IP and the ssh command, each copied with a click');
+    $check(str_contains($details, 'data-server-ip-unknown') && (bool) preg_match('/@if\(\$sshCommand\)\s*<dt>SSH<\/dt>/', $details), 'an address the panel does not know is said, and no command is offered without it');
+    $header = (string) (preg_match('/<x-slot:meta>(.*?)<\/x-slot:meta>/s', $adv, $hm) ? $hm[1] : '');
+    $check(str_contains($header, '@if($serverIp)<x-cipi::copyable :value="$serverIp" label="Copy server IP"'), 'the address is next to the server\'s name in the header, on every tab');
+    $check(! str_contains($ad, "->status()") && ! str_contains($ad, "'/status'"), 'nothing is asked of the server for it: the address is the one the panel keeps');
+    $missing = [];
+    preg_match_all('/class="([^"]*)"/', $details.$header, $cm);
+    foreach ($cm[1] as $list) {
+        foreach (preg_split('/\s+/', trim((string) preg_replace('/\{\{.*?\}\}/', '', $list))) as $c) {
+            if ($c !== '' && preg_match('/^[a-z][a-z0-9:\/.-]*$/', $c) && ! preg_match('/\.'.preg_quote(str_replace([':', '.'], ['\\:', '\\.'], $c), '/').'(?=[\s,{:.>\[)])/', $css)) {
+                $missing[] = $c;
+            }
+        }
+    }
+    $check($missing === [], 'every class of the Details card and of the header is in the stylesheet'.($missing ? ' — '.implode(', ', array_unique($missing)) : ''));
+    $check(str_contains((string) file_get_contents($root.'/dev/demo/api/index.php'), "\$out['user'] = \$out['app'];"), 'the demo API answers with the user of each app');
+
+    echo "--- 4.6.0: the .env as text, live job output, commit titles, worker hooks, IPv6, aligned fields\n";
+    require_once $root.'/src/Support/EnvText.php';
+    $ET = \CipiGui\Support\EnvText::class;
+    $pasted = "\xEF\xBB\xBF# from the README\r\nexport APP_NAME=\"My \\\"shop\\\" app\"\r\n\r\nMAIL_HOST=smtp.example.com   # the relay\nMAIL_PASSWORD='p@ss #1 \$x'\n```env\nEMPTY=\nURL=https://x.test/?a=1&b=2#frag\nPATH_WIN=\"C:\\\\dir\"\nAPP_NAME=Second\n  SPACED = padded value  \n```\n";
+    $parsed = $ET::parse($pasted);
+    $check($parsed['errors'] === [] && $parsed['vars'] === ['MAIL_HOST' => 'smtp.example.com', 'MAIL_PASSWORD' => 'p@ss #1 $x', 'EMPTY' => '', 'URL' => 'https://x.test/?a=1&b=2#frag', 'PATH_WIN' => 'C:\\dir', 'APP_NAME' => 'Second', 'SPACED' => 'padded value'] && $parsed['duplicates'] === ['APP_NAME'],
+        '.env text: comments, export, quotes, an inline comment, a code fence, CRLF, a BOM; a key twice keeps the last value');
+    $rowsOf = fn (array $vars) => array_map(fn ($k, $v) => ['key' => $k, 'value' => $v], array_keys($vars), $vars);
+    $tricky = ['A' => 'plain', 'B' => 'two words', 'C' => 'has "quotes" and \\back', 'D' => "it's", 'E' => 'a#b', 'F' => 'x=y', 'G' => '$HOME `id`', 'H' => '', 'I' => ' padded ', 'J' => 'ünïcödé ¿'];
+    $check($ET::parse($ET::dump($rowsOf($tricky)))['vars'] === $tricky && $ET::dump([['key' => 'A', 'value' => 'plain'], ['key' => 'B', 'value' => 'two words'], ['key' => '', 'value' => 'x']]) === "A=plain\nB=\"two words\"",
+        '.env text: what dump() writes, parse() reads back — quoted where the CLI would quote it');
+    $bad = $ET::parse("FOO\n1BAD=x\nA=\"open\nB='open\nC=\"x\" y\nD=ok\nE=a\x01b");
+    $check($bad['vars'] === ['D' => 'ok'] && count($bad['errors']) === 6 && $bad['errors'][0] === 'Line 1: expected KEY=value.' && str_contains($bad['errors'][2], 'never closed — a value has to stay on one line') && str_contains($bad['errors'][5], 'control character'),
+        '.env text: a line that is not KEY=value, a bad key, an open quote, text after a quote, a control character — each named with its line');
+    $check($ET::parse(str_repeat('A=1', 30000))['errors'] === ['The text is too long (64 KB at most).'], '.env text: 64 KB at most');
+    $merge = $ET::apply([['key' => 'A', 'value' => '1'], ['key' => 'B', 'value' => '2']], ['B' => '3', 'C' => '4'], false);
+    $replace = $ET::apply([['key' => 'A', 'value' => '1'], ['key' => 'B', 'value' => '2']], ['B' => '2', 'C' => '4'], true);
+    $check($merge === ['rows' => [['key' => 'A', 'value' => '1'], ['key' => 'B', 'value' => '3'], ['key' => 'C', 'value' => '4']], 'added' => 1, 'changed' => 1, 'removed' => 0]
+        && $replace === ['rows' => [['key' => 'B', 'value' => '2'], ['key' => 'C', 'value' => '4']], 'added' => 1, 'changed' => 0, 'removed' => 1],
+        '.env text: pasting adds and updates in place, editing the whole text replaces the list');
+    $ad = (string) file_get_contents($root.'/src/Livewire/AppDetail.php');
+    $adv = $views[$root.'/resources/views/livewire/app-detail.blade.php'] ?? '';
+    $check((bool) preg_match('/function openEnvText\(string \$mode\): void\s*\{\s*if \(! \$this->allowed\(\'env\'\)/', $ad) && (bool) preg_match('/function applyEnvText\(\): void\s*\{\s*if \(! \$this->allowed\(\'env\'\)/', $ad) && str_contains($ad, 'EnvText::apply($this->envRows, $parsed[\'vars\'], $replace)'),
+        'the text panel needs the env ability, and changes the rows only: Save sends them');
+    $check(str_contains($adv, 'wire:click="openEnvText(\'paste\')"') && str_contains($adv, 'wire:click="openEnvText(\'edit\')"') && str_contains($adv, '<form wire:submit="applyEnvText"') && str_contains($adv, "@if(\$envTextMode !== 'edit')"),
+        'Environment tab: Paste variables, Edit as text; the rows give way to the text while it is edited');
+
+    $jobs = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesAsyncJobs.php');
+    $overlay = $views[$root.'/resources/views/partials/job-overlay.blade.php'] ?? '';
+    $terminal = $views[$root.'/resources/views/partials/terminal.blade.php'] ?? '';
+    $check(str_contains($jobs, "} elseif (is_string(\$data['output'] ?? null) && \$data['output'] !== '') {") && str_contains($jobs, 'array_slice($lines, -self::JOB_LIVE_LINES)') && str_contains($jobs, 'public function jobLiveLines(): array'),
+        'a running job that says its output so far (cipi/api 1.44) is kept: its last lines');
+    $check(str_contains($overlay, "\$liveLines = (\$jobRunning ?? false) ? \$this->jobLiveLines() : [];") && str_contains($overlay, 'data-job-live') && str_contains($overlay, "'follow' => true") && ! str_contains($overlay, 'output appears when the job finishes'),
+        'the overlay of a running job shows that output, live');
+    $check(str_contains($terminal, 'new MutationObserver(() => { if (stick) $el.scrollTop = $el.scrollHeight })') && str_contains($terminal, 'x-on:scroll.passive="stick = '), 'the terminal follows new lines, unless the reader scrolled up');
+    $check(str_contains($ad, "\$this->activeJobType === 'app-deploy' && \$this->deployActive()") && str_contains($ad, 'jobLiveLines as protected jobOutputLines;'), 'a deploy on an older API is followed through deploy.log');
+
+    $check(str_contains($adv, "\$subject = is_string(\$record['subject'] ?? null) ? trim(\$record['subject']) : '';") && str_contains($adv, 'data-commit-subject>{{ $subject }}</span>'), 'deploy audit: the commit\'s title under its release, escaped');
+    $check(str_contains($adv, "\$runsHorizon = array_key_exists('horizon', \$app) ? (bool) \$app['horizon'] : null;") && str_contains($adv, 'data-worker-hooks=') && str_contains($adv, 'Skipped: no Horizon here'), 'deploy pipeline: which of queue:restart and horizon:terminate applies to this app');
+    $norm2 = new class { use \CipiGui\Livewire\Concerns\InteractsWithCipiServer { normalizeApp as public; } };
+    $check($norm2->normalizeApp(['app' => 'shop', 'horizon' => 'true'])['horizon'] === true && $norm2->normalizeApp(['app' => 'shop', 'horizon' => null])['horizon'] === false && ! array_key_exists('horizon', $norm2->normalizeApp(['app' => 'shop'])),
+        'horizon: true, false, or not said by the server');
+    $smv = $views[$root.'/resources/views/livewire/server-manage.blade.php'] ?? '';
+    $check(str_contains($smv, "filter_var(\$sys['ipv6'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)") && str_contains($smv, '<dt>Public IPv6</dt>'), 'server page: its IPv6 address, when it is one');
+
+    $check(! str_contains($all, 'items-end'), 'no row of fields is aligned to the bottom: a hint or an error under one input no longer moves its neighbours');
+    $check((bool) preg_match('/\.check \{[^}]*margin: 0;[^}]*\}.*\.field-action \{ margin-top: 1\.59375rem; min-height: 2\.25rem; \}/s', $css), '.field-action comes after .check in the stylesheet: a checkbox of a row keeps its place on the line of the inputs');
+    $check(substr_count($all, 'field-action') >= 5 && str_contains($adv, '<form wire:submit="saveHealth" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-start">'), 'the healthcheck form and the rows with a button line up on their labels');
+    $missing = [];
+    $envPanel = (string) (preg_match('/<form wire:submit="applyEnvText".*?<\/form>/s', $adv, $em) ? $em[0] : '');
+    $hooks = (string) (preg_match('/<p class="field-hint" data-worker-hooks=.*?<\/p>/s', $adv, $hm2) ? $hm2[0] : '');
+    preg_match_all('/class="([^"]*)"/', $envPanel.$hooks.$overlay.'<span class="block font-sans text-xs text-soft truncate commit-subject">', $cm);
+    foreach ($cm[1] as $list) {
+        foreach (preg_split('/\s+/', trim((string) preg_replace('/\{\{.*?\}\}/', '', $list))) as $c) {
+            if ($c !== '' && preg_match('/^[a-z][a-z0-9:\/.-]*$/', $c) && ! preg_match('/\.'.preg_quote(str_replace([':', '.'], ['\\:', '\\.'], $c), '/').'(?=[\s,{:.>\[)])/', $css)) {
+                $missing[] = $c;
+            }
+        }
+    }
+    $check($envPanel !== '' && $hooks !== '' && $missing === [], 'every class of the text panel, the hooks note, the overlay and the commit title is in the stylesheet'.($missing ? ' — '.implode(', ', array_unique($missing)) : ''));
+    $demo = (string) file_get_contents($root.'/dev/demo/api/index.php');
+    $check(str_contains($demo, 'function liveOutput(string $type, float $seconds): string') && str_contains((string) file_get_contents($root.'/dev/demo/api/fixtures.php'), "'subject' => 'Fix checkout tax rounding'") && str_contains((string) file_get_contents($root.'/dev/demo/api/fixtures.php'), "'ipv6' => '2001:db8:24::1'"), 'demo API: live output of running jobs, commit titles, an IPv6 address');
+
+    echo "--- 4.6.0: Routing → Nginx directives\n";
+    $ex = \CipiGui\Services\CipiApiException::fromResponse(422, ['error' => 'nginx refused the directives', 'reasons' => ['nginx refused the directives', 5, 'line 2: unknown directive "boom"']]);
+    $check($ex->getStatusCode() === 422 && $ex->getMessage() === 'nginx refused the directives' && $ex->getDetails() === ['reasons' => ['nginx refused the directives', 'line 2: unknown directive "boom"']]
+        && \CipiGui\Services\CipiApiException::fromResponse(422, ['message' => 'x', 'errors' => ['config' => ['too long']]])->getDetails() === ['config' => ['too long']],
+        'a refused change keeps its reasons; validation errors are what they were');
+    $client = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    $check(str_contains($client, 'return $this->get("/apps/{$app}/nginx")[\'data\'] ?? [];') && str_contains($client, 'return $this->put("/apps/{$app}/nginx", [\'config\' => $config])[\'data\'] ?? [];') && str_contains($client, 'return $this->request(\'delete\', "/apps/{$app}/nginx")[\'data\'] ?? [];'),
+        'client: GET, PUT and DELETE /api/apps/{app}/nginx');
+    $ad = (string) file_get_contents($root.'/src/Livewire/AppDetail.php');
+    $adv = $views[$root.'/resources/views/livewire/app-detail.blade.php'] ?? '';
+    $check((bool) preg_match('/function saveNginx\(\): void\s*\{\s*if \(! \$this->serverAllowed\(Access::MANAGE/', $ad) && (bool) preg_match('/function resetNginx\(\): void\s*\{\s*if \(! \$this->serverAllowed\(Access::MANAGE/', $ad)
+        && (bool) preg_match('/function loadNginx\(\): void\s*\{.*?if \(! \$this->canManageNginx\(\)\) \{\s*return;/s', $ad) && str_contains($ad, 'return Access::canManageServer($this->panelUser(), (int) ($this->serverId ?? 0));'),
+        'nginx directives are read and changed only by who manages the server — an ability on the app is not enough');
+    $check(str_contains($ad, "\$reasons = \$e->getDetails()['reasons'] ?? [];") && str_contains($ad, "'routing' => [\$this->loadRouting(), \$this->loadNginx()],"), 'a 422 becomes the list of reasons; the card loads with the Routing tab');
+    $ngCard = (string) (preg_match('/@if\(\$canManageNginx\)\s*<div class="card lg:col-span-2" data-nginx-directives>.*?<\/form>\s*@endif\s*<\/div>\s*@endif/s', $adv, $nm) ? $nm[0] : '');
+    $check($ngCard !== '' && str_contains($ngCard, '<form wire:submit="saveNginx">') && str_contains($ngCard, 'wire:click="resetNginx" data-confirm=') && str_contains($ngCard, 'data-nginx-refused') && str_contains($ngCard, 'data-nginx-unavailable'),
+        'Routing tab: the card, only for who manages the server; Remove is confirmed; a refusal and an older server are said');
+    $missing = [];
+    preg_match_all('/class="([^"]*)"/', $ngCard, $cm);
+    foreach ($cm[1] as $list) {
+        foreach (preg_split('/\s+/', trim((string) preg_replace('/\{\{.*?\}\}/', '', $list))) as $c) {
+            if ($c !== '' && preg_match('/^[a-z][a-z0-9:\/.-]*$/', $c) && ! preg_match('/\.'.preg_quote(str_replace([':', '.'], ['\\:', '\\.'], $c), '/').'(?=[\s,{:.>\[)])/', $css)) {
+                $missing[] = $c;
+            }
+        }
+    }
+    $check($missing === [] && str_contains($css, '.badge-amber') && str_contains($css, '.badge-green'), 'every class of the card is in the stylesheet'.($missing ? ' — '.implode(', ', array_unique($missing)) : ''));
+    $check(str_contains((string) file_get_contents($root.'/config/cipi-gui.php'), "'proxies-view', 'proxies-manage', 'nginx-view', 'nginx-manage',"), 'the token abilities include nginx-view and nginx-manage');
+    $check(str_contains((string) file_get_contents($root.'/dev/demo/api/index.php'), "case \$sub === '/nginx' && \$method === 'PUT':"), 'demo API: an app\'s nginx directives');
+
+    $check((bool) preg_match("/VERSION = '4\\.6\\.\\d+'/", $theme) && str_contains($theme, "API = '1.44'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.6.0]'), 'version 4.6.0 for API 1.44');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);
