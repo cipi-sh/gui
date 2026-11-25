@@ -2,10 +2,6 @@
 
 namespace CipiGui\Livewire;
 
-use BaconQrCode\Renderer\Image\SvgImageBackEnd;
-use BaconQrCode\Renderer\ImageRenderer;
-use BaconQrCode\Renderer\RendererStyle\RendererStyle;
-use BaconQrCode\Writer;
 use CipiGui\Services\Access;
 use CipiGui\Services\OidcClient;
 use CipiGui\Services\TwoFactorService;
@@ -132,13 +128,12 @@ class Settings extends Component
         $this->dispatch('notify', type: 'success', message: 'Password changed. Other sessions were signed out.');
     }
 
+    /** Turn 2FA on — or, when it is on, move it to a new device: the old one keeps working until a code of the new one checks out. */
     public function startTwoFactorSetup(TwoFactorService $twoFactor): void
     {
         $user = Auth::user();
         $this->setupSecret = $twoFactor->generateSecret();
-
-        $writer = new Writer(new ImageRenderer(new RendererStyle(220, 1), new SvgImageBackEnd));
-        $this->qrCodeSvg = $writer->writeString($twoFactor->getQrCodeUrl($user, $this->setupSecret));
+        $this->qrCodeSvg = $twoFactor->qrCodeSvg($user, $this->setupSecret);
     }
 
     public function confirmTwoFactor(TwoFactorService $twoFactor): void
@@ -158,14 +153,23 @@ class Settings extends Component
         }
 
         session()->put('cipi_gui_2fa_verified', true);
+        $moved = $this->twoFactorEnabled;
         $this->twoFactorEnabled = true;
         $this->reset(['setupSecret', 'qrCodeSvg', 'verificationCode']);
-        $this->dispatch('notify', type: 'success', message: 'Two-factor authentication is on.');
+        $this->dispatch('notify', type: 'success', message: $moved ? 'Two-factor authentication moved to the new device.' : 'Two-factor authentication is on.');
     }
 
     public function disableTwoFactor(TwoFactorService $twoFactor): void
     {
         $this->validate(['disablePassword' => ['required', 'string']]);
+
+        // Required for every account (Team, 4.6.0): it is moved, not turned off.
+        if (Panel::enforceTwoFactor()) {
+            $this->addError('disablePassword', 'An admin requires two-factor authentication on this panel: it cannot be turned off. Move it to a new device instead.');
+            $this->disablePassword = '';
+
+            return;
+        }
 
         $user = Auth::user();
 
@@ -206,6 +210,7 @@ class Settings extends Component
         return view('cipi-gui::livewire.settings', [
             'isAdmin' => Access::isAdmin(Auth::user()),
             'role' => Access::role(Auth::user()),
+            'twoFactorRequired' => Panel::enforceTwoFactor(),
             'sso' => $this->sso(),
             'versions' => [
                 'cipi/gui' => Theme::VERSION,

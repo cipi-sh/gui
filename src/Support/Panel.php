@@ -14,6 +14,9 @@ final class Panel
 
     public const SERVER_NAV = 'server_nav';
 
+    /** '1': every account signing in with a password must set up 2FA before using the panel (Team). */
+    public const ENFORCE_2FA = 'enforce_2fa';
+
     /** @var array<string, ?string>|null */
     private static ?array $values = null;
 
@@ -27,6 +30,16 @@ final class Panel
     public static function serverNav(): string
     {
         return self::get(self::SERVER_NAV, 'sidebar') === 'picker' ? 'picker' : 'sidebar';
+    }
+
+    /**
+     * Two-factor authentication required for every account (Team → Two-factor
+     * authentication, 4.6.0). Off by default. Sign-ins through SSO are left to
+     * the identity provider's MFA, as they always were.
+     */
+    public static function enforceTwoFactor(): bool
+    {
+        return self::get(self::ENFORCE_2FA, '0') === '1';
     }
 
     public static function get(string $key, ?string $default = null): ?string

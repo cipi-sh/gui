@@ -34,6 +34,7 @@ class ServerManage extends Component
         'monitor' => 'Monitor',
         'smtp' => 'Notifications',
         'ssh' => 'SSH',
+        'firewall' => 'Firewall',
         'search' => 'Search',
         'packages' => 'Packages',
         'zt' => 'Zero Trust',
@@ -273,6 +274,8 @@ class ServerManage extends Component
             'monitor' => fn () => $this->monitor = $this->client()->monitorStatus(),
             // A component of its own (Livewire\Metrics) reads, polls and draws it.
             'metrics' => fn () => null,
+            // So does the firewall (Livewire\Firewall, API 1.44+ / Cipi 5.14.0): UFW, fail2ban, CrowdSec.
+            'firewall' => fn () => null,
             // Every channel and trigger (Livewire\Notifications, API 1.42+); the SMTP form of before otherwise.
             'smtp' => function () {
                 $this->notificationsLegacy = false;

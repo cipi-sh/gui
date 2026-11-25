@@ -8,6 +8,8 @@ use CipiGui\Models\CipiServer;
 use CipiGui\Models\CipiServerGrant;
 use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
+use CipiGui\Services\TwoFactorService;
+use CipiGui\Support\Panel;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -21,6 +23,11 @@ use Livewire\Component;
  * An admin sees and does everything. A user has a level on whole servers (view
  * or manage) and abilities on single apps, chosen here. An invite is a copyable
  * link that creates one account with a role and its grants — no email is sent.
+ *
+ * Two-factor authentication (4.6.0): an admin can require it for every account
+ * — whoever has none is taken to its setup before anything else, at sign-in
+ * and at the next page of a session already open — and reset another account's
+ * 2FA (a lost phone). Sign-ins through SSO are left to the identity provider.
  */
 #[Layout('cipi-gui::layouts.app')]
 #[Title('Team')]
@@ -58,6 +65,8 @@ class Team extends Component
     public string $editingName = '';
 
     public ?int $deleteUserId = null;
+
+    public ?int $resetTwoFactorUserId = null;
 
     /**
      * Every request, not only the first: the route's admin middleware covers
@@ -118,6 +127,77 @@ class Team extends Component
     {
         CipiInvite::query()->whereKey($id)->whereNull('accepted_at')->delete();
         $this->dispatch('notify', type: 'info', message: 'Invite revoked.');
+    }
+
+    // ── two-factor authentication ────────────────────────────────────
+
+    /**
+     * Require 2FA for every account, or stop requiring it. Turning it on needs
+     * the admin's own session to pass it — 2FA on, or signed in through SSO —
+     * or the next page would take them to the setup as well.
+     */
+    public function setTwoFactorRequired(bool $required): void
+    {
+        $this->resetErrorBag('twoFactor');
+
+        if ($required && TwoFactorService::setupRequiredIfEnforced(Auth::user(), session()->driver())) {
+            $this->addError('twoFactor', 'Turn on two-factor authentication for your own account first (Settings): requiring it would take you to its setup too.');
+            $this->dispatch('notify', type: 'error', message: 'Turn on your own 2FA first, in Settings.');
+
+            return;
+        }
+
+        Panel::set(Panel::ENFORCE_2FA, $required ? '1' : '0');
+
+        if (! $required) {
+            $this->dispatch('notify', type: 'info', message: 'Two-factor authentication is optional again. Accounts that have it keep it.');
+
+            return;
+        }
+
+        $pending = $this->userModel()::query()->get()->filter(fn ($u) => ! ($u->two_factor_enabled ?? false))->count();
+        $this->dispatch('notify', type: 'success', message: $pending === 0
+            ? 'Two-factor authentication is required. Every account already has it.'
+            : 'Two-factor authentication is required. '.$pending.' '.Str::plural('account', $pending).' without it '.($pending === 1 ? 'sets' : 'set').' it up at the next page.');
+    }
+
+    public function confirmResetTwoFactor(int $userId): void
+    {
+        if ($userId === (int) Auth::id()) {
+            $this->dispatch('notify', type: 'error', message: 'Your own 2FA is in Settings.');
+
+            return;
+        }
+
+        $this->resetTwoFactorUserId = $userId;
+    }
+
+    public function cancelResetTwoFactor(): void
+    {
+        $this->resetTwoFactorUserId = null;
+    }
+
+    /** A lost phone: the account's 2FA is removed; where it is required, it is set up again at the next sign-in. */
+    public function resetTwoFactor(TwoFactorService $twoFactor): void
+    {
+        $id = $this->resetTwoFactorUserId;
+        $this->resetTwoFactorUserId = null;
+
+        if (! $id || $id === (int) Auth::id()) {
+            return;
+        }
+
+        $user = $this->userModel()::query()->find($id);
+        if (! $user) {
+            return;
+        }
+
+        $twoFactor->disable($user);
+        $name = (string) ($user->name ?: $user->email);
+
+        $this->dispatch('notify', type: 'success', message: Panel::enforceTwoFactor()
+            ? "2FA of {$name} reset: they set it up again before anything else."
+            : "2FA of {$name} turned off: they can set it up again in Settings.");
     }
 
     // ── users ────────────────────────────────────────────────────────
@@ -287,6 +367,7 @@ class Team extends Component
             'self' => (int) $user->getKey() === $me,
         ])->all();
 
+        $required = Panel::enforceTwoFactor();
         $invites = CipiInvite::query()->pending()->orderByDesc('created_at')->get();
         $servers = CipiServer::query()->where('is_active', true)->orderBy('name')->get();
 
@@ -298,6 +379,9 @@ class Team extends Component
             'levels' => Access::SERVER_LEVELS,
             'inviteDays' => self::INVITE_DAYS,
             'deleting' => $this->deleteUserId ? collect($users)->firstWhere('id', $this->deleteUserId) : null,
+            'resetting' => $this->resetTwoFactorUserId ? collect($users)->firstWhere('id', $this->resetTwoFactorUserId) : null,
+            'twoFactorRequired' => $required,
+            'withoutTwoFactor' => collect($users)->reject(fn ($u) => $u['two_factor'])->values()->all(),
         ]);
     }
 }

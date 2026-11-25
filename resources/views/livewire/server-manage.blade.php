@@ -7,7 +7,7 @@
                 @if(!empty($status['system']['cipi'])) · Cipi {{ $status['system']['cipi'] }}@endif
                 @if(!empty($status['system']['api'])) · API {{ $status['system']['api'] }}@endif
             @else
-                Connect a server to manage PHP, Node, services, notifications and API access.
+                Connect a server to manage PHP, Node, services, notifications, the firewall and API access.
             @endif
         </x-slot:meta>
         @if($server)
@@ -659,6 +659,9 @@
                     @endif
                 </div>
             </div>
+
+        @elseif($activeTab === 'firewall')
+            @livewire('cipi-gui.firewall', ['serverId' => $serverId], key('firewall-'.$serverId))
 
         @elseif($activeTab === 'search')
             <div class="card">

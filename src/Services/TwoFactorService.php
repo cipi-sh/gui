@@ -2,16 +2,49 @@
 
 namespace CipiGui\Services;
 
+use BaconQrCode\Renderer\Image\SvgImageBackEnd;
+use BaconQrCode\Renderer\ImageRenderer;
+use BaconQrCode\Renderer\RendererStyle\RendererStyle;
+use BaconQrCode\Writer;
+use CipiGui\Support\Panel;
 use CipiGui\Support\Theme;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Contracts\Session\Session;
 use Illuminate\Support\Facades\Crypt;
 use PragmaRX\Google2FA\Google2FA;
 
 class TwoFactorService
 {
+    /** Set at the SSO callback: the identity provider ran its own MFA (SsoController). */
+    public const SSO_SESSION = 'cipi_gui_sso';
+
+    /** The secret being enrolled on the setup page, until the first code confirms it. */
+    public const SETUP_SECRET = 'cipi_gui_2fa_setup_secret';
+
     public function __construct(
         protected Google2FA $google2fa = new Google2FA,
     ) {}
+
+    /**
+     * The account must set up 2FA before anything else (4.6.0): an admin
+     * requires it for everyone (Team), the account has none, and this session
+     * did not come through SSO — the identity provider runs its own MFA, and
+     * the panel never asks for its code after SSO.
+     */
+    public static function setupRequired(?object $user, ?Session $session): bool
+    {
+        return Panel::enforceTwoFactor() && self::setupRequiredIfEnforced($user, $session);
+    }
+
+    /** The same question as if 2FA were required: no 2FA on the account, and not an SSO session. */
+    public static function setupRequiredIfEnforced(?object $user, ?Session $session): bool
+    {
+        if ($user === null || (bool) ($user->two_factor_enabled ?? false)) {
+            return false;
+        }
+
+        return ! ($session !== null && $session->get(self::SSO_SESSION));
+    }
 
     public function generateSecret(): string
     {
@@ -34,6 +67,14 @@ class TwoFactorService
         );
     }
 
+    /** The QR code of the otpauth:// URL, as inline SVG (Settings and the setup page). */
+    public function qrCodeSvg(Authenticatable $user, string $secret): string
+    {
+        $writer = new Writer(new ImageRenderer(new RendererStyle(220, 1), new SvgImageBackEnd));
+
+        return $writer->writeString($this->getQrCodeUrl($user, $secret));
+    }
+
     public function verify(Authenticatable $user, string $code): bool
     {
         if (! $user->two_factor_secret) {
@@ -49,6 +90,7 @@ class TwoFactorService
         return (bool) $this->google2fa->verifyKey($secret, $code);
     }
 
+    /** Also moves 2FA to a new device: the secret is replaced once a code of the new one checks out. */
     public function enable(Authenticatable $user, string $secret, string $code): bool
     {
         $secretToVerify = $secret;

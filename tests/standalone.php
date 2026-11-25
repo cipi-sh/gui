@@ -24,6 +24,7 @@ namespace {
     require $root.'/src/Http/Controllers/DbUploadController.php';
     require $root.'/src/Services/CipiApiException.php';
     require $root.'/src/Livewire/Concerns/ManagesBackups.php';
+    require $root.'/src/Support/Firewall.php';
 
     use CipiGui\Http\Controllers\DbUploadController as Up;
     use CipiGui\Support\DeployLog;
@@ -249,7 +250,79 @@ namespace {
     $client = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
     $check(str_contains($client, 'public function updateEnv(string $name, array $set = [], array $unset = [], ?array $order = null): array') && str_contains($client, "\$payload['order'] = array_values(\$order);"), 'the client sends order');
     $theme = (string) file_get_contents($root.'/src/Support/Theme.php');
-    $check((bool) preg_match("/VERSION = '4\\.5\\.\\d+'/", $theme) && str_contains($theme, "API = '1.43'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.5.0]'), 'version 4.5.0 for API 1.43');
+    preg_match("/VERSION = '([0-9.]+)'/", $theme, $tv); preg_match("/API = '([0-9.]+)'/", $theme, $ta);
+    $check(version_compare($tv[1] ?? '0', '4.5.0', '>=') && version_compare($ta[1] ?? '0', '1.43', '>=') && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.5.0]'), 'version 4.5.0 or later, for API 1.43 or later');
+
+    echo "--- 4.6.0: firewall\n";
+    $FW = \CipiGui\Support\Firewall::class;
+    $check($FW::normalizePort('8080') === '8080' && $FW::normalizePort(' 0080 ') === '80' && $FW::normalizePort('8000:8100') === '8000:8100', 'ports and ranges, without leading zeros');
+    $check(array_filter(['0', '65536', '8000:7000', '22;id', '80,443', 'ssh', '', '-1'], fn ($p) => $FW::normalizePort($p) !== null) === [], 'not a port: 0, 65536, a range backwards, shell characters, a list, a name, nothing');
+    $check($FW::isAddress('203.0.113.9') && $FW::isAddress('10.0.0.0/8') && $FW::isAddress('2001:db8::/48') && ! $FW::isAddress('1.2.3.4/33') && ! $FW::isAddress('example.com') && ! $FW::isAddress('1.2.3.4;id') && ! $FW::isAddress('') && ! $FW::isAddress('*'), 'addresses: IPv4, IPv6, CIDR — nothing else');
+    $check($FW::tooWide('0.0.0.0/0') && $FW::tooWide('10.0.0.0/7') && ! $FW::tooWide('10.0.0.0/8') && $FW::tooWide('::/0') && ! $FW::tooWide('2001:db8::/32'), 'too wide to block: below IPv4 /8, IPv6 /16');
+    $check($FW::portLabel(['port' => '8080', 'proto' => 'tcp']) === '8080/tcp' && $FW::portLabel(['port' => '3000', 'proto' => 'any']) === '3000' && $FW::portLabel(['port' => 'any', 'proto' => 'any']) === 'Every port', 'port labels');
+    $check($FW::fromLabel(['from' => 'any']) === 'Anywhere' && $FW::familyLabel('both') === 'IPv4 + IPv6' && $FW::familyLabel('v6') === 'IPv6' && $FW::managedLabel('zero-trust') === 'Zero Trust' && $FW::managedLabel('') === null, 'from, family, the feature that owns a rule');
+    $check($FW::duration(86400) === '1d' && $FW::duration(3600) === '1h' && $FW::duration(600) === '10m' && $FW::duration(45) === '45s' && $FW::duration(null) === '—', 'durations like the CLI');
+    $fwData = ['fail2ban' => ['jails' => [['jail' => 'sshd', 'banned' => ['198.51.100.20', '203.0.113.66']], ['jail' => 'recidive', 'banned' => ['198.51.100.20']], 'junk']],
+        'crowdsec' => ['decisions' => [['ip' => '203.0.113.66', 'reason' => 'crowdsecurity/ssh-bf', 'duration' => '3h'], ['ip' => '']]],
+        'ufw' => ['rules' => [['kind' => 'block', 'from' => '192.0.2.1'], ['kind' => 'port', 'port' => '22'], ['kind' => 'other', 'port' => 'any'], 'junk']]];
+    $bans = $FW::bans($fwData);
+    $check(count($bans) === 2 && $bans[0]['by'] === ['fail2ban · sshd', 'fail2ban · recidive'] && $bans[1]['by'] === ['fail2ban · sshd', 'CrowdSec'] && $bans[1]['reason'] === 'crowdsecurity/ssh-bf', 'bans: one row per address, every jail and CrowdSec named');
+    $sec = $FW::sections($fwData);
+    $check(count($sec['blocks']) === 1 && $sec['blocks'][0]['from'] === '192.0.2.1' && count($sec['rules']) === 2, 'sections: blocks apart from the rules, in order');
+    $fwc = (string) file_get_contents($root.'/src/Livewire/Firewall.php');
+    $fwv = $views[$root.'/resources/views/livewire/firewall.blade.php'] ?? '';
+    $check(str_contains($fwv, 'wire:init="init"') && str_contains($fwv, "@include('cipi-gui::partials.job-overlay')"), 'firewall: the tab paints first and asks its server after; CrowdSec jobs have their overlay');
+    $check((bool) preg_match('/#\[Locked\]\s+public array \$firewall/', $fwc), 'firewall: what the server answered is locked — actions take only what it lists');
+    foreach (['addRule', 'removeRule', 'blockAddress', 'unblock', 'saveAttempts', 'defaultAttempts', 'unban', 'enableCrowdsec', 'disableCrowdsec', 'crowdsecAllow', 'crowdsecUnallow'] as $action) {
+        $check((bool) preg_match('/function '.$action.'\([^)]*\): void\s+\{\s+if \(! \$this->serverAllowed\(Access::MANAGE/', $fwc), "firewall: {$action}() needs Manage on the server");
+    }
+    $check(str_contains($fwc, "! (\$rule['removable'] ?? false)") && str_contains($fwc, "in_array(\$ip, array_column(F::bans(\$this->firewall), 'ip'), true)") && str_contains($fwc, "in_array(\$address, \$listed, true)"), 'firewall: a rule the server marks removable, a ban and a block the page lists');
+    $sm = (string) file_get_contents($root.'/src/Livewire/ServerManage.php');
+    $check(str_contains($sm, "'firewall' => 'Firewall'") && str_contains($views[$root.'/resources/views/livewire/server-manage.blade.php'] ?? '', "@livewire('cipi-gui.firewall'"), 'the server page has a Firewall tab');
+    $cfg = (string) file_get_contents($root.'/config/cipi-gui.php');
+    $check(str_contains($cfg, "'firewall-view', 'firewall-manage'"), 'the token command on Connections asks for firewall-view and firewall-manage');
+    $check(str_contains($client, "public function firewall(): array") && str_contains($client, "'/firewall/crowdsec/enable'") && str_contains($client, "request(\$method, \$path, data: \$data)"), 'the client: the firewall routes of API 1.44');
+
+    echo "--- 4.6.0: two-factor authentication required for every account\n";
+    $mw = (string) file_get_contents($root.'/src/Http/Middleware/EnsureTwoFactorVerified.php');
+    $tfs = (string) file_get_contents($root.'/src/Services/TwoFactorService.php');
+    $check(str_contains($mw, "redirect()->route('cipi-gui.2fa')") && str_contains($mw, "TwoFactorService::setupRequired(\$user, \$session)") && str_contains($mw, "routeIs('cipi-gui.2fa*')"), 'the 2FA middleware: the code first, then the setup when required; its own pages pass');
+    $check(str_contains($mw, "\$request->user() ?? auth()->user()") && str_contains($mw, "\$request->hasSession() ? \$request->session() : app('session.store')"), '…on a request Livewire makes for a persistent middleware, user and session come from the application');
+    $check(str_contains($tfs, 'return Panel::enforceTwoFactor() && self::setupRequiredIfEnforced($user, $session);') && str_contains($tfs, '$session->get(self::SSO_SESSION)'), 'required only when an admin turned it on, never for an SSO session');
+    $sp = (string) file_get_contents($root.'/src/CipiGuiServiceProvider.php');
+    $check(str_contains($sp, 'addPersistentMiddleware([EnsureTwoFactorVerified::class])'), 'Livewire actions go through the 2FA middleware too');
+    $authGroup = substr($routes, (int) strpos($routes, "Route::middleware(['auth'])->group"), (int) strpos($routes, "Route::middleware(['auth', 'cipi-gui.2fa'])") - (int) strpos($routes, "Route::middleware(['auth'])->group"));
+    $check(str_contains($authGroup, "name('cipi-gui.2fa.setup')") && str_contains($authGroup, "name('cipi-gui.2fa.enable')"), 'the setup page is behind sign-in, outside the 2FA check (it is where the check sends)');
+    $setupView = $views[$root.'/resources/views/auth/2fa-setup.blade.php'] ?? '';
+    $check(str_contains($setupView, "route('cipi-gui.2fa.enable')") && str_contains($setupView, '@csrf') && str_contains($setupView, "route('cipi-gui.logout')") && ! str_contains($setupView, 'wire:'), 'the setup page: a plain form (no Livewire on the guest layout), CSRF, a way out');
+    $ctl = (string) file_get_contents($root.'/src/Http/Controllers/Auth/TwoFactorController.php');
+    $check(str_contains($ctl, 'TwoFactorService::SETUP_SECRET') && ! str_contains($setupView, 'name="secret"'), 'the secret being enrolled stays in the session, never in the form');
+    $login = (string) file_get_contents($root.'/src/Http/Controllers/Auth/LoginController.php');
+    $sso = (string) file_get_contents($root.'/src/Http/Controllers/Auth/SsoController.php');
+    $inv = (string) file_get_contents($root.'/src/Http/Controllers/Auth/InviteController.php');
+    $check(str_contains($login, "forget(['cipi_gui_2fa_verified', TwoFactorService::SSO_SESSION])") && str_contains($login, "redirect()->route('cipi-gui.2fa.setup')") && str_contains($sso, 'TwoFactorService::SSO_SESSION => true') && str_contains($inv, "'cipi-gui.2fa.setup'"), 'sign-in, SSO and invites: password sessions set it up, SSO sessions are marked');
+    $team = (string) file_get_contents($root.'/src/Livewire/Team.php');
+    $check(str_contains($team, 'public function setTwoFactorRequired(bool $required): void') && str_contains($team, 'setupRequiredIfEnforced(Auth::user()') && str_contains($team, 'public function resetTwoFactor(TwoFactorService $twoFactor): void') && str_contains($team, 'if (! $id || $id === (int) Auth::id())'), 'Team: require it (not before your own), reset another account\'s 2FA (not your own)');
+    $settings = (string) file_get_contents($root.'/src/Livewire/Settings.php');
+    $check((bool) preg_match('/function disableTwoFactor[^{]+\{.*?if \(Panel::enforceTwoFactor\(\)\)/s', $settings), 'Settings: required 2FA is not turned off');
+    $panel = (string) file_get_contents($root.'/src/Support/Panel.php');
+    $check(str_contains($panel, "public const ENFORCE_2FA = 'enforce_2fa';") && str_contains($panel, "self::get(self::ENFORCE_2FA, '0') === '1'"), 'the setting enforce_2fa, off by default');
+    echo "--- 4.6.0: Team → access editor\n";
+    $css = (string) file_get_contents($root.'/resources/css/cipi-gui.css');
+    $ae = $views[$root.'/resources/views/partials/access-editor.blade.php'] ?? '';
+    $missing = [];
+    preg_match_all('/class="([^"]*)"/', $ae, $cm);
+    foreach ($cm[1] as $list) {
+        foreach (preg_split('/\s+/', trim((string) preg_replace('/\{\{.*?\}\}/', '', $list))) as $c) {
+            if ($c !== '' && preg_match('/^[a-z][a-z0-9:\/-]*$/', $c) && ! preg_match('/\.'.preg_quote(str_replace(':', '\\:', $c), '/').'(?=[\s,{:.>\[)])/', $css)) {
+                $missing[] = $c;
+            }
+        }
+    }
+    $check($missing === [], 'every class of the access editor is in the stylesheet (gap-x-*, sm:ml-auto were not: the abilities were glued together)'.($missing ? ' — '.implode(', ', array_unique($missing)) : ''));
+    $check(str_contains($ae, 'class="access-ability"') && str_contains($ae, 'type-picker role-picker') && str_contains($css, '.access-ability:has(input:checked)'), 'abilities are toggles of their own; the two roles share the row');
+
+    $check((bool) preg_match("/VERSION = '4\\.6\\.\\d+'/", $theme) && str_contains($theme, "API = '1.44'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.6.0]'), 'version 4.6.0 for API 1.44');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);

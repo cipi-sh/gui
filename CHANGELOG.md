@@ -1,5 +1,41 @@
 # Changelog
 
+## [4.6.0] — 2026-11-25
+
+Two-factor authentication an admin can require for every account, and the firewall of each server — UFW, fail2ban, CrowdSec — from its page. For Cipi 5.14.0 and cipi/api 1.44; the 2FA requirement needs nothing on the servers.
+
+### Added
+
+- **Two-factor authentication required for every account** (Team → Two-factor authentication; setting `enforce_2fa`, off by default) — for policies that ask it of every account (ISO 27001, NIS2) without chasing people one by one:
+  - an account that signs in with a password and has no 2FA is taken to **its setup before anything else** — a page of its own, `/2fa/setup`: QR code, setup key, the first code to confirm, a way to sign out — and then to the page it had asked for;
+  - **a session already open** when the requirement is turned on is taken there at its next page; a Livewire action from a page left open is refused the same way (the 2FA middleware is now a persistent Livewire middleware — it also covers the code step of accounts that have 2FA);
+  - an invite link opens on the setup; `cipi gui reset-user` and **Reset 2FA** (below) send the account back to it at its next sign-in;
+  - while it is required, 2FA cannot be turned off in Settings: it can be **moved to a new device** (the old one works until a code of the new one checks out — also available when it is optional);
+  - **sign-ins through SSO are left to the identity provider's MFA**, as they always were: the panel never asks for its code after SSO, so it does not ask an SSO session to set one up either. The same account signing in with its password is asked;
+  - an admin turns it on only once their own session passes it (2FA on, or signed in through SSO) — otherwise the next page would take them to the setup too;
+  - Team shows the requirement, who has not set 2FA up yet (*Setup pending*; *Via SSO* for linked accounts) and, per account, **Reset 2FA** — after a lost phone, instead of `cipi gui reset-user` at the server. Not for your own account (Settings).
+  - `cipi compliance` (Cipi 5.14.0), control `gui_2fa`, reads the policy: required and everyone enrolled is a pass.
+- **Firewall tab** on the server page (`?tab=firewall`; `Livewire\Firewall`, a component of its own) — Cipi 5.14.0, cipi/api 1.44:
+  - at a glance: UFW active or not and its default policy, the ports always kept open (SSH, 80, 443), fail2ban and its threshold, CrowdSec, how many addresses are banned; the Zero Trust locks when there are;
+  - **rules** in UFW's order — port or range, protocol, action, source, IPv4/IPv6 — with *Kept open* on what keeps the server reachable, the Cipi feature that owns a rule (Zero Trust, Metrics, CrowdSec rescue) and **Remove** on what may be removed;
+  - **open a port** or a range, TCP or UDP, to everyone or to one address or range;
+  - **blocked addresses** — every port refused to them, ahead of every allow, until unblocked — with **Block** and **Unblock**;
+  - **banned now**: fail2ban's jails and CrowdSec's decisions in one list, an address once with everything that bans it, **Unban** lifting all of it;
+  - **SSH login attempts** before a ban, back to the default, and a warning when fail2ban still runs an older value or is not running;
+  - **CrowdSec**: enable (a job of a few minutes; what would stop it — RAM, a reverse proxy without real_ip — is said before trying, and the button waits), its bouncer and rescue listener, the addresses it never bans (add, remove), disable (a job; fail2ban stays).
+  - Reading needs a level on the server, changing needs Manage. Every action takes only what the page lists — a removable rule, a ban, a block, an allowlist entry — and the server refuses what keeps it reachable whatever is sent: its SSH port, 80, 443, a Zero Trust lock, the panel's own address. An older server shows *not available* with what to update.
+- `firewall-view` and `firewall-manage` in the token command on Connections.
+- Demo API: the firewall, with its jobs.
+
+### Fixed
+
+- **Team → access editor: the abilities of each app were glued together** — “View☐ Deploy☐ Edit…”, each checkbox stuck to the label before it, rows wrapping anywhere. The editor used spacing utilities the panel's stylesheet does not have (`gap-x-3`, `gap-x-4`, `gap-y-1`, `sm:ml-auto`). Each app is now its name and domain, then its abilities as toggles of their own — spaced, wrapping cleanly on a phone, highlighted when on. The two roles (User, Admin) share the row instead of two thirds of it. `tests/standalone.php` checks that every class of the editor exists in the stylesheet.
+
+### Changed
+
+- `TwoFactorService::qrCodeSvg()` draws the QR code for Settings and the setup page; `TwoFactorService::setupRequired()`.
+- `Theme::VERSION` 4.6.0, `Theme::API` 1.44.
+
 ## [4.5.1] — 2026-11-24
 
 ### Fixed

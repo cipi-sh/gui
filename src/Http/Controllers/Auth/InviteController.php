@@ -4,6 +4,7 @@ namespace CipiGui\Http\Controllers\Auth;
 
 use CipiGui\Models\CipiInvite;
 use CipiGui\Services\Access;
+use CipiGui\Services\TwoFactorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -65,8 +66,9 @@ class InviteController
 
         Auth::login($user);
         $request->session()->regenerate();
-        $request->session()->forget('cipi_gui_2fa_verified');
+        $request->session()->forget(['cipi_gui_2fa_verified', TwoFactorService::SSO_SESSION]);
 
-        return redirect()->route('cipi-gui.dashboard');
+        // 2FA required for every account (4.6.0): a new account sets it up first.
+        return redirect()->route(TwoFactorService::setupRequired($user, $request->session()) ? 'cipi-gui.2fa.setup' : 'cipi-gui.dashboard');
     }
 }

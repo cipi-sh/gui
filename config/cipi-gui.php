@@ -42,7 +42,7 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Token abilities (Cipi API 1.39)
+    | Token abilities (Cipi API 1.44)
     |--------------------------------------------------------------------------
     |
     | Everything the panel calls. Shown on the Connections page as a ready-made
@@ -62,6 +62,7 @@ return [
         'ip-whitelist-view', 'ip-whitelist-manage', 'status-view',
         'backups-view', 'backups-manage', 'metrics-view', 'metrics-manage',
         'notifications-view', 'notifications-manage',
+        'firewall-view', 'firewall-manage',
     ],
 
     /*
@@ -134,6 +135,6 @@ return [
     | Theme assets (bump after CSS changes to bust browser cache)
     |--------------------------------------------------------------------------
     */
-    'assets_version' => '8',
+    'assets_version' => '9',
 
 ];

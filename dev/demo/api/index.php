@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Cipi GUI demo API — a stateful stand-in for `cipi api` (REST API 1.36).
+ * Cipi GUI demo API — a stateful stand-in for `cipi api` (REST API 1.36, the firewall of 1.44).
  *
  * It answers the same paths, payloads and status codes the GUI consumes, with
  * realistic fixtures (fixtures.php) and async jobs that move pending → running →
@@ -268,6 +268,11 @@ function handle(string $method, string $route, array $body, array $query, string
     }
     if ($method === 'GET' && $r('/disk')) {
         return [200, ['data' => $s['disk'] ?? []]];
+    }
+
+    // Firewall (API 1.44 / Cipi 5.14.0): UFW, fail2ban, CrowdSec
+    if ($r('/firewall(/rules|/blocks|/attempts|/bans|/crowdsec/enable|/crowdsec/disable|/crowdsec/allowlist)?')) {
+        return firewallRoute($method, $p(1), $body, $s, $state, $profile);
     }
 
     // IP whitelist
@@ -631,6 +636,157 @@ function smtpRoute(string $method, string $action, array $body, array &$s): arra
     }
 
     return [200, ['data' => $s['smtp'], 'message' => $action === '/test' ? 'Test email sent to '.$s['smtp']['to'] : 'OK']];
+}
+
+// ── Firewall (API 1.44 / Cipi 5.14.0) ────────────────────────────────────
+
+function demoFirewall(): array
+{
+    $rule = fn (string $action, string $port, string $proto, string $from, string $family, string $kind, bool $protected = false, string $managed = '', string $comment = '') => [
+        'action' => $action, 'port' => $port, 'proto' => $proto, 'from' => $from, 'to' => 'any', 'direction' => 'in', 'interface' => '', 'app' => '',
+        'comment' => $comment, 'family' => $family, 'log' => false, 'kind' => $kind, 'managed_by' => $managed, 'protected' => $protected,
+        'removable' => in_array($kind, ['port', 'block'], true) && $managed === '' && ! $protected,
+    ];
+
+    return [
+        'ufw' => ['installed' => true, 'active' => true, 'default_incoming' => 'deny', 'default_outgoing' => 'allow', 'rules' => [
+            $rule('deny', 'any', 'any', '185.220.101.47', 'v4', 'block'),
+            $rule('allow', '22', 'tcp', 'any', 'both', 'port', true),
+            $rule('allow', '80', 'tcp', 'any', 'both', 'port', true),
+            $rule('allow', '443', 'tcp', 'any', 'both', 'port', true),
+            $rule('allow', '9100', 'tcp', '203.0.113.5', 'v4', 'port', false, 'metrics', 'cipi metrics'),
+            $rule('allow', '5432', 'tcp', '10.10.0.0/16', 'v4', 'port'),
+        ]],
+        'protected_ports' => [22, 80, 443],
+        'zero_trust' => ['lock_http' => false, 'lock_ssh' => false],
+        'fail2ban' => ['installed' => true, 'running' => true, 'attempts' => 3, 'attempts_default' => 3, 'attempts_custom' => null, 'attempts_pending' => false,
+            'findtime' => 3600, 'bantime' => 86400, 'jails' => [
+                ['jail' => 'recidive', 'banned' => [], 'count' => 0, 'total' => 2, 'failed' => 0],
+                ['jail' => 'sshd', 'banned' => ['193.32.162.38', '218.92.0.112'], 'count' => 2, 'total' => 41, 'failed' => 3],
+            ]],
+        'crowdsec' => ['installed' => false, 'running' => false, 'bouncer' => 'not installed', 'mode' => '', 'rescue' => 'stopped', 'rescue_port' => null,
+            'allowlist' => [], 'decisions' => [], 'ram_available_mb' => 2810, 'ram_required_mb' => 512, 'enable_blockers' => []],
+    ];
+}
+
+function firewallRoute(string $method, string $action, array $body, array &$s, array &$state, string $profile): array
+{
+    $s['firewall'] ??= demoFirewall();
+    $fw = &$s['firewall'];
+    $addr = function (string $v): bool {
+        [$ip, $mask] = array_pad(explode('/', $v, 2), 2, null);
+
+        return filter_var($ip, FILTER_VALIDATE_IP) !== false && ($mask === null || ctype_digit($mask));
+    };
+    $port = function ($v): ?string {
+        return preg_match('/^(\d{1,5})(?::(\d{1,5}))?$/', (string) $v, $m) && (int) $m[1] >= 1 && (int) $m[1] <= 65535 ? (string) $v : null;
+    };
+    $done = function (string $message) use (&$fw): array {
+        return [200, ['data' => $fw, 'message' => $message]];
+    };
+
+    if ($action === '' && $method === 'GET') {
+        return [200, ['data' => $fw]];
+    }
+    if ($action === '/rules' && $method === 'POST') {
+        $p = $port($body['port'] ?? '') ?? throw new DemoHttpError(422, 'A port (1-65535) or a range such as 8000:8100.');
+        $from = trim((string) ($body['from'] ?? '')) ?: 'any';
+        $proto = in_array($body['proto'] ?? 'tcp', ['tcp', 'udp'], true) ? ($body['proto'] ?? 'tcp') : 'tcp';
+        if ($from !== 'any' && ! $addr($from)) {
+            throw new DemoHttpError(422, 'An IPv4/IPv6 address or a CIDR range.');
+        }
+        $fw['ufw']['rules'][] = ['action' => 'allow', 'port' => $p, 'proto' => $proto, 'from' => $from, 'to' => 'any', 'direction' => 'in', 'interface' => '', 'app' => '', 'comment' => '',
+            'family' => $from === 'any' ? 'both' : (str_contains($from, ':') ? 'v6' : 'v4'), 'log' => false, 'kind' => 'port', 'managed_by' => '',
+            'protected' => $from === 'any' && in_array((int) $p, $fw['protected_ports'], true), 'removable' => ! ($from === 'any' && in_array((int) $p, $fw['protected_ports'], true))];
+
+        return $done("Allowed {$p}/{$proto}".($from !== 'any' ? " from {$from}" : ''));
+    }
+    if ($action === '/rules' && $method === 'DELETE') {
+        $p = (string) ($body['port'] ?? '');
+        $from = trim((string) ($body['from'] ?? '')) ?: 'any';
+        $proto = (string) ($body['proto'] ?? 'tcp');
+        $act = (string) ($body['action'] ?? 'allow');
+        if ($from === 'any' && $act === 'allow' && in_array((int) $p, $fw['protected_ports'], true)) {
+            throw new DemoHttpError(422, "Port {$p} is how this server is reached (SSH, HTTP, HTTPS): it is not closed from here");
+        }
+        $before = count($fw['ufw']['rules']);
+        $fw['ufw']['rules'] = array_values(array_filter($fw['ufw']['rules'], fn ($r) => ! ($r['kind'] === 'port' && $r['port'] === $p && $r['from'] === $from && $r['proto'] === $proto && $r['action'] === $act)));
+        if (count($fw['ufw']['rules']) === $before) {
+            throw new DemoHttpError(422, "No such rule: {$act} {$p}/{$proto}");
+        }
+
+        return $done("Removed: {$act} {$p}/{$proto}");
+    }
+    if ($action === '/blocks') {
+        $a = trim((string) ($body['address'] ?? ''));
+        if (! $addr($a)) {
+            throw new DemoHttpError(422, 'An IPv4/IPv6 address or a CIDR range.');
+        }
+        if ($method === 'POST') {
+            if ($a === ($s['ip_whitelist']['client_ip'] ?? '')) {
+                throw new DemoHttpError(422, "{$a} takes in {$a}, the address this request comes from: blocking it would cut this server off from you.");
+            }
+            array_unshift($fw['ufw']['rules'], ['action' => 'deny', 'port' => 'any', 'proto' => 'any', 'from' => $a, 'to' => 'any', 'direction' => 'in', 'interface' => '', 'app' => '', 'comment' => '',
+                'family' => str_contains($a, ':') ? 'v6' : 'v4', 'log' => false, 'kind' => 'block', 'managed_by' => '', 'protected' => false, 'removable' => true]);
+
+            return $done("Blocked {$a}: no port of this server answers it");
+        }
+        $fw['ufw']['rules'] = array_values(array_filter($fw['ufw']['rules'], fn ($r) => ! ($r['kind'] === 'block' && $r['from'] === $a)));
+
+        return $done("Unblocked {$a}");
+    }
+    if ($action === '/attempts' && $method === 'PUT') {
+        $n = $body['attempts'] ?? null;
+        if ($n !== null && (! is_int($n) || $n < 1 || $n > 100)) {
+            throw new DemoHttpError(422, 'From 1 to 100.');
+        }
+        $fw['fail2ban']['attempts'] = $n ?? 3;
+        $fw['fail2ban']['attempts_custom'] = $n;
+
+        return $done($n === null ? 'Back to the default: 3 failed SSH logins ban the address' : "{$n} failed SSH login(s) now ban the address");
+    }
+    if ($action === '/bans' && $method === 'DELETE') {
+        $ip = trim((string) ($body['ip'] ?? ''));
+        $found = false;
+        foreach ($fw['fail2ban']['jails'] as &$jail) {
+            if (in_array($ip, $jail['banned'], true)) {
+                $jail['banned'] = array_values(array_diff($jail['banned'], [$ip]));
+                $jail['count'] = count($jail['banned']);
+                $found = true;
+            }
+        }
+        unset($jail);
+        $decisions = array_values(array_filter($fw['crowdsec']['decisions'], fn ($d) => $d['ip'] !== $ip));
+        $found = $found || count($decisions) !== count($fw['crowdsec']['decisions']);
+        $fw['crowdsec']['decisions'] = $decisions;
+        if (! $found) {
+            throw new DemoHttpError(422, "{$ip} is not currently banned");
+        }
+
+        return $done("IP {$ip} unbanned");
+    }
+    if ($action === '/crowdsec/allowlist') {
+        $a = trim((string) ($body['address'] ?? ''));
+        if (! $addr($a)) {
+            throw new DemoHttpError(422, 'An IPv4/IPv6 address or a CIDR range.');
+        }
+        $list = $fw['crowdsec']['allowlist'];
+        $fw['crowdsec']['allowlist'] = $method === 'POST' ? array_values(array_unique([...$list, $a])) : array_values(array_diff($list, [$a]));
+
+        return $done($method === 'POST' ? "Allowed {$a} (never banned by CrowdSec)" : "Removed {$a} from the extra allowlist");
+    }
+    if ($action === '/crowdsec/enable' && $method === 'POST') {
+        return [202, dispatchJob($state, $profile, 'crowdsec-enable', ['allow' => $s['ip_whitelist']['client_ip'] ?? ''])];
+    }
+    if ($action === '/crowdsec/disable' && $method === 'POST') {
+        if (! $fw['crowdsec']['installed']) {
+            throw new DemoHttpError(409, 'CrowdSec is not installed');
+        }
+
+        return [202, dispatchJob($state, $profile, 'crowdsec-disable', [])];
+    }
+
+    throw new DemoHttpError(405, 'Method not allowed');
 }
 
 function ipWhitelistRoute(string $method, string $action, array $body, array &$s): array
@@ -1025,6 +1181,22 @@ function runJob(array &$s, string $type, array $p): array
             $s['services'][] = ['name' => "php{$v}-fpm", 'status' => 'running', 'since' => $ts];
 
             return [true, "→ Installing PHP {$v}...\n  ✓ php{$v}-fpm php{$v}-cli + 24 extensions\n  ✓ OPcache + JIT tuned\n  ✓ FPM pool template\n\n✓ PHP {$v} installed", ['version' => $v, 'installed' => true]];
+
+        case 'crowdsec-enable':
+            $s['firewall'] ??= demoFirewall();
+            $s['firewall']['crowdsec'] = array_merge($s['firewall']['crowdsec'], [
+                'installed' => true, 'running' => true, 'bouncer' => 'running', 'mode' => 'nftables', 'rescue' => 'listening', 'rescue_port' => 48213,
+                'allowlist' => array_values(array_unique(array_merge($s['firewall']['crowdsec']['allowlist'], array_filter([$p['allow'] ?? ''])))),
+                'decisions' => [['ip' => '45.148.10.92', 'scope' => 'Ip', 'type' => 'ban', 'reason' => 'crowdsecurity/http-probing', 'origin' => 'crowdsec', 'duration' => '3h59m']],
+            ]);
+
+            return [true, "→ Installing CrowdSec...\n→ Registering firewall bouncer (cscli bouncers add)...\n→ Starting rescue TLS listener (allowlist only, not a login)...\n→ Allowlists (localhost, private nets, Let's Encrypt, GitHub/GitLab/Bitbucket webhooks)...\n[INFO] Allowed ".($p['allow'] ?? '')." (never banned by CrowdSec)\n✓ CrowdSec enabled (engine + nftables bouncer)", null];
+
+        case 'crowdsec-disable':
+            $s['firewall'] ??= demoFirewall();
+            $s['firewall']['crowdsec'] = array_merge($s['firewall']['crowdsec'], ['installed' => false, 'running' => false, 'bouncer' => 'not installed', 'mode' => '', 'rescue' => 'stopped', 'rescue_port' => null, 'decisions' => []]);
+
+            return [true, "→ Stopping rescue listener...\n→ Flushing CrowdSec firewall chains (before purge)...\n→ Removing CrowdSec packages...\n✓ CrowdSec removed — firewall is back to fail2ban only", null];
 
         case 'service-restart':
             foreach ($s['services'] as &$svc) {

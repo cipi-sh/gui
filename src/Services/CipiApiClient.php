@@ -795,6 +795,82 @@ class CipiApiClient
         return $this->post('/ip-whitelist/allow-all')['data'] ?? [];
     }
 
+    // ── Firewall: UFW, fail2ban, CrowdSec (API 1.44+ / Cipi ≥ 5.14.0) ─
+
+    /** UFW rules, protected ports, Zero Trust locks, fail2ban, CrowdSec: `cipi firewall status --json`. */
+    public function firewall(): array
+    {
+        return $this->get('/firewall')['data'] ?? [];
+    }
+
+    /** @return array{data: ?array, message: string} the firewall after the change, and what the CLI said */
+    public function firewallAllow(string $port, ?string $from = null, string $proto = 'tcp'): array
+    {
+        return $this->firewallChange('post', '/firewall/rules', ['port' => $port, 'from' => $from, 'proto' => $proto]);
+    }
+
+    /** The rule `allow` (or, with $action deny, `deny`) made: the same port, source and protocol. */
+    public function firewallRemove(string $port, ?string $from = null, string $proto = 'tcp', string $action = 'allow'): array
+    {
+        return $this->firewallChange('delete', '/firewall/rules', ['port' => $port, 'from' => $from, 'proto' => $proto, 'action' => $action]);
+    }
+
+    public function firewallBlock(string $address): array
+    {
+        return $this->firewallChange('post', '/firewall/blocks', ['address' => $address]);
+    }
+
+    public function firewallUnblock(string $address): array
+    {
+        return $this->firewallChange('delete', '/firewall/blocks', ['address' => $address]);
+    }
+
+    /** null: back to the default. */
+    public function firewallAttempts(?int $attempts): array
+    {
+        return $this->firewallChange('put', '/firewall/attempts', ['attempts' => $attempts]);
+    }
+
+    /** fail2ban's jails and CrowdSec's decisions alike. */
+    public function firewallUnban(string $ip): array
+    {
+        return $this->firewallChange('delete', '/firewall/bans', ['ip' => $ip]);
+    }
+
+    public function crowdsecAllow(string $address): array
+    {
+        return $this->firewallChange('post', '/firewall/crowdsec/allowlist', ['address' => $address]);
+    }
+
+    public function crowdsecUnallow(string $address): array
+    {
+        return $this->firewallChange('delete', '/firewall/crowdsec/allowlist', ['address' => $address]);
+    }
+
+    /** Async job (`crowdsec-enable`): the panel's address goes on CrowdSec's allowlist. */
+    public function crowdsecEnable(): array
+    {
+        return $this->post('/firewall/crowdsec/enable');
+    }
+
+    /** Async job (`crowdsec-disable`); fail2ban stays. */
+    public function crowdsecDisable(): array
+    {
+        return $this->post('/firewall/crowdsec/disable');
+    }
+
+    /** @return array{data: ?array, message: string} */
+    protected function firewallChange(string $method, string $path, array $data): array
+    {
+        $data = array_filter($data, fn ($v) => $v !== '' && ! ($v === null && $path !== '/firewall/attempts'));
+        $response = $this->request($method, $path, data: $data);
+
+        return [
+            'data' => is_array($response['data'] ?? null) ? $response['data'] : null,
+            'message' => (string) ($response['message'] ?? ''),
+        ];
+    }
+
     // ── WWW redirects (Cipi 4.8+ / API 1.12+) ─────────────────────────
 
     public function wwwStatus(string $app): array
