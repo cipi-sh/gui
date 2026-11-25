@@ -250,11 +250,11 @@
                                 @if($formEventsMode === 'some')
                                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                                         <label class="check" title="Failures and security events: a failed deploy, backup or cron, a health check down, a service or a worker stopped, the disk filling up, an SSH login, sudo, malware found…">
-                                            <input type="checkbox" wire:model="formEvents.{{ N::URGENT }}"> <strong>Urgent</strong> <span class="text-subtle">— failures and security</span>
+                                            <input type="checkbox" wire:model="formEvents.{{ N::URGENT }}"> <span><strong>Urgent</strong> <span class="text-subtle">— failures and security</span></span>
                                         </label>
                                         @foreach($categories as $cat)
                                             <label class="check" wire:key="ev-{{ $cat['id'] }}">
-                                                <input type="checkbox" wire:model="formEvents.{{ $cat['id'] }}"> {{ $cat['label'] }} <span class="text-subtle tabular-nums">{{ (int) ($cat['triggers'] ?? 0) }}</span>
+                                                <input type="checkbox" wire:model="formEvents.{{ $cat['id'] }}"> <span>{{ $cat['label'] }} <span class="text-subtle tabular-nums">{{ (int) ($cat['triggers'] ?? 0) }}</span></span>
                                             </label>
                                         @endforeach
                                     </div>
