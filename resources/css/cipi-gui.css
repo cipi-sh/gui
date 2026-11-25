@@ -395,6 +395,7 @@ table.table-plain th { background: transparent; }
 .table-scroll table { min-width: 40rem; }
 .row-link { color: var(--text); font-weight: 600; }
 .row-link:hover { color: var(--link-hover); }
+.site-icon { width: 20px; height: 20px; flex-shrink: 0; border-radius: 4px; object-fit: contain; }
 
 /* Simple list rows */
 .list-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 0; border-bottom: 1px solid var(--border-subtle); }

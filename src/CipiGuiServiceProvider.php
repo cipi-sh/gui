@@ -5,6 +5,7 @@ namespace CipiGui;
 use CipiGui\Console\Commands\GuiVersion;
 use CipiGui\Console\Commands\RefreshTheme;
 use CipiGui\Console\Commands\SeedGuiUser;
+use CipiGui\Http\Controllers\SiteIconController;
 use CipiGui\Http\Middleware\EnsureAdmin;
 use CipiGui\Http\Middleware\EnsureTwoFactorVerified;
 use CipiGui\Http\Middleware\PreventSearchIndexing;
@@ -85,6 +86,15 @@ class CipiGuiServiceProvider extends ServiceProvider
             'middleware' => ['web', 'cipi-gui.noindex'],
         ], function () {
             $this->loadRoutesFrom(__DIR__.'/../routes/web.php');
+        });
+
+        // Outside `web`: a list asks for hundreds of icons, none needs the session (nor may
+        // rewrite it under a Livewire request); the signature from the apps list is the check.
+        Route::group([
+            'prefix' => $prefix,
+            'middleware' => ['signed:relative', 'cipi-gui.noindex'],
+        ], function () {
+            Route::get('/site-icon', SiteIconController::class)->name('cipi-gui.site-icon');
         });
     }
 

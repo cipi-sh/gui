@@ -279,6 +279,12 @@ class Apps extends Component
         ];
     }
 
+    /** @param  array<string, mixed>  $app */
+    public function siteUrl(array $app): string
+    {
+        return (($app['force_https'] ?? false) ? 'https://' : 'http://').ltrim(str_replace('*.', '', (string) $app['domain']), '.');
+    }
+
     /** Show one server's apps (0 = every server). A filter on the loaded list, kept in the URL. */
     public function setScope(int $serverId): void
     {
