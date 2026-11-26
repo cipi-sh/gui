@@ -105,6 +105,51 @@ class CipiServer extends Model
         return $host;
     }
 
+    /**
+     * Keep the machine's own name (`hostname`) as the server's status reports
+     * it: `vmi12334` for the server the panel calls `production`. A
+     * notification names the server by it, so the lists show both. Written
+     * only when it changed; a panel whose migrations have not run yet goes on
+     * without it.
+     *
+     * @param  array<string, mixed>|null  $status  the data of GET /api/status
+     */
+    public function rememberHostname(?array $status): void
+    {
+        $hostname = self::cleanHostname($status['system']['hostname'] ?? null);
+        if ($hostname === null || $hostname === $this->hostname) {
+            return;
+        }
+
+        try {
+            $this->forceFill(['hostname' => $hostname])->save();
+        } catch (\Throwable) {
+            // No `hostname` column yet (php artisan migrate): nothing to remember.
+            unset($this->attributes['hostname']);
+        }
+    }
+
+    /** A hostname as a machine reports it, or null: letters, digits, dots, dashes, underscores. */
+    public static function cleanHostname(mixed $hostname): ?string
+    {
+        if (! is_string($hostname)) {
+            return null;
+        }
+        $hostname = trim($hostname);
+
+        return $hostname !== '' && strlen($hostname) <= 253 && preg_match('/^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$/', $hostname) === 1
+            ? $hostname
+            : null;
+    }
+
+    /** The hostname when it says something the panel's name does not: `vmi12334` for `production`, nothing for `vmi12334`. */
+    public function getMachineNameAttribute(): ?string
+    {
+        $hostname = self::cleanHostname($this->attributes['hostname'] ?? null);
+
+        return $hostname !== null && strcasecmp($hostname, (string) $this->name) !== 0 ? $hostname : null;
+    }
+
     /** Last 4 characters of the token, for "which token is this?" hints. */
     public function getTokenHintAttribute(): ?string
     {

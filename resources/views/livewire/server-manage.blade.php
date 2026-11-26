@@ -3,6 +3,8 @@
         <x-slot:eyebrow><x-cipi::icon name="server" class="h-3.5 w-3.5" /> Server</x-slot:eyebrow>
         <x-slot:meta>
             @if($server)
+                @php $machine = \CipiGui\Models\CipiServer::cleanHostname($status['system']['hostname'] ?? null) ?? $server->hostname; @endphp
+                @if($machine)<span class="badge badge-accent badge-mono" title="The machine's own name (hostname): what a notification calls this server" data-server-hostname>{{ $machine }}</span> · @endif
                 <span class="font-mono text-xs">{{ $server->host }}</span>@if($server->ip) · <x-cipi::copyable :value="$server->ip" label="Copy IP" class="font-mono text-xs" />@endif
                 @if(!empty($status['system']['cipi'])) · Cipi {{ $status['system']['cipi'] }}@endif
                 @if(!empty($status['system']['api'])) · API {{ $status['system']['api'] }}@endif
@@ -103,7 +105,8 @@
                 <div class="card">
                     <div class="card-header"><h2 class="card-title">System</h2></div>
                     <dl class="kv">
-                        <dt>Hostname</dt><dd class="font-mono text-xs">{{ $sys['hostname'] ?? '—' }}</dd>
+                        <dt>Name here</dt><dd class="font-semibold text-strong">{{ $server->name }}</dd>
+                        <dt>Hostname</dt><dd class="font-mono text-xs">@if(!empty($sys['hostname']))<x-cipi::copyable :value="$sys['hostname']" label="Copy hostname" />@else — @endif</dd>
                         <dt>OS</dt><dd>{{ $sys['os'] ?? '—' }}</dd>
                         <dt>Cipi</dt><dd>{{ $sys['cipi'] ?? '—' }}</dd>
                         <dt>Public IP</dt><dd class="font-mono text-xs">@if($publicIp = $sys['ip'] ?? $server->ip)<x-cipi::copyable :value="$publicIp" label="Copy IP" />@else — @endif</dd>
@@ -488,6 +491,94 @@
                     </tbody>
                 </table>
             </div>
+
+            {{-- Valkey per app (Cipi 5.17.0): who shares the server's instance, who has its own. --}}
+            @php
+                $vkApps = array_values(array_filter((array) ($valkey['apps'] ?? []), 'is_array'));
+                $vkShared = $this->valkeyShared();
+                $vkOwn = count(array_filter($vkApps, fn ($a) => ($a['uses'] ?? null) === 'own'));
+                $vkPort = (int) ($valkey['shared_port'] ?? 6379);
+            @endphp
+            @if($valkey !== null || $valkeyUnavailable)
+                <div class="card card-flush mt-4" data-valkey>
+                    <div class="card-header p-5 mb-0">
+                        <div>
+                            <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="database" /> Valkey per app
+                                @if($valkey !== null && $vkApps !== [])
+                                    <span class="badge {{ $vkShared === [] ? 'badge-green' : 'badge-amber' }}" data-valkey-summary>{{ $vkShared === [] ? 'Every app isolated' : count($vkShared).' on the shared instance' }}</span>
+                                @endif
+                            </h2>
+                            <p class="card-subtitle">Cache, sessions and queues of a Laravel app live in Valkey. On the server's shared instance every app holds the same password, so each one can read and write the others' keys. An app with an instance of its own — its port, its password, its memory limit — cannot.</p>
+                        </div>
+                        @if($canManage && $valkey !== null)
+                            <div class="btn-group">
+                                @if(count($vkShared) > 0)
+                                    <button type="button" wire:click="isolateAllValkey" data-confirm="Give {{ implode(', ', $vkShared) }} an instance of its own each? Each app goes into maintenance mode for the seconds its keys take to copy, and its workers restart." class="btn btn-primary btn-sm" data-valkey-isolate-all><x-cipi::icon name="shield" /> Isolate {{ count($vkShared) === 1 ? $vkShared[0] : 'all '.count($vkShared) }}</button>
+                                @elseif($vkOwn > 0 && ! $valkeyFlushed)
+                                    <button type="button" wire:click="flushSharedValkey" data-confirm="Delete every key in the shared Valkey (127.0.0.1:{{ $vkPort }}) and change its password? No app uses it any more: what it holds is their old cache, sessions and jobs." class="btn btn-secondary btn-sm" data-valkey-flush><x-cipi::icon name="trash" /> Empty the shared instance</button>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
+                    @if($valkeyUnavailable)
+                        <p class="text-muted px-5 pb-5" data-valkey-unavailable>{{ $valkeyUnavailable }}</p>
+                    @elseif($vkApps === [])
+                        <p class="text-muted px-5 pb-5">No Laravel app on this server.</p>
+                    @else
+                        <div class="table-scroll">
+                            <table>
+                                <thead><tr><th>App</th><th>Uses</th><th>Instance</th><th>Memory</th><th>Keys</th><th></th></tr></thead>
+                                <tbody>
+                                    @foreach($vkApps as $vk)
+                                        @php $uses = (string) ($vk['uses'] ?? 'none'); $vkApp = (string) ($vk['app'] ?? ''); @endphp
+                                        <tr wire:key="valkey-{{ $vkApp }}">
+                                            <td><a href="{{ route('cipi-gui.apps.show', ['name' => $vkApp, 'server' => $server->id]) }}" class="row-link">{{ $vkApp }}</a></td>
+                                            <td>
+                                                <span class="badge {{ ['own' => 'badge-green', 'shared' => 'badge-amber', 'external' => 'badge-blue'][$uses] ?? 'badge-gray' }}">{{ ['own' => 'Its own', 'shared' => 'Shared', 'external' => 'Elsewhere', 'none' => 'None'][$uses] ?? $uses }}</span>
+                                            </td>
+                                            <td class="font-mono text-xs">
+                                                @if($uses === 'own' && !empty($vk['port']))
+                                                    127.0.0.1:{{ (int) $vk['port'] }} @if(($vk['instance'] ?? null) !== 'running')<span class="badge badge-red">{{ $vk['instance'] ?? 'stopped' }}</span>@endif
+                                                @elseif($uses === 'shared')
+                                                    127.0.0.1:{{ $vkPort }} <span class="text-subtle">· with {{ max(0, count($vkShared) - 1) }} other{{ count($vkShared) - 1 === 1 ? '' : 's' }}</span>
+                                                @elseif($uses === 'external')
+                                                    <span class="text-subtle">another host, or a REDIS_URL — as its .env says</span>
+                                                @else
+                                                    <span class="text-subtle">—</span>
+                                                @endif
+                                            </td>
+                                            <td class="text-xs text-muted tabular-nums">{{ $vk['memory'] ?? '—' }}</td>
+                                            <td class="text-xs text-muted tabular-nums">{{ isset($vk['keys']) ? number_format((int) $vk['keys']) : '—' }}</td>
+                                            <td class="text-right">
+                                                @if($canManage)
+                                                    <div class="btn-actions">
+                                                        @if($uses === 'shared')
+                                                            <button type="button" wire:click="isolateValkey(@js($vkApp))" data-confirm="Give {{ $vkApp }} its own Valkey instance? It goes into maintenance mode for the seconds its keys take to copy, and its workers restart." class="btn btn-secondary btn-sm" data-valkey-isolate><x-cipi::icon name="shield" /> Isolate</button>
+                                                        @elseif($uses === 'own')
+                                                            <button type="button" wire:click="restartValkey(@js($vkApp))" data-confirm="Restart the Valkey of {{ $vkApp }}? It saves on the way down and loads on the way up." class="btn btn-ghost btn-sm"><x-cipi::icon name="refresh" /> Restart</button>
+                                                            <button type="button" wire:click="shareValkey(@js($vkApp))" data-confirm="Move {{ $vkApp }} back to the shared Valkey and remove its instance? Every other app on the shared instance can then read its cache, sessions and queues." class="btn btn-ghost btn-sm danger">Share again</button>
+                                                        @endif
+                                                    </div>
+                                                @endif
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="field-hint px-5 pb-5">
+                            @if($vkShared !== [])
+                                <strong>Isolate</strong> copies the app's keys to a new instance with the app in maintenance mode for those seconds, points its <code>.env</code> at it and restarts its workers — nobody is signed out, no queued job is lost. New Laravel apps get their own instance from the start.
+                            @elseif($valkeyFlushed)
+                                Shared instance emptied: its new password is on the server only — <code>cipi credentials</code>.
+                            @elseif($vkOwn > 0)
+                                No app uses the shared instance any more. It still holds their old keys, and every app has seen its password: <strong>Empty the shared instance</strong> deletes them and changes it. The new password stays on the server (<code>cipi credentials</code>).
+                            @endif
+                            No password travels through the panel. On the server: <code>cipi valkey list</code>.
+                        </p>
+                    @endif
+                </div>
+            @endif
 
         @elseif($activeTab === 'health')
             <div class="card card-flush">

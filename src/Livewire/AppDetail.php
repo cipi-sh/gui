@@ -13,6 +13,7 @@ use CipiGui\Support\BuildCommand;
 use CipiGui\Support\Clock;
 use CipiGui\Support\DeployLog;
 use CipiGui\Support\EnvText;
+use CipiGui\Support\PageCache;
 use CipiGui\Support\PhpVersions;
 use CipiGui\Support\Presets;
 use Illuminate\Support\Carbon;
@@ -154,6 +155,43 @@ class AppDetail extends Component
 
     /** @var list<string> why the last text was refused, line by line */
     public array $nginxReasons = [];
+
+    // ── the nginx page cache of the app (Cipi 5.17.0) ──
+
+    /** As the server has it: supported, kind, enabled, active, ttl, size, clear_on_deploy, exclude, files, bytes, clear_command. */
+    public ?array $pageCache = null;
+
+    public bool $pageCacheLoaded = false;
+
+    /** Why the tab cannot be used on this server; null when it can. */
+    public ?string $pageCacheUnavailable = null;
+
+    /** Why the last change was refused (the server's words); nothing changed. */
+    public ?string $pageCacheRefused = null;
+
+    public string $cacheTtl = '10m';
+
+    public string $cacheSize = '256m';
+
+    public bool $cacheClearOnDeploy = true;
+
+    /** The app's own paths that are never cached, one per line, as the form holds them. */
+    public string $cacheExclude = '';
+
+    /** Why the last list of paths was refused (the server's words); nothing changed. */
+    public ?string $cacheExcludeRefused = null;
+
+    // ── the PHP of an Octane app (Cipi 5.17.0) ──
+
+    /** php, octane_php, build, frankenphp, state, restart_pending, available_php, fix. */
+    public ?array $octane = null;
+
+    public bool $octaneLoaded = false;
+
+    public ?string $octaneUnavailable = null;
+
+    /** The PHP version the form would put the app on. */
+    public string $octanePhpTarget = '';
 
     /** The .env as text, while the text panel is open. */
     public string $envText = '';
@@ -487,6 +525,15 @@ class AppDetail extends Component
         $tabs += [
             'domains' => 'Domains & SSL',
             'routing' => 'Routing',
+        ];
+        if (! $isNode) {
+            // nginx answers with the page PHP made, without running PHP (not OPcache, which is always on).
+            $tabs['cache'] = 'Page cache';
+        }
+        if ($this->isOctaneApp($app)) {
+            $tabs['octane'] = 'Octane';
+        }
+        $tabs += [
             'deploy' => 'Deploy',
             'yml' => 'cipi.yml',
         ];
@@ -527,6 +574,8 @@ class AppDetail extends Component
         match ($tab) {
             'domains' => $this->loadWwwStatus(),
             'routing' => [$this->loadRouting(), $this->loadNginx()],
+            'cache' => $this->loadPageCache(),
+            'octane' => $this->loadOctane(),
             'deploy' => $this->loadDeployTab(),
             'yml' => $this->loadYml(),
             'env' => $this->loadEnv(),
@@ -1072,6 +1121,222 @@ class AppDetail extends Component
         } catch (CipiApiException $e) {
             $this->handleApiError($e);
         }
+    }
+
+    // ── Page cache: nginx answers with the page PHP made ──────────────
+
+    public function loadPageCache(): void
+    {
+        $this->pageCacheLoaded = false;
+        $this->pageCacheUnavailable = null;
+        $this->pageCacheRefused = null;
+
+        try {
+            $this->syncPageCache($this->client()->pageCache($this->appName));
+        } catch (CipiApiException $e) {
+            $this->pageCache = null;
+            $this->pageCacheUnavailable = match (true) {
+                $e->getStatusCode() === 403 => 'The panel\'s token lacks the nginx-view and nginx-manage abilities: create a new one from Connections.',
+                in_array($e->getStatusCode(), [404, 405, 501], true) => 'The page cache needs an up-to-date Cipi on this server (cipi self-update && cipi api update).',
+                default => self::versionless(self::plainCliText($e->getMessage())),
+            };
+        }
+    }
+
+    /** @param  array<string, mixed>  $data */
+    protected function syncPageCache(array $data): void
+    {
+        $this->pageCache = $data;
+        $this->cacheTtl = is_string($data['ttl'] ?? null) && $data['ttl'] !== '' ? $data['ttl'] : '10m';
+        $this->cacheSize = is_string($data['size'] ?? null) && $data['size'] !== '' ? $data['size'] : '256m';
+        $this->cacheClearOnDeploy = (bool) ($data['clear_on_deploy'] ?? true);
+        $this->cacheExclude = implode("\n", PageCache::excludes($data));
+        $this->pageCacheRefused = null;
+        $this->cacheExcludeRefused = null;
+        $this->pageCacheLoaded = true;
+    }
+
+    /** Turn the cache on with what the form says, or — on already — change it. */
+    public function savePageCache(): void
+    {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+        $this->resetErrorBag(['cacheTtl', 'cacheSize']);
+        $this->cacheTtl = strtolower(trim($this->cacheTtl));
+        $this->cacheSize = strtolower(trim($this->cacheSize));
+        if (! PageCache::ttlValid($this->cacheTtl)) {
+            $this->addError('cacheTtl', 'A number and s, m, h or d — 30s, 10m, 1h, 7d. Thirty days at most.');
+
+            return;
+        }
+        if (! PageCache::sizeValid($this->cacheSize)) {
+            $this->addError('cacheSize', 'Megabytes or gigabytes, from 16m to 100g — 256m, 2g.');
+
+            return;
+        }
+
+        $wasOn = (bool) ($this->pageCache['enabled'] ?? false);
+        $this->pageCacheChange(
+            ['enabled' => true, 'ttl' => $this->cacheTtl, 'size' => $this->cacheSize, 'clear_on_deploy' => $this->cacheClearOnDeploy],
+            $wasOn ? 'Page cache updated — nginx reloaded with it.' : 'Page cache on — nginx keeps the pages PHP makes from now.',
+        );
+    }
+
+    public function disablePageCache(): void
+    {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
+        $this->pageCacheChange(['enabled' => false], 'Page cache off — its pages were deleted, every request runs PHP again.');
+    }
+
+    /**
+     * The paths of its own the app keeps out of its cache: the whole list, as
+     * the form has it. With the cache off the server keeps it for later.
+     */
+    public function saveCacheExclude(): void
+    {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+        $this->resetErrorBag('cacheExclude');
+        $this->cacheExcludeRefused = null;
+        $paths = PageCache::excludeParse($this->cacheExclude);
+        if ($error = PageCache::excludeError($paths)) {
+            $this->addError('cacheExclude', $error);
+
+            return;
+        }
+
+        try {
+            $this->syncPageCache($this->client()->setPageCacheExclude($this->appName, $paths));
+            $this->dispatch('notify', type: 'success', message: match (true) {
+                $paths === [] => 'No path of its own any more — the rules of every app stay.',
+                (bool) ($this->pageCache['enabled'] ?? false) => 'Paths saved — nginx reloaded with them.',
+                default => 'Paths saved — they apply when the page cache is turned on.',
+            });
+        } catch (CipiApiException $e) {
+            if ($e->getStatusCode() === 422) {
+                // Refused — a path, or nginx -t — and nothing changed.
+                $this->cacheExcludeRefused = self::plainCliText($e->getMessage());
+
+                return;
+            }
+            $this->handleApiError($e);
+        }
+    }
+
+    /** @param  array<string, mixed>  $payload */
+    protected function pageCacheChange(array $payload, string $success): void
+    {
+        $this->pageCacheRefused = null;
+        try {
+            $this->syncPageCache($this->client()->setPageCache($this->appName, $payload));
+            $this->dispatch('notify', type: 'success', message: $success);
+        } catch (CipiApiException $e) {
+            if ($e->getStatusCode() === 422) {
+                // Refused — a value, the kind of app, or nginx -t — and nothing changed.
+                $this->pageCacheRefused = self::plainCliText($e->getMessage());
+
+                return;
+            }
+            $this->handleApiError($e);
+        }
+    }
+
+    /** Delete every cached page now. Whoever may deploy the app may empty its cache: a deploy does. */
+    public function clearPageCache(): void
+    {
+        // One of the two is enough; the one the user has is the one asked of Access.
+        if (! $this->allowed(($this->can['deploy'] ?? false) ? 'deploy' : 'edit')) {
+            return;
+        }
+
+        try {
+            $data = $this->client()->clearPageCache($this->appName);
+            $cleared = (int) ($data['cleared'] ?? 0);
+            $this->syncPageCache($data);
+            $this->dispatch('notify', type: 'success', message: $cleared === 1 ? 'Page cache emptied — 1 page.' : "Page cache emptied — {$cleared} pages.");
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    // ── Octane: the PHP that answers requests, the PHP that runs the rest ──
+
+    public function loadOctane(): void
+    {
+        $this->octaneLoaded = false;
+        $this->octaneUnavailable = null;
+        if ($this->installedPhpVersions === []) {
+            $this->loadInstalledPhpVersions();
+        }
+
+        try {
+            $this->octane = $this->client()->octane($this->appName);
+            $current = (string) ($this->octane['php'] ?? '');
+            if ($this->octanePhpTarget === '' || ! in_array($this->octanePhpTarget, $this->installedPhpVersions, true)) {
+                $this->octanePhpTarget = $current;
+            }
+            $this->octaneLoaded = true;
+        } catch (CipiApiException $e) {
+            $this->octane = null;
+            $this->octaneUnavailable = match (true) {
+                $e->getStatusCode() === 403 => 'The panel\'s token lacks the php-view and php-manage abilities: create a new one from Connections.',
+                in_array($e->getStatusCode(), [404, 405, 501], true) => 'Managing Octane from the panel needs an up-to-date Cipi on this server (cipi self-update && cipi api update).',
+                default => self::versionless(self::plainCliText($e->getMessage())),
+            };
+        }
+    }
+
+    /** The PHP minor inside the FrankenPHP build ("8.6" of "8.6.0"), or null. */
+    public function octaneBuildMinor(): ?string
+    {
+        return preg_match('/^(\d+\.\d+)/', (string) ($this->octane['octane_php'] ?? ''), $m) === 1 ? $m[1] : null;
+    }
+
+    /** Octane and the server's PHP on one version, by its number. */
+    public function switchOctanePhp(?string $version = null): void
+    {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+        $version = trim((string) ($version ?? $this->octanePhpTarget));
+        if (preg_match('/^\d\.\d$/', $version) !== 1) {
+            $this->addError('octanePhpTarget', 'Choose a PHP version.');
+
+            return;
+        }
+        if ($this->installedPhpVersions !== [] && ! in_array($version, $this->installedPhpVersions, true)) {
+            $this->addError('octanePhpTarget', "PHP {$version} is not installed on this server — install it from Server → PHP first.");
+
+            return;
+        }
+        $this->resetErrorBag('octanePhpTarget');
+        $this->octanePhpTarget = $version;
+
+        $this->startJob("Octane on PHP {$version}", fn (CipiApiClient $api) => $api->octanePhp($this->appName, $version));
+    }
+
+    public function restartOctane(): void
+    {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
+        $this->startJob('Restart Octane', fn (CipiApiClient $api) => $api->octaneRestart($this->appName));
+    }
+
+    /** The newest FrankenPHP build on the PHP the app already has — never another PHP. */
+    public function upgradeOctaneBuild(): void
+    {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+
+        $this->startJob('Update the FrankenPHP build', fn (CipiApiClient $api) => $api->frankenphpUpgrade($this->appName));
     }
 
     public function loadRouting(): void
@@ -2547,6 +2812,8 @@ class AppDetail extends Component
         match ($this->activeTab) {
             'domains' => $this->loadWwwStatus(),
             'routing' => $this->loadRouting(),
+            'cache' => $this->loadPageCache(),   // a deploy empties it
+            'octane' => $this->loadOctane(),
             'deploy' => $this->loadDeployTab(),
             'yml' => $this->loadYml(),
             default => null,
@@ -2578,6 +2845,11 @@ class AppDetail extends Component
 
         if ($this->activeTab === 'deploy') {
             $this->loadDeployTab();
+        }
+        if ($this->activeTab === 'octane') {
+            // A switch that was rolled back left the app where it was: show it as it is.
+            $this->loadApp();
+            $this->loadOctane();
         }
 
         $this->pollDeployStatus(true);

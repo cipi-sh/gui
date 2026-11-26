@@ -88,9 +88,18 @@ class CipiApiClient
      */
     public static function statusForMany(iterable $servers): array
     {
+        $servers = collect($servers);
+        $results = self::getForMany($servers, '/status');
+        // The machine's own name comes with the status: kept, so every list can show it.
+        foreach ($servers as $server) {
+            if (is_array($results[$server->id]['data'] ?? null)) {
+                $server->rememberHostname($results[$server->id]['data']);
+            }
+        }
+
         return array_map(
             fn (array $result) => ['status' => is_array($result['data']) ? $result['data'] : null, 'error' => $result['error']],
-            self::getForMany($servers, '/status'),
+            $results,
         );
     }
 
@@ -586,6 +595,66 @@ class CipiApiClient
     public function resetNginx(string $app): array
     {
         return $this->request('delete', "/apps/{$app}/nginx")['data'] ?? [];
+    }
+
+    // The nginx page cache of an app (API 1.47+ / Cipi ≥ 5.17.0): nginx keeps
+    // the page PHP made and answers the next visitors without running PHP.
+    // Not OPcache, which is always on. Synchronous; a refusal is a 422.
+
+    /** supported, kind, enabled, active, ttl, size, clear_on_deploy, exclude, files, bytes, clear_command. */
+    public function pageCache(string $app): array
+    {
+        return $this->get("/apps/{$app}/cache")['data'] ?? [];
+    }
+
+    /** `enabled` and, with it on, `ttl`, `size`, `clear_on_deploy`; what is left out stays. */
+    public function setPageCache(string $app, array $payload): array
+    {
+        return $this->put("/apps/{$app}/cache", $payload)['data'] ?? [];
+    }
+
+    /**
+     * The whole list of the app's own paths that are never cached (`/cart*`,
+     * `/feed`); an empty one for none. With the cache off it waits for it.
+     *
+     * @param  list<string>  $paths
+     */
+    public function setPageCacheExclude(string $app, array $paths): array
+    {
+        return $this->put("/apps/{$app}/cache/exclude", ['exclude' => array_values($paths)])['data'] ?? [];
+    }
+
+    /** The cache after it, with `cleared` (pages deleted). */
+    public function clearPageCache(string $app): array
+    {
+        return $this->post("/apps/{$app}/cache/clear")['data'] ?? [];
+    }
+
+    // The PHP of an Octane app (API 1.47+ / Cipi ≥ 5.17.0): what answers
+    // requests (inside its FrankenPHP build), what runs the rest.
+
+    /** php, octane_php, build, frankenphp, state, restart_pending, available_php, fix. */
+    public function octane(string $app): array
+    {
+        return $this->get("/apps/{$app}/octane")['data'] ?? [];
+    }
+
+    /** Async job (`octane-php`): Octane and the server's PHP on one version, by its number. */
+    public function octanePhp(string $app, string $php): array
+    {
+        return $this->put("/apps/{$app}/octane/php", ['php' => $php]);
+    }
+
+    /** Async job (`octane-restart`): restarted on its build, and checked. */
+    public function octaneRestart(string $app): array
+    {
+        return $this->post("/apps/{$app}/octane/restart");
+    }
+
+    /** Async job (`frankenphp-upgrade`, API 1.40+): the newest build on the app's own PHP. */
+    public function frankenphpUpgrade(string $app): array
+    {
+        return $this->post('/frankenphp/upgrade', ['app' => $app]);
     }
 
     // ── Node apps + runtimes (API 1.31+ / Cipi ≥ 5.4.0) ───────────────
@@ -1299,6 +1368,38 @@ class CipiApiClient
         return $this->delete('/smtp')['data'] ?? [];
     }
 
+    // ── Valkey per app (API 1.47+ / Cipi ≥ 5.17.0). No password is ever in an answer. ──
+
+    /** shared_port, apps [{app, uses: own|shared|external|none, port, instance, memory, keys}], shared, isolated. */
+    public function valkey(): array
+    {
+        return $this->get('/valkey')['data'] ?? [];
+    }
+
+    /** Async job (`valkey-isolate`): one app, or — null — every app on the shared instance. */
+    public function valkeyIsolate(?string $app, bool $copy = true): array
+    {
+        return $this->post('/valkey/isolate', ($app === null ? ['all' => true] : ['app' => $app]) + ($copy ? [] : ['copy' => false]));
+    }
+
+    /** Async job (`valkey-share`): back to the shared instance; its own is removed. */
+    public function valkeyShare(string $app, bool $copy = true): array
+    {
+        return $this->post('/valkey/share', ['app' => $app] + ($copy ? [] : ['copy' => false]));
+    }
+
+    /** The list after the restart. */
+    public function valkeyRestart(string $app): array
+    {
+        return $this->post('/valkey/'.rawurlencode($app).'/restart')['data'] ?? [];
+    }
+
+    /** Empties the shared instance and changes its password; 409 while an app uses it. */
+    public function valkeyFlushShared(): array
+    {
+        return $this->post('/valkey/flush-shared')['data'] ?? [];
+    }
+
     // ── Notifications: every channel and trigger (API 1.42+ / Cipi CLI ≥ 5.12.0) ──
 
     /** {channels: [...], triggers: {enabled, total}, types: [...]} — secrets come back as *_set only. */
@@ -1357,6 +1458,18 @@ class CipiApiClient
     public function resetNotificationTriggers(): array
     {
         return $this->post('/notifications/triggers/reset')['data'] ?? [];
+    }
+
+    /** How notifications read (API 1.47+ / Cipi ≥ 5.17.0): timezone, server_timezone, server_name, hostname, now. */
+    public function notificationSettings(): array
+    {
+        return $this->get('/notifications/settings')['data'] ?? [];
+    }
+
+    /** `timezone` and/or `server_name`; null puts the server's own time zone, or the hostname, back. */
+    public function updateNotificationSettings(array $payload): array
+    {
+        return $this->put('/notifications/settings', $payload)['data'] ?? [];
     }
 
     // ── Healthchecks (API 1.16+) ──────────────────────────────────────

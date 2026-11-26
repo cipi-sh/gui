@@ -437,6 +437,14 @@ trait InteractsWithCipiServer
         };
     }
 
+    /** Served by Octane (FrankenPHP) instead of PHP-FPM. */
+    protected function isOctaneApp(array $app): bool
+    {
+        $octane = $app['octane'] ?? null;
+
+        return (is_string($octane) && $octane !== '' && ! in_array(strtolower($octane), ['false', '0', 'null', 'none'], true)) || $octane === true;
+    }
+
     protected function runtimeLabel(?string $octane, ?int $octanePort = null): string
     {
         if ($octane) {

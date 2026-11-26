@@ -1,7 +1,8 @@
 <?php
 
 /**
- * Cipi GUI demo API — a stateful stand-in for `cipi api` (REST API 1.36, the firewall of 1.44).
+ * Cipi GUI demo API — a stateful stand-in for `cipi api` (REST API 1.36, the firewall of 1.44,
+ * the page cache, Octane's PHP and Valkey per app of 1.47).
  *
  * It answers the same paths, payloads and status codes the GUI consumes, with
  * realistic fixtures (fixtures.php) and async jobs that move pending → running →
@@ -228,6 +229,48 @@ function handle(string $method, string $route, array $body, array $query, string
     }
     if ($method === 'POST' && $r('/services/([a-z0-9.-]+)/restart')) {
         return [202, dispatchJob($state, $profile, 'service-restart', ['service' => $p(1)])];
+    }
+
+    // Valkey per app (cipi/api 1.47, Cipi 5.17.0). No password is ever in an answer.
+    if ($method === 'GET' && $r('/valkey')) {
+        return [200, ['data' => valkeyView($s)]];
+    }
+    if ($method === 'POST' && $r('/valkey/isolate')) {
+        $all = ! empty($body['all']);
+        $app = (string) ($body['app'] ?? '');
+        if (($app === '') === ! $all) {
+            throw new DemoHttpError(422, 'Give either app (one app) or all: true (every app on the shared instance)');
+        }
+        if (! $all && (($s['valkey'][$app] ?? 'shared') === 'own' || ! isset($s['apps'][$app]))) {
+            throw new DemoHttpError(isset($s['apps'][$app]) ? 422 : 404, isset($s['apps'][$app]) ? "'{$app}' has its own Valkey instance already" : "App '{$app}' not found");
+        }
+
+        return [202, dispatchJob($state, $profile, 'valkey-isolate', ['app' => $all ? null : $app, 'all' => $all])];
+    }
+    if ($method === 'POST' && $r('/valkey/share')) {
+        $app = (string) ($body['app'] ?? '');
+        if (($s['valkey'][$app] ?? null) !== 'own') {
+            throw new DemoHttpError(422, "'{$app}' has no instance of its own to leave");
+        }
+
+        return [202, dispatchJob($state, $profile, 'valkey-share', ['app' => $app])];
+    }
+    if ($method === 'POST' && $r('/valkey/flush-shared')) {
+        if (valkeyView($s)['shared'] !== []) {
+            throw new DemoHttpError(409, 'The shared Valkey is still in use by: '.implode(' ', valkeyView($s)['shared']).' — give them their own instance first');
+        }
+
+        return [200, ['data' => valkeyView($s) + ['flushed' => true]]];
+    }
+    if ($method === 'POST' && $r('/valkey/([a-z][a-z0-9]{2,31})/restart')) {
+        if (($s['valkey'][$p(1)] ?? null) !== 'own') {
+            throw new DemoHttpError(422, "'{$p(1)}' has no Valkey instance of its own");
+        }
+
+        return [200, ['data' => valkeyView($s)]];
+    }
+    if ($method === 'POST' && $r('/frankenphp/upgrade')) {
+        return [202, dispatchJob($state, $profile, 'frankenphp-upgrade', ['app' => $body['app'] ?? null])];
     }
 
     // SMTP
@@ -528,6 +571,88 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
             $info['proxies'] = array_values(array_filter($info['proxies'], fn ($x) => $x['prefix'] !== $prefix));
 
             return [200, ['data' => ['app' => $name, 'proxies' => $info['proxies']]]];
+
+        // The nginx page cache of an app (cipi/api 1.47, Cipi 5.17.0).
+        case $sub === '/cache' && $method === 'GET':
+            return [200, ['data' => pageCacheView($name, $info)]];
+        case $sub === '/cache' && $method === 'PUT':
+            if ($isNode) {
+                throw new DemoHttpError(422, "'{$name}' is a Node app: its pages come from its own server, and the page cache is written for PHP apps");
+            }
+            $cache = ($info['page_cache'] ?? []) + ['enabled' => false, 'ttl' => '10m', 'size' => '256m', 'clear_on_deploy' => true, 'files' => 0];
+            if (! empty($body['enabled'])) {
+                foreach (['ttl' => '/^[1-9][0-9]{0,6}(s|m|h|d)$/', 'size' => '/^[1-9][0-9]{0,5}(m|g)$/'] as $key => $pattern) {
+                    if (isset($body[$key]) && $body[$key] !== '') {
+                        if (preg_match($pattern, (string) $body[$key]) !== 1) {
+                            throw new DemoHttpError(422, "{$key}: not a value the page cache takes");
+                        }
+                        $cache[$key] = (string) $body[$key];
+                    }
+                }
+                if (array_key_exists('clear_on_deploy', $body) && $body['clear_on_deploy'] !== null) {
+                    $cache['clear_on_deploy'] = (bool) $body['clear_on_deploy'];
+                }
+                if (is_array($body['exclude'] ?? null)) {
+                    $cache['exclude'] = pageCacheExclude($body['exclude']);
+                }
+                if (! $cache['enabled']) {
+                    // Just turned on: nothing is kept yet.
+                    $cache['files'] = 0;
+                    $cache['since'] = time();
+                }
+                $cache['enabled'] = true;
+            } else {
+                if (array_filter(array_intersect_key($body, array_flip(['ttl', 'size', 'clear_on_deploy', 'exclude'])), fn ($v) => $v !== null && $v !== '') !== []) {
+                    throw new DemoHttpError(422, 'ttl, size, clear_on_deploy and exclude apply when enabled is true (the list alone: PUT /apps/{name}/cache/exclude)');
+                }
+                $cache['enabled'] = false;
+                $cache['files'] = 0;
+            }
+            $info['page_cache'] = $cache;
+
+            return [200, ['data' => pageCacheView($name, $info)]];
+        // The app's own paths that are never cached: the whole list, cache on or off.
+        case $sub === '/cache/exclude' && $method === 'PUT':
+            if ($isNode) {
+                throw new DemoHttpError(422, "'{$name}' is a Node app: its pages come from its own server, and the page cache is written for PHP apps");
+            }
+            if (! is_array($body['exclude'] ?? null)) {
+                throw new DemoHttpError(422, 'The exclude field must be present.');
+            }
+            $info['page_cache'] = ['exclude' => pageCacheExclude($body['exclude'])] + ($info['page_cache'] ?? []);
+
+            return [200, ['data' => pageCacheView($name, $info)]];
+        case $sub === '/cache/clear' && $method === 'POST':
+            $cleared = (int) (pageCacheView($name, $info)['files'] ?? 0);
+            if (isset($info['page_cache'])) {
+                $info['page_cache']['files'] = 0;
+                $info['page_cache']['since'] = time();
+            }
+
+            return [200, ['data' => pageCacheView($name, $info) + ['cleared' => $cleared]]];
+
+        // The PHP of an Octane app (cipi/api 1.47, Cipi 5.17.0).
+        case $sub === '/octane' && $method === 'GET':
+            if (empty($info['octane'])) {
+                throw new DemoHttpError(422, "App '{$name}' does not run on Octane");
+            }
+
+            return [200, ['data' => octaneView($name, $info)]];
+        case $sub === '/octane/php' && $method === 'PUT':
+            if (empty($info['octane'])) {
+                throw new DemoHttpError(422, "App '{$name}' does not run on Octane");
+            }
+            if (preg_match('/^[0-9]\.[0-9]$/', (string) ($body['php'] ?? '')) !== 1) {
+                throw new DemoHttpError(422, 'The php field format is invalid.');
+            }
+
+            return $job('octane-php', ['php' => (string) $body['php']]);
+        case $sub === '/octane/restart' && $method === 'POST':
+            if (empty($info['octane'])) {
+                throw new DemoHttpError(422, "App '{$name}' does not run on Octane");
+            }
+
+            return $job('octane-restart');
 
         // An app's own nginx directives (cipi/api 1.44). The real server tests them with
         // nginx -t and takes a subset of the language from the API; here a few words stand in.
@@ -1310,6 +1435,40 @@ function runJob(array &$s, string $type, array $p): array
 
             return [true, "→ Stopping rescue listener...\n→ Flushing CrowdSec firewall chains (before purge)...\n→ Removing CrowdSec packages...\n✓ CrowdSec removed — firewall is back to fail2ban only", null];
 
+        case 'octane-php':
+            $from = $s['apps'][$app]['info']['php'];
+            $s['apps'][$app]['info']['php'] = $p['php'];
+            $s['apps'][$app]['info']['octane_php'] = $p['php'].'.'.(['8.3' => '28', '8.4' => '15', '8.5' => '4', '8.6' => '0'][$p['php']] ?? '0');
+            $build = '1.14.0-php'.$s['apps'][$app]['info']['octane_php'].'-'.substr(sha1($p['php']), 0, 8);
+
+            return [true, "→ FrankenPHP 1.14.0 with PHP {$s['apps'][$app]['info']['octane_php']}: on this server\n→ Restarting {$app}-octane...\n  ✓ answering on its port\n→ Composer, artisan, cron and workers: PHP {$from} → {$p['php']}\n✓ '{$app}' is on PHP {$p['php']}: Octane on {$build}, Composer, artisan, cron and workers on /usr/bin/php{$p['php']}", ['app' => $app, 'php' => $p['php'], 'build' => $build, 'changed' => true]];
+
+        case 'octane-restart':
+            return [true, "→ Restarting {$app}-octane...\n✓ {$app}-octane restarted and answering", ['app' => $app, 'restarted' => true]];
+
+        case 'frankenphp-upgrade':
+            return [true, "→ Checking FrankenPHP's releases...\n✓ '{$app}' is up to date (".(octaneView((string) $app, $s['apps'][$app]['info'] ?? [])['build'] ?? 'its build').')', ['apps' => [(string) $app => ['result' => 'up-to-date']], 'rolled_back' => []]];
+
+        case 'valkey-isolate':
+            $targets = ! empty($p['all']) ? valkeyView($s)['shared'] : [(string) $p['app']];
+            $moved = [];
+            $lines = [];
+            foreach ($targets as $i => $target) {
+                $s['valkey'][$target] = 'own';
+                $port = 6400 + count(array_keys($s['valkey'], 'own', true));
+                $keys = 180 + (crc32($target) % 900);
+                $moved[] = ['app' => $target, 'uses' => 'own', 'port' => $port, 'keys_copied' => $keys];
+                $lines[] = "✓ {$target}: own Valkey on 127.0.0.1:{$port} — {$keys} key(s) copied";
+            }
+            $none = valkeyView($s)['shared'] === [];
+
+            return [true, implode("\n", $lines).($none ? "\n[INFO] No app uses the shared instance any more. It still holds the old keys, and every app has seen its password:\n    cipi valkey flush-shared" : ''), ['moved' => $moved, 'left' => [], 'shared_can_be_flushed' => $none]];
+
+        case 'valkey-share':
+            $s['valkey'][$app] = 'shared';
+
+            return [true, "✓ {$app}: back on the shared Valkey (127.0.0.1:6379)", ['moved' => [['app' => $app, 'uses' => 'shared', 'port' => 6379, 'keys_copied' => null]], 'left' => [], 'shared_can_be_flushed' => false]];
+
         case 'service-restart':
             foreach ($s['services'] as &$svc) {
                 if ($svc['name'] === $p['service']) {
@@ -1505,6 +1664,95 @@ function publicApp(array $info, bool $show): array
     }
 
     return $out;
+}
+
+/**
+ * The paths an app keeps out of its cache, as the server keeps them — or the
+ * 422 it answers to what is not one.
+ *
+ * @return list<string>
+ */
+function pageCacheExclude(array $paths): array
+{
+    if (count($paths) > 50) {
+        throw new DemoHttpError(422, 'exclude: 50 paths at most — one with a * covers many (/shop/*)');
+    }
+    $out = [];
+    foreach ($paths as $path) {
+        if (! is_string($path) || preg_match('#^/?[A-Za-z0-9._~%/*-]{1,127}$#', $path) !== 1) {
+            throw new DemoHttpError(422, 'exclude: a path is letters, digits, . _ ~ % - / and * for anything (/cart*, /feed, /shop/*/reviews), 128 characters at most');
+        }
+        $path = (string) preg_replace('/\*{2,}/', '*', '/'.ltrim($path, '/'));
+        if ($path === '/*') {
+            throw new DemoHttpError(422, 'exclude: /* is every page — turn the cache off instead');
+        }
+        if (! in_array($path, $out, true)) {
+            $out[] = $path;
+        }
+    }
+
+    return $out;
+}
+
+/** What `cipi cache <app> status --json` answers; the pages on disk grow with the minutes since the cache was emptied. */
+function pageCacheView(string $name, array $info): array
+{
+    $cache = ($info['page_cache'] ?? []) + ['enabled' => false, 'ttl' => '10m', 'size' => '256m', 'clear_on_deploy' => true, 'exclude' => [], 'files' => 0, 'since' => time() - 5400];
+    $node = ! empty($info['node']);
+    $files = $cache['enabled'] ? min(1800, (int) $cache['files'] + (int) ((time() - (int) $cache['since']) / 20)) : 0;
+    $seconds = (int) $cache['ttl'] * ['s' => 1, 'm' => 60, 'h' => 3600, 'd' => 86400][substr((string) $cache['ttl'], -1)];
+
+    return [
+        'app' => $name, 'supported' => ! $node, 'kind' => $node ? null : (! empty($info['octane']) ? 'proxy' : 'fastcgi'),
+        'enabled' => (bool) $cache['enabled'], 'active' => $cache['enabled'] && empty($info['suspended']),
+        'ttl' => $cache['ttl'], 'ttl_seconds' => $seconds, 'size' => $cache['size'], 'clear_on_deploy' => (bool) $cache['clear_on_deploy'],
+        'exclude' => array_values((array) $cache['exclude']), 'exclude_max' => 50,
+        'files' => $files, 'bytes' => $files * 41800, 'path' => "/var/cache/nginx/cipi/{$name}",
+        'suspended' => ! empty($info['suspended']), 'clear_command' => "sudo /usr/local/bin/cipi-cache-clear {$name}",
+    ];
+}
+
+/** What `cipi frankenphp php <app> --json` answers. An app whose build carries a newer PHP than the rest shows the mismatch. */
+function octaneView(string $name, array $info): array
+{
+    $php = (string) ($info['php'] ?? '8.5');
+    $octanePhp = (string) ($info['octane_php'] ?? '8.6.0');
+    $minor = implode('.', array_slice(explode('.', $octanePhp), 0, 2));
+    $mismatch = $minor !== $php;
+
+    return [
+        'app' => $name, 'php' => $php, 'octane_php' => $octanePhp,
+        'build' => '1.14.0-php'.$octanePhp.'-'.substr(sha1($minor), 0, 8), 'frankenphp' => '1.14.0',
+        'state' => $mismatch ? 'mismatch' : 'ok', 'restart_pending' => false,
+        'available_php' => array_values(array_unique([$php, $minor])),
+        'fix' => $mismatch ? ['command' => "cipi frankenphp php {$name} {$php}", 'why' => "a FrankenPHP build with PHP {$php} is on this server"] : null,
+    ];
+}
+
+/** What `cipi valkey list --json` answers, with the API's `shared` and `isolated`. Laravel apps only. */
+function valkeyView(array $s): array
+{
+    $apps = [];
+    $own = 0;
+    foreach ($s['apps'] as $name => $a) {
+        if (! empty($a['info']['node']) || ! empty($a['info']['custom'])) {
+            continue;
+        }
+        $uses = $s['valkey'][$name] ?? 'shared';
+        $own += $uses === 'own' ? 1 : 0;
+        $apps[] = [
+            'app' => $name, 'uses' => $uses,
+            'port' => $uses === 'own' ? 6400 + $own : null, 'instance' => $uses === 'own' ? 'running' : null,
+            'memory' => $uses === 'own' ? number_format(1.2 + (crc32($name) % 900) / 100, 2).'M' : null,
+            'keys' => $uses === 'own' ? 180 + (crc32($name) % 900) : null,
+        ];
+    }
+
+    return [
+        'shared_port' => 6379, 'apps' => $apps,
+        'shared' => array_values(array_map(fn ($a) => $a['app'], array_filter($apps, fn ($a) => $a['uses'] === 'shared'))),
+        'isolated' => $own,
+    ];
 }
 
 function nginxView(string $name, array $info): array

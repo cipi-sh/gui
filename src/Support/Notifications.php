@@ -145,6 +145,12 @@ final class Notifications
     /** The selector every server knows: failures and security events. */
     public const URGENT = 'urgent';
 
+    /** What `cipi notification timezone` takes before it looks the zone up (Cipi 5.17.0). */
+    public const TIMEZONE_PATTERN = '/^[A-Za-z][A-Za-z0-9_+-]*(\/[A-Za-z0-9_+-]+){0,2}$/';
+
+    /** What `cipi notification server-name` takes: nothing a mail subject or a chat message reads as its own. */
+    public const SERVER_NAME_PATTERN = '/^[A-Za-z0-9]([A-Za-z0-9 ._-]{0,38}[A-Za-z0-9._-])?$/';
+
     /**
      * What a channel takes, as the server keeps it: null for everything
      * (also [] and a list with "all"), otherwise its selectors.

@@ -77,6 +77,18 @@ class ServerManage extends Component
 
     public array $services = [];
 
+    /**
+     * Valkey per app (Cipi 5.17.0): {shared_port, apps, shared, isolated};
+     * null when the server does not say. No password is in it.
+     */
+    public ?array $valkey = null;
+
+    /** Why the Valkey card cannot be used on this server; null when it can. */
+    public ?string $valkeyUnavailable = null;
+
+    /** The shared instance was emptied from this page (its password changed with it). */
+    public bool $valkeyFlushed = false;
+
     public array $healthChecks = [];
 
     /** The server's API is older than 1.42 (or its Cipi than 5.12): only the SMTP form of before. */
@@ -179,6 +191,9 @@ class ServerManage extends Component
 
         if (! ($this->loaded[$tab] ?? false)) {
             $this->loadTab($tab);
+        } elseif ($tab === 'services' && ! ($this->loaded['valkey'] ?? false)) {
+            // The Overview has read the services already — not Valkey per app, which only this tab shows.
+            $this->loadValkey();
         }
     }
 
@@ -233,6 +248,7 @@ class ServerManage extends Component
                 $this->client()->prefetch(['/status', '/services', '/monitor', '/health']);
                 try {
                     $this->status = $this->client()->getStatus();
+                    $this->currentServer()?->rememberHostname($this->status);
                     $this->guard('services', fn () => $this->services = $this->client()->listServices());
                     $this->guard('monitor', fn () => $this->monitor = $this->client()->monitorStatus());
                     $this->guard('health', fn () => $this->healthChecks = $this->client()->listHealth());
@@ -269,7 +285,16 @@ class ServerManage extends Component
                 $this->enginesData = $this->client()->listDatabaseEngines() + ['default' => null, 'engines' => []];
                 $this->rememberEngineServers($this->currentServer()?->id, (array) $this->enginesData['engines']);
             },
-            'services' => fn () => $this->services = $this->client()->listServices(),
+            'services' => function () {
+                // Two answers, each a `sudo cipi …` on the server: asked together.
+                $this->client()->prefetch(['/services', '/valkey']);
+                try {
+                    $this->services = $this->client()->listServices();
+                    $this->loadValkey();
+                } finally {
+                    CipiApiClient::forgetPrefetched();
+                }
+            },
             'health' => fn () => $this->healthChecks = $this->client()->listHealth(),
             'monitor' => fn () => $this->monitor = $this->client()->monitorStatus(),
             // A component of its own (Livewire\Metrics) reads, polls and draws it.
@@ -368,6 +393,118 @@ class ServerManage extends Component
         }
 
         $this->startJob('Restart '.$name, fn (CipiApiClient $api) => $api->restartService($name));
+    }
+
+    // ── Valkey per app (API 1.47+ / Cipi ≥ 5.17.0) ────────────────────
+
+    /**
+     * Who is on the server's shared Valkey and who has an instance of its own.
+     * Read with the Services tab, and optional: a server that does not answer
+     * it still shows its services.
+     */
+    protected function loadValkey(): void
+    {
+        $this->valkeyUnavailable = null;
+        // Next to the tabs in $loaded, so that whatever empties it (a refresh, a finished job) has Valkey read again.
+        $this->loaded['valkey'] = true;
+        try {
+            $data = $this->client()->valkey();
+            $this->valkey = is_array($data['apps'] ?? null) ? $data : null;
+        } catch (CipiApiException $e) {
+            $this->valkey = null;
+            $this->valkeyUnavailable = match (true) {
+                // An API that does not have it yet: the Services tab stays as it was.
+                in_array($e->getStatusCode(), [404, 405, 501], true) => null,
+                $e->getStatusCode() === 403 => 'The panel\'s token lacks the services-view and services-manage abilities: create a new one from Connections.',
+                default => self::versionless(self::plainCliText($e->getMessage())),
+            };
+        }
+    }
+
+    /** @return list<string> the apps that still share the server's instance — and its password */
+    public function valkeyShared(): array
+    {
+        return array_values(array_filter((array) ($this->valkey['shared'] ?? []), 'is_string'));
+    }
+
+    protected function valkeyUses(string $app): ?string
+    {
+        foreach ((array) ($this->valkey['apps'] ?? []) as $row) {
+            if (is_array($row) && ($row['app'] ?? null) === $app) {
+                return is_string($row['uses'] ?? null) ? $row['uses'] : null;
+            }
+        }
+
+        return null;
+    }
+
+    /** Give one app its own instance: its keys are copied, its workers restart. */
+    public function isolateValkey(string $app): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || $this->valkeyUses($app) !== 'shared') {
+            return;
+        }
+
+        $this->startJob("Valkey of its own for {$app}", fn (CipiApiClient $api) => $api->valkeyIsolate($app));
+    }
+
+    /** The same for every app still on the shared instance. */
+    public function isolateAllValkey(): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || $this->valkeyShared() === []) {
+            return;
+        }
+
+        $this->startJob('Valkey of its own for every app', fn (CipiApiClient $api) => $api->valkeyIsolate(null));
+    }
+
+    /** Back to the shared instance: every other app on it can read this app's cache, sessions and queues. */
+    public function shareValkey(string $app): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || $this->valkeyUses($app) !== 'own') {
+            return;
+        }
+
+        $this->startJob("{$app} back on the shared Valkey", fn (CipiApiClient $api) => $api->valkeyShare($app));
+    }
+
+    public function restartValkey(string $app): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || $this->valkeyUses($app) !== 'own') {
+            return;
+        }
+
+        try {
+            $data = $this->client()->valkeyRestart($app);
+            if (is_array($data['apps'] ?? null)) {
+                $this->valkey = $data;
+            }
+            $this->dispatch('notify', type: 'success', message: "The Valkey of {$app} was restarted.");
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    /**
+     * Once nobody is left on the shared instance: delete what it still holds
+     * and change its password. The new password stays on the server.
+     */
+    public function flushSharedValkey(): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || $this->valkey === null || $this->valkeyShared() !== []) {
+            return;
+        }
+
+        try {
+            $data = $this->client()->valkeyFlushShared();
+            if (is_array($data['apps'] ?? null)) {
+                $this->valkey = $data;
+            }
+            $this->valkeyFlushed = true;
+            $this->dispatch('notify', type: 'success', message: 'Shared Valkey emptied, and its password changed.');
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
     }
 
     // ── Node runtimes (API 1.39+ / Cipi ≥ 5.9.0) ──────────────────────
