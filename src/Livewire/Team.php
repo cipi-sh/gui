@@ -155,7 +155,7 @@ class Team extends Component
             return;
         }
 
-        $pending = $this->userModel()::query()->get()->filter(fn ($u) => ! ($u->two_factor_enabled ?? false))->count();
+        $pending = $this->userModel()::query()->get()->filter(fn ($u) => ! TwoFactorService::hasSecondFactor($u))->count();
         $this->dispatch('notify', type: 'success', message: $pending === 0
             ? 'Two-factor authentication is required. Every account already has it.'
             : 'Two-factor authentication is required. '.$pending.' '.Str::plural('account', $pending).' without it '.($pending === 1 ? 'sets' : 'set').' it up at the next page.');
@@ -193,6 +193,12 @@ class Team extends Component
         }
 
         $twoFactor->disable($user);
+        // A lost phone takes its passkeys with it: they go too (4.8.0).
+        try {
+            \CipiGui\Models\CipiPasskey::query()->where('user_id', $user->getKey())->delete();
+        } catch (\Throwable) {
+            // Before the migration: no passkeys to remove.
+        }
         $name = (string) ($user->name ?: $user->email);
 
         $this->dispatch('notify', type: 'success', message: Panel::enforceTwoFactor()
@@ -361,7 +367,7 @@ class Team extends Component
             'name' => (string) ($user->name ?? ''),
             'email' => (string) ($user->email ?? ''),
             'role' => Access::role($user),
-            'two_factor' => (bool) ($user->two_factor_enabled ?? false),
+            'two_factor' => TwoFactorService::hasSecondFactor($user),
             'sso' => filled($user->sso_subject ?? null),
             'access' => Access::summary($user),
             'self' => (int) $user->getKey() === $me,

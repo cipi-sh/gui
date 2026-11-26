@@ -298,8 +298,27 @@ return [
         ],
         'zt' => [
             'enabled' => true, 'cloudflared' => 'running', 'tunnel' => 'fra1-prod', 'real_ip' => 'CF-Connecting-IP',
-            'lock_http' => 'true', 'lock_ssh' => 'false', 'ssh_hostname' => 'ssh-fra1.example.com',
-            'raw' => "Zero Trust: enabled\ncloudflared: running (2026.9.1)\nTunnel: fra1-prod (4 connections: FRA, AMS)\nReal IP header: CF-Connecting-IP\nHTTP lock: on — ports 80/443 accept Cloudflare ranges only\nSSH lock: off\nSSH hostname: ssh-fra1.example.com",
+            'lock_http' => 'true (cf-ips)', 'lock_ssh' => 'false', 'ssh_hostname' => 'ssh-fra1.example.com', 'raw' => '',
+            // `cipi zt status --json` (Cipi 5.16): what the tab shows in full.
+            'details' => [
+                'enabled' => true, 'token' => true, 'account_id' => 'demo',
+                'tunnel' => ['id' => '6f1c2d3e-0000-4000-8000-000000000001', 'name' => 'fra1-prod', 'running' => true, 'status' => 'healthy', 'replica' => false, 'replica_from' => null,
+                    'connectors' => [['id' => 'c-fra1', 'origin_ips' => ['203.0.113.10'], 'version' => '2026.9.1', 'colos' => ['FRA', 'AMS'], 'conns' => 4, 'this_server' => true]]],
+                'real_ip' => true,
+                'lock' => ['http' => true, 'http_mode' => 'cf-ips', 'ssh' => false],
+                'hostnames' => [
+                    ['app' => 'shop', 'domains' => ['shop.example.com', 'www.shop.example.com'], 'access' => ['enabled' => true, 'paths' => ['/admin', '/horizon'], 'allow' => ['@example.com']], 'service_tokens' => [], 'webhook_bypass' => false, 'origin_cert' => false, 'purge_on_deploy' => true, 'preview' => null],
+                    ['app' => 'shopfeaturecheckout', 'domains' => ['feature-checkout-shop.example.com'], 'access' => ['enabled' => true, 'paths' => [], 'allow' => ['@example.com']], 'service_tokens' => [], 'webhook_bypass' => true, 'origin_cert' => false, 'purge_on_deploy' => false, 'preview' => ['parent' => 'shop', 'branch' => 'feature/checkout', 'hostname' => 'feature-checkout-shop.example.com']],
+                    ['app' => 'blog', 'domains' => ['blog.example.com'], 'access' => ['enabled' => false, 'paths' => [], 'allow' => []], 'service_tokens' => [], 'webhook_bypass' => false, 'origin_cert' => true, 'purge_on_deploy' => true, 'preview' => null],
+                ],
+                'gui' => null,
+                'api' => ['domain' => 'api-fra1.example.com', 'on_tunnel' => true, 'access' => ['enabled' => true, 'paths' => [], 'allow' => ['none']], 'service_tokens' => ['panel', 'github-actions']],
+                'ssh' => ['hostname' => 'ssh-fra1.example.com', 'access' => ['enabled' => true, 'paths' => [], 'allow' => ['@example.com']], 'certificates' => ['enabled' => true, 'users' => ['cipi' => ['andrea', 'mario']]]],
+                'tcp' => [['hostname' => 'db-fra1.example.com', 'service' => 'mysql', 'port' => 3306, 'allow' => ['andrea@example.com']]],
+                'service_tokens' => [['name' => 'panel', 'for' => 'api', 'client_id' => '1a2b3c4d.access', 'duration' => '8760h', 'created_at' => '2026-11-20T09:00:00Z'], ['name' => 'github-actions', 'for' => 'api', 'client_id' => '5e6f7a8b.access', 'duration' => '8760h', 'created_at' => '2026-11-21T09:00:00Z']],
+                'previews' => [['app' => 'shopfeaturecheckout', 'parent' => 'shop', 'branch' => 'feature/checkout', 'hostname' => 'feature-checkout-shop.example.com', 'public' => false]],
+                'missing' => ['shopapi'],
+            ],
         ],
         // `cipi disk --json` / `cipi disk db --json` (API 1.33+). blog sits at 93% of its 2.5 GB
         // limit — the monitor's app_disk check above is in `warn` for that reason.

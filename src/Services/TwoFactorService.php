@@ -36,10 +36,19 @@ class TwoFactorService
         return Panel::enforceTwoFactor() && self::setupRequiredIfEnforced($user, $session);
     }
 
-    /** The same question as if 2FA were required: no 2FA on the account, and not an SSO session. */
+    /**
+     * A second factor: the authenticator app's code, or a passkey (4.8.0) — it
+     * is the device and the face, finger or PIN that unlocks it.
+     */
+    public static function hasSecondFactor(?object $user): bool
+    {
+        return $user !== null && ((bool) ($user->two_factor_enabled ?? false) || Passkeys::has($user));
+    }
+
+    /** The same question as if 2FA were required: no second factor on the account, and not an SSO session. */
     public static function setupRequiredIfEnforced(?object $user, ?Session $session): bool
     {
-        if ($user === null || (bool) ($user->two_factor_enabled ?? false)) {
+        if ($user === null || self::hasSecondFactor($user)) {
             return false;
         }
 

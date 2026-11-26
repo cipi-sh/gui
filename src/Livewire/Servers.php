@@ -27,6 +27,13 @@ class Servers extends Component
 
     public string $token = '';
 
+    /** Cloudflare Access in front of the API: a service token's id and secret (the secret is never sent back). */
+    public string $accessClientId = '';
+
+    public string $accessClientSecret = '';
+
+    public bool $accessClear = false;
+
     public bool $showFormModal = false;
 
     public ?int $confirmDeleteId = null;
@@ -50,7 +57,7 @@ class Servers extends Component
 
     public function openAdd(): void
     {
-        $this->reset(['editingId', 'name', 'url', 'ip', 'token']);
+        $this->reset(['editingId', 'name', 'url', 'ip', 'token', 'accessClientId', 'accessClientSecret', 'accessClear']);
         $this->resetErrorBag();
         $this->showFormModal = true;
     }
@@ -65,13 +72,16 @@ class Servers extends Component
         $this->url = $server->url;
         $this->ip = (string) $server->ip;
         $this->token = '';
+        $this->accessClientId = (string) $server->cf_access_client_id;
+        $this->accessClientSecret = '';
+        $this->accessClear = false;
         $this->showFormModal = true;
     }
 
     public function closeForm(): void
     {
         $this->showFormModal = false;
-        $this->reset(['editingId', 'name', 'url', 'ip', 'token']);
+        $this->reset(['editingId', 'name', 'url', 'ip', 'token', 'accessClientId', 'accessClientSecret', 'accessClear']);
         $this->resetErrorBag();
     }
 
@@ -87,7 +97,10 @@ class Servers extends Component
             'url' => ['required', 'url', 'max:255'],
             'ip' => ['nullable', 'ip'],
             'token' => [$this->editingId ? 'nullable' : 'required', 'string', 'min:10'],
+            'accessClientId' => ['nullable', 'string', 'max:128', 'regex:/^[A-Za-z0-9._-]+$/'],
+            'accessClientSecret' => ['nullable', 'string', 'max:255'],
         ], [
+            'accessClientId.regex' => 'The client id is the CF-Access-Client-Id value, e.g. 1a2b3c….access',
             'name.regex' => 'Use letters, numbers, hyphens and underscores only.',
             'name.unique' => 'A server with this name already exists.',
             'url.url' => 'Enter a valid URL, e.g. https://vps.example.com',
@@ -101,6 +114,26 @@ class Servers extends Component
 
         if ($this->editingId && ($validated['token'] ?? '') === '') {
             unset($validated['token']);
+        }
+
+        // Cloudflare Access: both or neither; an empty secret keeps the stored one.
+        $accessId = trim((string) ($validated['accessClientId'] ?? ''));
+        $accessSecret = trim((string) ($validated['accessClientSecret'] ?? ''));
+        unset($validated['accessClientId'], $validated['accessClientSecret']);
+        $storedSecret = $this->editingId ? (string) CipiServer::find($this->editingId)?->cf_access_client_secret : '';
+        if ($this->accessClear || $accessId === '') {
+            $validated['cf_access_client_id'] = null;
+            $validated['cf_access_client_secret'] = null;
+        } else {
+            if ($accessSecret === '' && $storedSecret === '') {
+                $this->addError('accessClientSecret', 'Paste the CF-Access-Client-Secret that goes with this client id.');
+
+                return;
+            }
+            $validated['cf_access_client_id'] = $accessId;
+            if ($accessSecret !== '') {
+                $validated['cf_access_client_secret'] = $accessSecret;
+            }
         }
 
         try {

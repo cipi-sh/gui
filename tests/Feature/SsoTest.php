@@ -52,7 +52,8 @@ class SsoTest extends TestCase
         $this->get('/login')->assertSee('Sign in with Acme SSO');
 
         config()->set('cipi-gui.sso.issuer', '');
-        $this->get('/login')->assertOk()->assertDontSee('Sign in with')->assertSee('Keep me signed in');
+        // "Sign in with a passkey" may be there (4.8.0): no SSO button is what counts.
+        $this->get('/login')->assertOk()->assertDontSee('Sign in with Acme SSO')->assertDontSeeHtml('href="'.route('cipi-gui.sso.redirect').'"')->assertSee('Keep me signed in');
         $this->get('/auth/sso')->assertNotFound();
         $this->get('/auth/sso/callback?code=x&state=y')->assertNotFound();
     }

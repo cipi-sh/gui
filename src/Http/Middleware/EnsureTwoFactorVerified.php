@@ -32,7 +32,7 @@ class EnsureTwoFactorVerified
 
         $session = $request->hasSession() ? $request->session() : app('session.store');
 
-        if (($user->two_factor_enabled ?? false) && ! $session->get('cipi_gui_2fa_verified')) {
+        if (! $session->get('cipi_gui_2fa_verified') && ! $session->get(TwoFactorService::SSO_SESSION) && TwoFactorService::hasSecondFactor($user)) {
             return redirect()->route('cipi-gui.2fa');
         }
 

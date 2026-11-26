@@ -2,6 +2,7 @@
 
 namespace CipiGui\Livewire;
 
+use CipiGui\Infrastructure\Connectors;
 use CipiGui\Services\Access;
 use CipiGui\Support\Panel;
 use Illuminate\Support\Str;
@@ -27,6 +28,8 @@ class Nav extends Component
 
     public int $routeServerId = 0;
 
+    public string $routeConnector = '';
+
     public function mount(bool $mobile = false): void
     {
         $this->mobile = $mobile;
@@ -34,9 +37,11 @@ class Nav extends Component
         $route = request()->route();
         $this->routeName = (string) ($route?->getName() ?? '');
         $this->routeServerId = (int) ($route?->parameter('serverId') ?? 0);
+        $this->routeConnector = (string) ($route?->parameter('connector') ?? '');
     }
 
     #[On('servers-changed')]
+    #[On('connectors-changed')]
     public function refresh(): void
     {
         // Re-rendering is all it takes: links() reads the servers again.
@@ -86,6 +91,19 @@ class Nav extends Component
             $links[] = $this->link('cipi-gui.databases', 'database', 'Databases');
             if (Access::serversWithLevel($user)->isNotEmpty()) {
                 $links[] = $this->link('cipi-gui.server-manage', 'server', 'Server');
+            }
+        }
+
+        // Connectors with an account (Settings → Connectors), admins only.
+        if (Access::isAdmin($user) && ($connected = Connectors::connected()) !== []) {
+            $links[] = ['section' => 'Infrastructure'];
+            foreach ($connected as $connector) {
+                $links[] = [
+                    'href' => route('cipi-gui.infrastructure', ['connector' => $connector->key()]),
+                    'active' => $this->routeName === 'cipi-gui.infrastructure' && $this->routeConnector === $connector->key(),
+                    'icon' => $connector->icon(),
+                    'label' => $connector->label(),
+                ];
             }
         }
 

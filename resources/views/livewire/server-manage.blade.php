@@ -737,25 +737,121 @@
             <p class="field-hint mt-3">A closed catalog: the server installs only these entries — from Ubuntu's own repositories, or, marked <em>Upstream</em>, releases Cipi pins by version and SHA-256 (the <code>sec-*</code> scanners Hackly runs) — and removes only what no other package needs. Installing and removing from the panel needs an up-to-date Cipi and a token with <code>packages-manage</code>; until then run <code>cipi package install &lt;id&gt;</code> on the host.</p>
 
         @elseif($activeTab === 'zt')
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div class="card">
-                    <div class="card-header">
-                        <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="cloud" /> Cloudflare Zero Trust</h2><p class="card-subtitle">Status only — every change stays with the operator on the CLI (<code>cipi zt</code>).</p></div>
-                        <span class="badge {{ !empty($zt['enabled']) ? 'badge-green' : 'badge-gray' }}">{{ !empty($zt['enabled']) ? 'Enabled' : 'Disabled' }}</span>
+            @php
+                $ztd = is_array($zt['details'] ?? null) ? $zt['details'] : null;
+                $ztList = fn ($v) => is_array($v) && $v !== [] ? implode(', ', array_map('strval', $v)) : null;
+                $ztAccess = function ($a) use ($ztList) {
+                    if (! is_array($a) || empty($a['enabled'])) { return null; }
+                    $who = ($a['allow'] ?? []) === ['none'] ? 'service tokens only' : ($ztList($a['allow'] ?? []) ?? 'anyone signed in');
+                    return ($ztList($a['paths'] ?? []) ? 'on '.$ztList($a['paths']) : 'the whole site').' · '.$who;
+                };
+            @endphp
+            @if($ztd === null)
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="cloud" /> Cloudflare Zero Trust</h2><p class="card-subtitle">Status only — every change stays with the operator on the CLI (<code>cipi zt</code>).</p></div>
+                            <span class="badge {{ !empty($zt['enabled']) ? 'badge-green' : 'badge-gray' }}">{{ !empty($zt['enabled']) ? 'Enabled' : 'Disabled' }}</span>
+                        </div>
+                        <dl class="kv">
+                            <dt>cloudflared</dt><dd>{{ $zt['cloudflared'] ?? '—' }}</dd>
+                            <dt>Tunnel</dt><dd class="font-mono text-xs">{{ $zt['tunnel'] ?? '—' }}</dd>
+                            <dt>Real IP header</dt><dd class="font-mono text-xs">{{ $zt['real_ip'] ?? '—' }}</dd>
+                            <dt>HTTP lock</dt><dd>{{ in_array($zt['lock_http'] ?? null, ['true', true, '1'], true) ? 'On — only Cloudflare reaches 80/443' : 'Off' }}</dd>
+                            <dt>SSH lock</dt><dd>{{ in_array($zt['lock_ssh'] ?? null, ['true', true, '1'], true) ? 'On' : 'Off' }}</dd>
+                            <dt>SSH hostname</dt><dd class="font-mono text-xs">{{ $zt['ssh_hostname'] ?? '—' }}</dd>
+                        </dl>
                     </div>
-                    <dl class="kv">
-                        <dt>cloudflared</dt><dd>{{ $zt['cloudflared'] ?? '—' }}</dd>
-                        <dt>Tunnel</dt><dd class="font-mono text-xs">{{ $zt['tunnel'] ?? '—' }}</dd>
-                        <dt>Real IP header</dt><dd class="font-mono text-xs">{{ $zt['real_ip'] ?? '—' }}</dd>
-                        <dt>HTTP lock</dt><dd>{{ in_array($zt['lock_http'] ?? null, ['true', true, '1'], true) ? 'On — only Cloudflare reaches 80/443' : 'Off' }}</dd>
-                        <dt>SSH lock</dt><dd>{{ in_array($zt['lock_ssh'] ?? null, ['true', true, '1'], true) ? 'On' : 'Off' }}</dd>
-                        <dt>SSH hostname</dt><dd class="font-mono text-xs">{{ $zt['ssh_hostname'] ?? '—' }}</dd>
-                    </dl>
+                    @if(!empty($zt['raw']))
+                        <div>@include('cipi-gui::partials.terminal', ['lines' => explode("\n", (string) $zt['raw']), 'title' => 'cipi zt status', 'autoScroll' => false])</div>
+                    @endif
                 </div>
-                @if(!empty($zt['raw']))
-                    <div>@include('cipi-gui::partials.terminal', ['lines' => explode("\n", (string) $zt['raw']), 'title' => 'cipi zt status', 'autoScroll' => false])</div>
-                @endif
-            </div>
+            @else
+                @php
+                    $tun = is_array($ztd['tunnel'] ?? null) ? $ztd['tunnel'] : [];
+                    $cfStatus = (string) ($tun['status'] ?? '');
+                    $lock = is_array($ztd['lock'] ?? null) ? $ztd['lock'] : [];
+                @endphp
+                <div class="space-y-4" data-zt-details>
+                    <div class="card">
+                        <div class="card-header">
+                            <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="cloud" /> Cloudflare Zero Trust</h2><p class="card-subtitle">Status only — every change stays with the operator on the CLI (<code>cipi zt</code>). Cloudflare's DNS and zones are in Infrastructure → Cloudflare.</p></div>
+                            <span class="badge {{ empty($ztd['enabled']) ? 'badge-gray' : (in_array($cfStatus, ['healthy', ''], true) && ! empty($tun['running']) ? 'badge-green' : ($cfStatus === 'degraded' ? 'badge-amber' : 'badge-red')) }}" data-zt-state>
+                                {{ empty($ztd['enabled']) ? 'Disabled' : (empty($tun['running']) ? 'cloudflared stopped' : ($cfStatus !== '' ? 'Tunnel '.$cfStatus : 'Running')) }}
+                            </span>
+                        </div>
+                        @if(! empty($ztd['enabled']))
+                            <dl class="kv">
+                                <dt>Tunnel</dt><dd class="font-mono text-xs">{{ $tun['name'] ?? $tun['id'] ?? '—' }}@if(! empty($tun['replica'])) <span class="badge badge-blue">replica of {{ $tun['replica_from'] ?? 'another server' }}</span>@endif</dd>
+                                <dt>Connectors</dt><dd>
+                                    @forelse((array) ($tun['connectors'] ?? []) as $cn)
+                                        <span class="block text-xs"><span class="font-mono">{{ $ztList($cn['origin_ips'] ?? []) ?? '?' }}</span> · {{ (int) ($cn['conns'] ?? 0) }} connections @if(! empty($cn['this_server']))<span class="badge badge-neutral">this server</span>@endif</span>
+                                    @empty
+                                        <span class="text-muted">{{ empty($ztd['token']) ? 'Cloudflare not asked: no token on the server' : 'none' }}</span>
+                                    @endforelse
+                                </dd>
+                                <dt>Real IP</dt><dd>{{ ! empty($ztd['real_ip']) ? 'CF-Connecting-IP' : 'off' }}</dd>
+                                <dt>HTTP 80/443</dt><dd>{{ ! empty($lock['http']) ? (($lock['http_mode'] ?? '') === 'dark' ? 'Closed — every site comes through the tunnel' : 'Cloudflare\'s addresses only') : 'Open' }}</dd>
+                                <dt>SSH 22</dt><dd>{{ ! empty($lock['ssh']) ? 'Closed — SSH through the tunnel only' : 'Open' }}</dd>
+                            </dl>
+                        @else
+                            <p class="text-sm text-soft">Off on this server. <code>cipi zt token set</code>, then <code>cipi zt enable</code>.</p>
+                        @endif
+                    </div>
+
+                    @if(! empty($ztd['enabled']))
+                        <div class="card card-flush">
+                            <div class="card-header p-5 mb-0"><div><h2 class="card-title">Hostnames</h2><p class="card-subtitle">What the tunnel serves and who may open it.</p></div></div>
+                            <div class="table-scroll">
+                                <table class="table-compact" data-zt-hostnames>
+                                    <thead><tr><th>App</th><th>Domains</th><th>Access</th><th>Service tokens</th><th>After deploy</th></tr></thead>
+                                    <tbody>
+                                        @foreach((array) ($ztd['hostnames'] ?? []) as $h)
+                                            <tr wire:key="zth-{{ $h['app'] ?? $loop->index }}">
+                                                <td class="text-strong">{{ $h['app'] ?? '' }}@if(! empty($h['preview']))<span class="badge badge-blue ml-1">preview of {{ $h['preview']['parent'] ?? '' }}</span>@endif</td>
+                                                <td class="font-mono text-xs">{{ $ztList($h['domains'] ?? []) ?? '—' }}</td>
+                                                <td class="text-xs">{{ $ztAccess($h['access'] ?? null) ?? 'public' }}</td>
+                                                <td class="text-xs">{{ $ztList($h['service_tokens'] ?? []) ?? '—' }}</td>
+                                                <td class="text-xs">{{ ! empty($h['purge_on_deploy']) ? 'purges Cloudflare\'s cache' : '—' }}</td>
+                                            </tr>
+                                        @endforeach
+                                        @foreach(['gui' => 'Panel', 'api' => 'API'] as $k => $label)
+                                            @if(is_array($ztd[$k] ?? null) && ! empty($ztd[$k]['on_tunnel']))
+                                                <tr wire:key="zth-{{ $k }}">
+                                                    <td class="text-strong">{{ $label }}</td>
+                                                    <td class="font-mono text-xs">{{ $ztd[$k]['domain'] ?? '' }}</td>
+                                                    <td class="text-xs">{{ $ztAccess($ztd[$k]['access'] ?? null) ?? 'public' }}</td>
+                                                    <td class="text-xs">{{ $ztList($ztd[$k]['service_tokens'] ?? []) ?? '—' }}</td>
+                                                    <td></td>
+                                                </tr>
+                                            @endif
+                                        @endforeach
+                                        @foreach((array) ($ztd['tcp'] ?? []) as $t)
+                                            <tr wire:key="ztt-{{ $t['hostname'] ?? $loop->index }}">
+                                                <td class="text-strong">{{ $t['service'] ?? 'tcp' }} <span class="text-muted">· 127.0.0.1:{{ $t['port'] ?? '' }}</span></td>
+                                                <td class="font-mono text-xs">{{ $t['hostname'] ?? '' }}</td>
+                                                <td class="text-xs">{{ $ztList($t['allow'] ?? []) ?? 'anyone signed in' }}</td>
+                                                <td></td><td></td>
+                                            </tr>
+                                        @endforeach
+                                        @if(is_array($ztd['ssh'] ?? null))
+                                            <tr wire:key="zth-ssh">
+                                                <td class="text-strong">SSH</td>
+                                                <td class="font-mono text-xs">{{ $ztd['ssh']['hostname'] ?? '' }}</td>
+                                                <td class="text-xs">{{ $ztAccess($ztd['ssh']['access'] ?? null) ?? '—' }}@if(! empty($ztd['ssh']['certificates']['enabled']))<span class="block">short-lived certificates: {{ collect((array) ($ztd['ssh']['certificates']['users'] ?? []))->map(fn ($p, $u) => $u.' ← '.implode(', ', (array) $p))->implode('; ') }}</span>@endif</td>
+                                                <td></td><td></td>
+                                            </tr>
+                                        @endif
+                                    </tbody>
+                                </table>
+                            </div>
+                            @if(! empty($ztd['missing']))
+                                <p class="text-xs text-muted px-5 py-3">Not on the tunnel: {{ implode(', ', (array) $ztd['missing']) }} — <code>cipi zt hostname add &lt;app&gt;</code>, or everything at once with <code>cipi zt lockdown</code>.</p>
+                            @endif
+                        </div>
+                    @endif
+                </div>
+            @endif
 
         @elseif($activeTab === 'ip')
             @php $entries = is_array($ipWhitelist['entries'] ?? null) ? $ipWhitelist['entries'] : []; @endphp

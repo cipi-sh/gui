@@ -21,6 +21,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Passkeys
+    |--------------------------------------------------------------------------
+    |
+    | Sign in with Face ID, Touch ID, Windows Hello, a phone or a security key
+    | (4.8.0). The relying party is the panel's host; set rp_id to the parent
+    | domain to share passkeys with its subdomains. Off where only SSO signs in.
+    |
+    */
+    'passkeys' => [
+        'enabled' => (bool) env('CIPI_GUI_PASSKEYS', true),
+        'rp_id' => env('CIPI_GUI_PASSKEYS_RP_ID', ''),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | PHP version examples (hint text in create/edit app forms)
     |--------------------------------------------------------------------------
     |

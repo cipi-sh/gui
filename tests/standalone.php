@@ -304,7 +304,7 @@ namespace {
     $team = (string) file_get_contents($root.'/src/Livewire/Team.php');
     $check(str_contains($team, 'public function setTwoFactorRequired(bool $required): void') && str_contains($team, 'setupRequiredIfEnforced(Auth::user()') && str_contains($team, 'public function resetTwoFactor(TwoFactorService $twoFactor): void') && str_contains($team, 'if (! $id || $id === (int) Auth::id())'), 'Team: require it (not before your own), reset another account\'s 2FA (not your own)');
     $settings = (string) file_get_contents($root.'/src/Livewire/Settings.php');
-    $check((bool) preg_match('/function disableTwoFactor[^{]+\{.*?if \(Panel::enforceTwoFactor\(\)\)/s', $settings), 'Settings: required 2FA is not turned off');
+    $check((bool) preg_match('/function disableTwoFactor[^{]+\{.*?if \(Panel::enforceTwoFactor\(\)( && ! \\\\CipiGui\\\\Services\\\\Passkeys::has\(Auth::user\(\)\))?\)/s', $settings), 'Settings: required 2FA is not turned off (unless a passkey stays as the second factor)');
     $panel = (string) file_get_contents($root.'/src/Support/Panel.php');
     $check(str_contains($panel, "public const ENFORCE_2FA = 'enforce_2fa';") && str_contains($panel, "self::get(self::ENFORCE_2FA, '0') === '1'"), 'the setting enforce_2fa, off by default');
     echo "--- 4.6.0: Team → access editor\n";
@@ -535,7 +535,29 @@ namespace {
     $ms = (string) file_get_contents($root.'/resources/views/partials/metrics-settings.blade.php');
     $check(str_contains($ms, '<label class="label" for="m-hb">Heartbeat URL</label>') && str_contains($ms, '<label class="label" for="m-hb-every">Every</label>') && str_contains($ms, '<div class="flex items-start gap-2">') && ! str_contains($ms, 'class="input-group"'), 'Metrics: the heartbeat is a field like the retention\'s — labelled URL and interval on the line of their inputs');
 
-    $check((bool) preg_match("/VERSION = '4\\.7\\.\\d+'/", $theme) && str_contains($theme, "API = '1.45'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.7.0]'), 'version 4.7.0 for API 1.45');
+    $check((bool) preg_match("/VERSION = '4\\.(7|8|9)\\.\\d+'/", $theme) && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.7.0]'), 'version 4.7.0 or later, its changelog kept');
+
+    echo "--- 4.8.0: connectors, passkeys, Zero Trust in full\n";
+    $routes = (string) file_get_contents($root.'/routes/web.php');
+    $check(str_contains($theme, "VERSION = '4.8.0'") && str_contains($theme, "API = '1.46'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.8.0]'), 'version 4.8.0 for API 1.46');
+    $check(str_contains($routes, "Route::get('/infrastructure/{connector}', Infrastructure::class)") && strpos($routes, "/infrastructure/{connector}") > strpos($routes, "Route::middleware('cipi-gui.admin')"), 'Infrastructure: a route of the admin group');
+    $check(str_contains($routes, "'/passkeys/login/options'") && str_contains($routes, "'/passkeys/login'") && str_contains($routes, "'/2fa/passkey'") && str_contains($routes, "'/passkeys/register'") && substr_count($routes, "middleware('throttle:10,1')") >= 3, 'passkeys: login (guests), second step and register (signed in), each rate-limited');
+    $mig = implode('', array_map('file_get_contents', glob($root.'/database/migrations/2026_11_25_*.php')));
+    $check(str_contains($mig, "Schema::create('cipi_connector_accounts'") && str_contains($mig, "Schema::create('cipi_passkeys'") && str_contains($mig, "'cf_access_client_secret'") && str_contains($mig, "char('credential_hash', 64)->unique()"), 'three migrations; a passkey looked up by the hash of its id');
+    $model = (string) file_get_contents($root.'/src/Models/CipiConnectorAccount.php');
+    $check(str_contains($model, "'credentials' => 'encrypted:array'") && str_contains($model, "protected \$hidden = ['credentials']"), 'connector credentials: encrypted, hidden');
+    $srv = (string) file_get_contents($root.'/src/Models/CipiServer.php');
+    $client = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    $check(str_contains($srv, "Crypt::encryptString(\$value)") && str_contains($srv, "'cf_access_client_secret',\n    ];") && str_contains($client, '$server->cloudflareAccessHeaders()'), 'a server behind Cloudflare Access: the secret encrypted and hidden, the headers on every call');
+    $tfs = (string) file_get_contents($root.'/src/Services/TwoFactorService.php');
+    $mw = (string) file_get_contents($root.'/src/Http/Middleware/EnsureTwoFactorVerified.php');
+    $check(str_contains($tfs, 'Passkeys::has($user)') && str_contains($mw, 'TwoFactorService::hasSecondFactor($user)') && str_contains((string) file_get_contents($root.'/src/Http/Controllers/Auth/LoginController.php'), 'TwoFactorService::hasSecondFactor($user)'), 'a passkey is a second factor: after the password, for the requirement, in the middleware');
+    $pk = (string) file_get_contents($root.'/src/Http/Controllers/Auth/PasskeyController.php');
+    $check(str_contains($pk, "Passkeys::mayRegister(\$request->user(), \$request->session())") && substr_count($pk, '->regenerate()') === 1, 'adding a passkey needs the second step first (or no second factor yet); a passkey sign-in regenerates the session');
+    foreach (['infrastructure', 'connector-accounts', 'passkey-list'] as $v) {
+        $text = (string) file_get_contents($root."/resources/views/livewire/{$v}.blade.php");
+        $check(! preg_match('/\b(API|Cipi) \d+\.\d+/', $text), "{$v}: no version of Cipi or of its API in its text");
+    }
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);

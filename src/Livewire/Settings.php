@@ -163,9 +163,9 @@ class Settings extends Component
     {
         $this->validate(['disablePassword' => ['required', 'string']]);
 
-        // Required for every account (Team, 4.6.0): it is moved, not turned off.
-        if (Panel::enforceTwoFactor()) {
-            $this->addError('disablePassword', 'An admin requires two-factor authentication on this panel: it cannot be turned off. Move it to a new device instead.');
+        // Required for every account (Team, 4.6.0): it is moved, not turned off — unless a passkey stays as the second factor.
+        if (Panel::enforceTwoFactor() && ! \CipiGui\Services\Passkeys::has(Auth::user())) {
+            $this->addError('disablePassword', 'An admin requires two-factor authentication on this panel: it cannot be turned off. Move it to a new device, or add a passkey first.');
             $this->disablePassword = '';
 
             return;
