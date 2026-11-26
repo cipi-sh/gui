@@ -117,6 +117,46 @@
                 @endif
             </div>
 
+            {{-- ── Written as: the server's name and the time zone (Cipi 5.17.0) ── --}}
+            @if($settings !== null)
+                <div class="card" data-notification-settings>
+                    <div class="card-header">
+                        <div>
+                            <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="pencil" /> Written as</h2>
+                            <p class="card-subtitle">How every notification names this server and writes its time. Now: <span class="font-mono text-xs" data-notification-now>Server: {{ $settings['server_name'] ? $settings['server_name'].' ('.$settings['hostname'].')' : $settings['hostname'] }} · Time: {{ $settings['now'] }}</span></p>
+                        </div>
+                    </div>
+                    <form wire:submit="saveSettings" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div>
+                            <label for="notif-server-name">Server name</label>
+                            <input id="notif-server-name" type="text" wire:model="settingsServerName" maxlength="40" placeholder="{{ $settings['hostname'] }}" autocomplete="off" @disabled(! $canManage)>
+                            @error('settingsServerName') <p class="field-error">{{ $message }}</p> @enderror
+                            <p class="field-hint">Empty: the machine's hostname, <code>{{ $settings['hostname'] }}</code>. With a name, subjects carry it and the body says <code>name ({{ $settings['hostname'] }})</code>.
+                                @if($panelName && $canManage)
+                                    <button type="button" wire:click="usePanelName" class="text-link" data-use-panel-name>Use “{{ $panelName }}”, the name it has in this panel</button>
+                                @endif
+                            </p>
+                        </div>
+                        <div>
+                            <label for="notif-timezone">Time zone</label>
+                            <select id="notif-timezone" wire:model="settingsTimezone" @disabled(! $canManage)>
+                                <option value="">The server's own — {{ $settings['server_timezone'] }}</option>
+                                @foreach($this->timezoneChoices() as $zone)
+                                    <option value="{{ $zone }}">{{ $zone }}</option>
+                                @endforeach
+                            </select>
+                            @error('settingsTimezone') <p class="field-error">{{ $message }}</p> @enderror
+                            <p class="field-hint">For the <code>Time:</code> line of notifications only: the server's clock, cron and logs stay on {{ $settings['server_timezone'] }}.</p>
+                        </div>
+                        @if($canManage)
+                            <div class="lg:col-span-2">
+                                <button type="submit" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="saveSettings,usePanelName">Save</button>
+                            </div>
+                        @endif
+                    </form>
+                </div>
+            @endif
+
             {{-- ── Triggers ───────────────────────────────────────── --}}
             <div class="card" data-notification-triggers>
                 <div class="card-header">

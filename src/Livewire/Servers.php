@@ -190,6 +190,7 @@ class Servers extends Component
             $client = CipiApiClient::for($server);
             $status = $client->testConnection();
             $this->syncIpFromStatus($server, $status);
+            $server->rememberHostname($status);
             $this->testResults[$id] = [
                 'ok' => true,
                 'message' => 'Connected',

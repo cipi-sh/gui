@@ -539,7 +539,7 @@ namespace {
 
     echo "--- 4.8.0: connectors, passkeys, Zero Trust in full\n";
     $routes = (string) file_get_contents($root.'/routes/web.php');
-    $check(str_contains($theme, "VERSION = '4.8.0'") && str_contains($theme, "API = '1.46'") && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.8.0]'), 'version 4.8.0 for API 1.46');
+    $check(preg_match("/VERSION = '(\d+\.\d+\.\d+)'/", $theme, $tv) === 1 && version_compare($tv[1], '4.8.0', '>=') && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.8.0]'), 'version 4.8.0 or later; 4.8.0 is in the changelog');
     $check(str_contains($routes, "Route::get('/infrastructure/{connector}', Infrastructure::class)") && strpos($routes, "/infrastructure/{connector}") > strpos($routes, "Route::middleware('cipi-gui.admin')"), 'Infrastructure: a route of the admin group');
     $check(str_contains($routes, "'/passkeys/login/options'") && str_contains($routes, "'/passkeys/login'") && str_contains($routes, "'/2fa/passkey'") && str_contains($routes, "'/passkeys/register'") && substr_count($routes, "middleware('throttle:10,1')") >= 3, 'passkeys: login (guests), second step and register (signed in), each rate-limited');
     $mig = implode('', array_map('file_get_contents', glob($root.'/database/migrations/2026_11_25_*.php')));
@@ -557,6 +557,118 @@ namespace {
     foreach (['infrastructure', 'connector-accounts', 'passkey-list'] as $v) {
         $text = (string) file_get_contents($root."/resources/views/livewire/{$v}.blade.php");
         $check(! preg_match('/\b(API|Cipi) \d+\.\d+/', $text), "{$v}: no version of Cipi or of its API in its text");
+    }
+
+    echo "--- 4.9.0: page cache, Octane, Valkey per app, hostname, Written as, Save to…\n";
+    require_once $root.'/src/Support/PageCache.php';
+    require_once $root.'/src/Support/PasswordManagers.php';
+    $PC = \CipiGui\Support\PageCache::class;
+    $PM = \CipiGui\Support\PasswordManagers::class;
+    $theme = (string) file_get_contents($root.'/src/Support/Theme.php');
+    $changelog = (string) file_get_contents($root.'/CHANGELOG.md');
+    $check(str_contains($theme, "VERSION = '4.9.0'") && str_contains($theme, "API = '1.47'") && str_contains($changelog, '## [4.9.0]'), 'version 4.9.0 for API 1.47');
+
+    // The page cache: the values the form takes are the server's own rules.
+    $check($PC::ttlValid('30s') && $PC::ttlValid('10m') && $PC::ttlValid('30d') && ! $PC::ttlValid('31d') && ! $PC::ttlValid('0s') && ! $PC::ttlValid('10') && ! $PC::ttlValid('10 m') && ! $PC::ttlValid('1w') && $PC::ttlSeconds('2h') === 7200,
+        'page cache: a time is a number and s, m, h or d — one second to thirty days');
+    $check($PC::sizeValid('16m') && $PC::sizeValid('100g') && ! $PC::sizeValid('15m') && ! $PC::sizeValid('101g') && ! $PC::sizeValid('1G') && ! $PC::sizeValid('256'), 'page cache: a size is 16m to 100g');
+    $check($PC::ttlLabel('10m') === '10 minutes' && $PC::ttlLabel('1h') === '1 hour' && $PC::ttlLabel('45m') === '45 minutes' && $PC::sizeLabel('256m') === '256 MB' && $PC::sizeLabel('2g') === '2 GB' && $PC::bytes(5242880) === '5.0 MB' && $PC::bytes(900) === '900 B',
+        'page cache: times, sizes and bytes for people');
+    $check(array_filter(array_keys($PC::TTL_CHOICES), fn ($t) => ! $PC::ttlValid((string) $t)) === [] && array_filter(array_keys($PC::SIZE_CHOICES), fn ($t) => ! $PC::sizeValid((string) $t)) === [], 'every choice of the form is a value the server takes');
+    $check($PC::clearCommand(['clear_command' => 'sudo /usr/local/bin/cipi-cache-clear shop'], 'shop') === 'sudo /usr/local/bin/cipi-cache-clear shop'
+        && $PC::clearCommand(['clear_command' => 'sudo rm -rf / # shop'], 'shop') === 'sudo /usr/local/bin/cipi-cache-clear shop'
+        && $PC::clearCommand(null, 'blog') === 'sudo /usr/local/bin/cipi-cache-clear blog',
+        'the command shown for a recipe is the helper and the app, whatever the server sent');
+
+    $adv = (string) file_get_contents($root.'/resources/views/livewire/app-detail.blade.php');
+    $ad = (string) file_get_contents($root.'/src/Livewire/AppDetail.php');
+    $check(str_contains($ad, "\$tabs['cache'] = 'Page cache';") && str_contains($ad, "\$tabs['octane'] = 'Octane';") && str_contains($ad, "'cache' => \$this->loadPageCache(),") && str_contains($ad, "'octane' => \$this->loadOctane(),"), 'an app has a Page cache tab (not a Node app) and, on Octane, an Octane tab');
+    $check(str_contains($adv, 'OPcache is on already') && str_contains($adv, 'PHP still runs') && str_contains($adv, 'The page cache keeps the page itself.') && str_contains($adv, 'Not OPcache — the other cache'), 'the tab says what OPcache does and what the page cache adds');
+    $check(str_contains($adv, 'WordPress, WooCommerce, blogs, catalogues, landing pages') && str_contains($adv, 'Traffic peaks') && str_contains($adv, 'What is never cached') && str_contains($adv, 'A Laravel app chooses its pages'), 'what one gets (WordPress and the like), what is never cached, and Laravel\'s own case');
+    $check(str_contains($adv, 'Cipi empties the cache by itself after every successful deploy and rollback') && str_contains($adv, "after('deploy:symlink', function () {") && str_contains($adv, "add_action('save_post', function () {") && str_contains($adv, '$pcRecipe') && str_contains($adv, 'data-page-cache-purge'),
+        'how to empty it: nothing after a Cipi deploy, one command in a recipe of one\'s own, a hook in WordPress');
+    $check(str_contains($adv, 'wire:click="clearPageCache"') && str_contains($adv, 'wire:click="disablePageCache"') && str_contains($adv, 'wire:submit="savePageCache"') && str_contains($adv, 'X-Cache-Status'), 'turn on, save, empty now, turn off — and how to check a page');
+    $check(preg_match('/public function savePageCache\(\): void\s*\{\s*if \(! \$this->allowed\(\'edit\'\)\)/', $ad) === 1 && preg_match('/public function disablePageCache\(\): void\s*\{\s*if \(! \$this->allowed\(\'edit\'\)\)/', $ad) === 1 && str_contains($ad, "\$this->allowed((\$this->can['deploy'] ?? false) ? 'deploy' : 'edit')"),
+        'turning the cache on or off needs Edit on the app; emptying it comes with Deploy too');
+    $check(preg_match('/public function switchOctanePhp\(\?string \$version = null\): void\s*\{\s*if \(! \$this->allowed\(\'edit\'\)\)/', $ad) === 1 && str_contains($ad, 'preg_match(\'/^\d\.\d$/\', $version) !== 1') && str_contains($ad, 'in_array($version, $this->installedPhpVersions, true)'),
+        'Octane: a PHP version is X.Y, installed on the server, and switching needs Edit');
+    $check(str_contains($adv, 'Two PHP versions in one app') && str_contains($adv, 'wire:click="switchOctanePhp"') && str_contains($adv, 'wire:click="restartOctane"') && str_contains($adv, 'wire:click="upgradeOctaneBuild"') && str_contains($adv, 'Why two PHP'), 'Octane tab: the two PHP, the mismatch and its fix, switch, restart, update the build');
+    $check(! str_contains($adv, 'type="submit" class="btn btn-primary field-action" data-confirm'), 'a confirmation sits on a click, not on a form\'s submit');
+
+    // Valkey per app, with the server's services.
+    $sm = (string) file_get_contents($root.'/src/Livewire/ServerManage.php');
+    $smv = (string) file_get_contents($root.'/resources/views/livewire/server-manage.blade.php');
+    $check(str_contains($sm, "\$this->client()->prefetch(['/services', '/valkey']);") && str_contains($sm, 'protected function loadValkey(): void') && str_contains($smv, 'data-valkey') && str_contains($smv, 'wire:click="isolateAllValkey"') && str_contains($smv, 'wire:click="flushSharedValkey"'),
+        'Services tab: Valkey per app, read with the services; isolate one, isolate all, empty the shared instance');
+    foreach (['isolateValkey', 'isolateAllValkey', 'shareValkey', 'restartValkey', 'flushSharedValkey'] as $method) {
+        $check(preg_match('/public function '.$method.'\([^)]*\): void\s*\{\s*if \(! \$this->serverAllowed\(Access::MANAGE, \(int\) \$this->serverId\)/', $sm) === 1, "{$method}: Manage access to the server, asked at the call");
+    }
+    $check(str_contains($smv, 'No password travels through the panel') && ! preg_match('/valkey[^\n]*password\'\]/i', $smv), 'the Valkey card shows no password, and says so');
+
+    // The machine's own name.
+    $srv = (string) file_get_contents($root.'/src/Models/CipiServer.php');
+    $mig = (string) file_get_contents($root.'/database/migrations/2026_11_26_000000_add_hostname_to_cipi_servers_table.php');
+    $client = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    $check(str_contains($mig, "\$table->string('hostname', 253)->nullable()->after('ip');") && str_contains($mig, "Schema::hasColumn('cipi_servers', 'hostname')"), 'cipi_servers.hostname: added once, nullable');
+    $check(str_contains($srv, 'public function rememberHostname(?array $status): void') && str_contains($srv, 'public static function cleanHostname(mixed $hostname): ?string') && str_contains($client, '$server->rememberHostname($results[$server->id][\'data\']);')
+        && str_contains($sm, '$this->currentServer()?->rememberHostname($this->status);') && str_contains((string) file_get_contents($root.'/src/Livewire/Servers.php'), '$server->rememberHostname($status);'),
+        'the hostname is kept from every status read: the dashboard, the server page, a connection test');
+    $sv = (string) file_get_contents($root.'/resources/views/livewire/servers.blade.php');
+    $check(str_contains($sv, '>Hostname</th>') && str_contains($sv, '<span class="badge badge-accent badge-mono"') && str_contains($sv, '{{ $server->hostname }}') && str_contains($sv, 'data-hostname-hint'), 'Connections: a Hostname column, set apart, and what it is');
+    $check(str_contains($smv, 'data-server-hostname') && str_contains($smv, '<dt>Name here</dt>') && str_contains((string) file_get_contents($root.'/resources/views/livewire/dashboard.blade.php'), '$server->machine_name')
+        && str_contains((string) file_get_contents($root.'/resources/views/partials/server-switcher.blade.php'), '$s->machine_name'), 'the server page, the dashboard and the switcher show it too');
+
+    // Notifications → Written as.
+    $N = \CipiGui\Support\Notifications::class;
+    $check(preg_match($N::SERVER_NAME_PATTERN, 'production') === 1 && preg_match($N::SERVER_NAME_PATTERN, 'EU West 1.a_b-c') === 1 && preg_match($N::SERVER_NAME_PATTERN, '--clear') === 0 && preg_match($N::SERVER_NAME_PATTERN, "prod\nSubject: x") === 0 && preg_match($N::SERVER_NAME_PATTERN, 'prod $(id)') === 0 && preg_match($N::SERVER_NAME_PATTERN, str_repeat('a', 41)) === 0,
+        'a server name is letters, digits, spaces, dots, dashes, underscores — 40 at most, not an option, not a header');
+    $check(preg_match($N::TIMEZONE_PATTERN, 'Europe/Rome') === 1 && preg_match($N::TIMEZONE_PATTERN, 'America/Argentina/Buenos_Aires') === 1 && preg_match($N::TIMEZONE_PATTERN, 'UTC') === 1 && preg_match($N::TIMEZONE_PATTERN, '../etc/passwd') === 0 && preg_match($N::TIMEZONE_PATTERN, 'Europe/Rome; id') === 0, 'a time zone is an IANA name');
+    $nt = (string) file_get_contents($root.'/src/Livewire/Notifications.php');
+    $ntv = (string) file_get_contents($root.'/resources/views/livewire/notifications.blade.php');
+    $check(str_contains($nt, "\$this->syncSettings(\$status['settings'] ?? null);") && preg_match('/public function saveSettings\(\): void\s*\{\s*if \(! \$this->guardManage\(\)/', $nt) === 1 && str_contains($nt, 'public function usePanelName(): void'), 'Written as: read with the channels, changed with Manage access');
+    $check(str_contains($ntv, 'data-notification-settings') && str_contains($ntv, 'wire:model="settingsTimezone"') && str_contains($ntv, 'wire:model="settingsServerName"') && str_contains($ntv, 'data-use-panel-name') && str_contains($ntv, '@if($settings !== null)'), 'Written as: the server name (the panel\'s own in one click) and the time zone, on a server that has them');
+
+    // Save to…: the import file of each password manager.
+    $logins = $PM::fromJobResult(
+        ['app' => 'shop', 'domain' => 'shop.example.com', 'ssh' => ['user' => 'shop', 'password' => 'Ssh,Pa"ss'], 'database' => ['user' => 'shop', 'password' => 'db-secret-1']],
+        ['server' => 'production', 'ip' => '203.0.113.24', 'host' => 'vps.example.com', 'url' => 'https://vps.example.com'],
+    );
+    $check(count($logins) === 2 && $logins[0]['title'] === 'shop — SSH / SFTP on production' && $logins[0]['url'] === 'https://shop.example.com' && $logins[0]['username'] === 'shop' && $logins[0]['password'] === 'Ssh,Pa"ss' && str_contains($logins[0]['notes'], 'ssh shop@203.0.113.24')
+        && $logins[1]['title'] === 'shop — database on production' && $logins[1]['password'] === 'db-secret-1', 'a new app: its SSH and its database user, each a login with what it opens in the notes');
+    $dbLogin = $PM::fromJobResult(['database' => 'shop_tenant', 'engine' => 'mariadb', 'user' => 'shop_tenant', 'password' => 'p4ss', 'url' => 'mysql://…'], ['server' => 'production', 'url' => 'https://vps.example.com']);
+    $check(count($dbLogin) === 1 && $dbLogin[0]['title'] === 'shop_tenant — database on production' && $dbLogin[0]['url'] === 'https://vps.example.com' && str_contains($dbLogin[0]['notes'], '(mariadb)'), 'a database\'s new password: one login');
+    $check($PM::fromJobResult(['app' => 'shop', 'released' => true]) === [] && $PM::fromJobResult([]) === [] && $PM::login(['title' => 'x', 'password' => '']) === null && $PM::login(['title' => 'x', 'password' => "a\nb"]) === null, 'a result without a password has nothing to save; nor has a password with a line break');
+    $check($PM::login(['title' => "a\nb", 'url' => 'javascript:alert(1)', 'username' => " u\t", 'password' => 'p'])  === ['title' => 'a b', 'url' => '', 'username' => 'u', 'password' => 'p', 'notes' => ''], 'a login is cleaned: one line per field, an address only when it is http(s)');
+    $check($PM::csvLine(['plain', 'a,b', 'say "hi"', "two\nlines", ' padded ', '']) === 'plain,"a,b","say ""hi""","two'."\n".'lines"," padded ",', 'CSV: commas, quotes, line breaks and outer spaces are quoted, quotes doubled');
+    $first = fn (string $id) => explode("\r\n", $PM::file($id, $logins));
+    $check($first('1password')[0] === 'Title,Website,Username,Password,Notes' && str_starts_with($first('1password')[1], 'shop — SSH / SFTP on production,https://shop.example.com,shop,"Ssh,Pa""ss",'), '1Password: Title, Website, Username, Password, Notes');
+    $check($first('bitwarden')[0] === 'folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp' && str_starts_with($first('bitwarden')[1], 'Cipi,,login,shop — SSH / SFTP on production,') && str_ends_with($first('bitwarden')[1], ',,,https://shop.example.com,shop,"Ssh,Pa""ss",'), 'Bitwarden (csv): its eleven columns, a login per row');
+    $check($first('proton')[0] === 'name,url,email,username,password,note,totp,vault' && $first('apple')[0] === 'Title,URL,Username,Password,Notes,OTPAuth' && $first('chrome')[0] === 'name,url,username,password,note' && $first('keepass')[0] === 'Group,Title,Username,Password,URL,Notes' && $first('lastpass')[0] === 'url,username,password,totp,extra,name,grouping,fav' && $first('csv')[0] === 'title,url,username,password,notes',
+        'Proton Pass, Apple Passwords, Chrome, KeePassXC, LastPass and the plain CSV: each its own first line');
+    $columns = true;
+    foreach (array_keys($PM::PROVIDERS) as $id) {
+        $lines = array_values(array_filter(explode("\r\n", $PM::file($id, $logins)), fn ($l) => $l !== ''));
+        $n = count(str_getcsv($lines[0], ',', '"', ''));
+        foreach (array_slice($lines, 1) as $line) {
+            $row = str_getcsv($line, ',', '"', '');
+            $columns = $columns && count($row) === $n && in_array('Ssh,Pa"ss', $row, true) !== in_array('db-secret-1', $row, true);
+        }
+        $columns = $columns && count($lines) === 3;
+    }
+    $check($columns, 'every file: as many fields in a row as in its first line, the password intact — read back with a CSV parser');
+    $menu = $PM::menu($logins, 'cipi-Shop!');
+    $check(count($menu) === count($PM::PROVIDERS) && $menu[0]['filename'] === 'cipi-shop-1password.csv' && $menu[0]['label'] === '1Password' && str_contains($menu[1]['hint'], 'Bitwarden (csv)') && $PM::file('nope', $logins) === $PM::file('csv', $logins), 'the menu: every manager with its file, its name and how to import it; an unknown one is the plain CSV');
+    $check(str_contains($PM::text($logins), "shop — SSH / SFTP on production\nURL: https://shop.example.com\nUsername: shop\nPassword: Ssh,Pa\"ss") && substr_count($PM::text($logins), 'Password: ') === 2, 'the same as text, for a paste');
+    $saveTo = (string) file_get_contents($root.'/resources/views/components/save-to.blade.php');
+    $overlay = (string) file_get_contents($root.'/resources/views/partials/job-overlay.blade.php');
+    $init = (string) file_get_contents($root.'/resources/views/partials/theme-init.blade.php');
+    $check(str_contains($saveTo, 'window.cipiDownload(') && str_contains($saveTo, 'Then delete the downloaded file') && str_contains($init, 'window.cipiDownload = function (filename, text)') && str_contains($init, 'new Blob([text]') && ! preg_match('/fetch\(|XMLHttpRequest|<script[^>]+src=/', $saveTo.$init),
+        'Save to…: the file is made in the browser from what the page holds — no request, no script of anybody else');
+    $check(str_contains($overlay, '<x-cipi::save-to :logins="$saveLogins" :name="$saveName"') && str_contains($adv, '<x-cipi::save-to class="mt-3" :name="$basicAuthFile" :logins="$basicAuthLogins" />') && str_contains((string) file_get_contents($root.'/src/Livewire/Concerns/ManagesAsyncJobs.php'), 'public function jobLogins(): array'),
+        'Save to… is where credentials are shown once: a finished job\'s, and a basic auth password');
+    foreach (['save-to' => $saveTo, 'page cache and Octane tabs' => substr($adv, (int) strpos($adv, "@elseif(\$activeTab === 'cache')"), (int) strpos($adv, "@elseif(\$activeTab === 'deploy')") - (int) strpos($adv, "@elseif(\$activeTab === 'cache')"))] as $label => $text) {
+        $visible = (string) preg_replace('/\{\{--.*?--\}\}/s', '', $text);
+        $check(! preg_match('/\b(API|Cipi) \d+\.\d+/', $visible), "{$label}: no version of Cipi or of its API in its text");
     }
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";

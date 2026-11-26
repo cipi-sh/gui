@@ -22,6 +22,7 @@
                     <thead>
                         <tr>
                             <th>Server</th>
+                            <th title="The machine's own name (hostname): what a notification calls the server">Hostname</th>
                             <th>IP</th>
                             <th>Status</th>
                             <th>Last contact</th>
@@ -36,6 +37,13 @@
                                 <td>
                                     <p class="font-semibold text-strong">{{ $server->name }}</p>
                                     <p class="text-xs text-muted">{{ $server->base_url }}</p>
+                                </td>
+                                <td data-server-hostname>
+                                    @if($server->hostname)
+                                        <span class="badge badge-accent badge-mono" title="The machine's own name: what a notification calls this server">{{ $server->hostname }}</span>
+                                    @else
+                                        <span class="text-xs text-subtle" title="Read at the next connection test">—</span>
+                                    @endif
                                 </td>
                                 <td class="font-mono text-xs text-muted">@if($server->ip)<x-cipi::copyable :value="$server->ip" label="Copy IP" />@else — @endif</td>
                                 <td>
@@ -82,6 +90,10 @@
                 </table>
             </div>
         </div>
+    @endif
+
+    @if($servers->contains(fn ($s) => $s->machine_name !== null))
+        <p class="field-hint mt-3" data-hostname-hint><strong>Hostname</strong> is the machine's own name — what a notification says (<code>Server: {{ $servers->first(fn ($s) => $s->machine_name !== null)->hostname }}</code>) unless the server is told the name it has here: <a href="{{ route('cipi-gui.server-manage', ['serverId' => $servers->first(fn ($s) => $s->machine_name !== null)->id, 'tab' => 'smtp']) }}" class="text-link">Notifications</a> → <em>Written as</em>, or <code>cipi notification server-name &lt;name&gt;</code> on the server.</p>
     @endif
 
     <div class="card mt-6">

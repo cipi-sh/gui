@@ -49,5 +49,22 @@
         done();
         return Promise.resolve();
     };
+
+    // A file made of text the page already holds (the "Save to…" menu of a set
+    // of credentials): handed to the browser from memory, never sent anywhere.
+    window.cipiDownload = function (filename, text) {
+        var blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.rel = 'noopener';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+        window.dispatchEvent(new CustomEvent('notify', { detail: { type: 'success', message: filename + ' downloaded — import it, then delete it' } }));
+    };
 })();
 </script>

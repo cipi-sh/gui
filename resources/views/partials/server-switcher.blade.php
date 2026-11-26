@@ -16,7 +16,7 @@
                         <span class="dot {{ $s->last_error ? 'dot-red' : 'dot-green' }}"></span>
                         <span class="min-w-0 flex-1">
                             <span class="block font-medium text-strong">{{ $s->name }}</span>
-                            <span class="block text-xs text-muted truncate">{{ $s->host }}</span>
+                            <span class="block text-xs text-muted truncate">@if($s->machine_name)<span class="font-mono">{{ $s->machine_name }}</span> · @endif{{ $s->host }}</span>
                         </span>
                         @if($s->id === $currentServer->id)
                             <x-cipi::icon name="check" class="h-4 w-4 text-accent" />

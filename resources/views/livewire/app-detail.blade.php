@@ -723,6 +723,309 @@
             @endif
 
         {{-- ═══ Deploy ═══ --}}
+        {{-- ═══ Page cache: nginx answers with the page PHP made (Cipi 5.17.0) ═══ --}}
+        @elseif($activeTab === 'cache')
+            @php
+                $pc = $pageCache ?? [];
+                $pcOn = (bool) ($pc['enabled'] ?? false);
+                $pcLive = $pcOn && (bool) ($pc['active'] ?? false);
+                $pcKind = ($pc['kind'] ?? null) === 'proxy' ? 'proxy_cache (Octane)' : 'fastcgi_cache (PHP-FPM)';
+                $pcClear = \CipiGui\Support\PageCache::clearCommand($pageCache, $app['app']);
+                $pcMayClear = ($can['deploy'] ?? false) || ($can['edit'] ?? false);
+                $ttlChoices = \CipiGui\Support\PageCache::TTL_CHOICES;
+                $sizeChoices = \CipiGui\Support\PageCache::SIZE_CHOICES;
+                // What goes in a recipe of one's own: built here, so that no Blade directive has to read these parentheses.
+                $pcRecipe = [
+                    '// deploy.php (Deployer) — after the new release is live',
+                    "after('deploy:symlink', function () {",
+                    "    run('".$pcClear."');",
+                    '});',
+                    '',
+                    '# a shell script, or a CI job over SSH',
+                    'ssh '.$app['app'].chr(64).($serverIp ?: 'your-server')." '".$pcClear."'",
+                ];
+                $pcWordpress = [
+                    '<?php',
+                    '// wp-content/mu-plugins/cipi-page-cache.php',
+                    "add_action('save_post', function () {",
+                    "    exec('".$pcClear." > /dev/null 2>&1 &');",
+                    '});',
+                ];
+                $pcCheck = 'curl -sI '.$this->siteUrl().' | grep -i x-cache-status';
+            @endphp
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-4" data-page-cache>
+                <div class="lg:col-span-3 space-y-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="bolt" /> Page cache</h2>
+                                <p class="card-subtitle">nginx keeps the page PHP made and answers the next visitors with it — for a page that is kept, PHP does not run at all.</p>
+                            </div>
+                            @if($pageCacheLoaded)
+                                <span class="badge {{ $pcLive ? 'badge-green' : ($pcOn ? 'badge-amber' : 'badge-gray') }}" data-page-cache-state>{{ $pcLive ? 'On' : ($pcOn ? 'On — not in the vhost now' : 'Off') }}</span>
+                            @endif
+                        </div>
+                        @if($pageCacheUnavailable)
+                            <p class="text-muted" data-page-cache-unavailable>{{ $pageCacheUnavailable }}</p>
+                        @elseif(! $pageCacheLoaded)
+                            <div class="skeleton h-24 w-full"></div>
+                        @elseif(! ($pc['supported'] ?? true))
+                            <p class="text-muted">Not available for a Node app: its pages come from its own server.</p>
+                        @else
+                            @if($pcOn)
+                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                                    <div class="card p-4 bg-raised"><p class="stat-label">Pages kept now</p><p class="stat-value-sm tabular-nums mt-1" data-page-cache-files>{{ number_format((int) ($pc['files'] ?? 0)) }}</p></div>
+                                    <div class="card p-4 bg-raised"><p class="stat-label">On disk</p><p class="stat-value-sm tabular-nums mt-1">{{ \CipiGui\Support\PageCache::bytes((int) ($pc['bytes'] ?? 0)) }} <span class="stat-meta">of {{ \CipiGui\Support\PageCache::sizeLabel((string) ($pc['size'] ?? '')) }}</span></p></div>
+                                    <div class="card p-4 bg-raised"><p class="stat-label">Kept for</p><p class="stat-value-sm mt-1">{{ \CipiGui\Support\PageCache::ttlLabel((string) ($pc['ttl'] ?? '')) }}</p></div>
+                                </div>
+                                @if(! $pcLive)
+                                    <x-cipi::alert type="warn" class="mb-4">The cache is saved but not in the app's vhost right now — a suspended app answers with its maintenance page. It is back when the app is.</x-cipi::alert>
+                                @endif
+                            @else
+                                <p class="text-sm text-muted mb-4">Off: every request runs PHP. Turn it on for a WordPress site, a blog, a catalogue, a landing page — any app whose pages are the same for everyone who is not signed in.</p>
+                            @endif
+
+                            @if($can['edit'] ?? false)
+                                <form wire:submit="savePageCache" class="space-y-4">
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div>
+                                            <label for="cache-ttl">Keep a page for</label>
+                                            <select id="cache-ttl" wire:model="cacheTtl">
+                                                @unless(array_key_exists($cacheTtl, $ttlChoices))
+                                                    <option value="{{ $cacheTtl }}">{{ \CipiGui\Support\PageCache::ttlLabel($cacheTtl) }}</option>
+                                                @endunless
+                                                @foreach($ttlChoices as $value => $label)
+                                                    <option value="{{ $value }}">{{ $label }}</option>
+                                                @endforeach
+                                            </select>
+                                            @error('cacheTtl') <p class="field-error">{{ $message }}</p> @enderror
+                                            <p class="field-hint">For pages that say nothing themselves: a <code>Cache-Control: max-age</code> of the app wins. Any other time: <code>cipi cache {{ $app['app'] }} ttl 45m</code>.</p>
+                                        </div>
+                                        <div>
+                                            <label for="cache-size">Use up to</label>
+                                            <select id="cache-size" wire:model="cacheSize">
+                                                @unless(array_key_exists($cacheSize, $sizeChoices))
+                                                    <option value="{{ $cacheSize }}">{{ \CipiGui\Support\PageCache::sizeLabel($cacheSize) }}</option>
+                                                @endunless
+                                                @foreach($sizeChoices as $value => $label)
+                                                    <option value="{{ $value }}">{{ $label }}</option>
+                                                @endforeach
+                                            </select>
+                                            @error('cacheSize') <p class="field-error">{{ $message }}</p> @enderror
+                                            <p class="field-hint">Of the server's disk. Past it nginx drops the pages asked for least.</p>
+                                        </div>
+                                    </div>
+                                    <label class="check"><input type="checkbox" wire:model="cacheClearOnDeploy"> Empty it after every deploy and rollback</label>
+                                    @if($pageCacheRefused)
+                                        <x-cipi::alert type="danger" title="Refused — nothing changed on the server" data-page-cache-refused>
+                                            <span class="font-mono text-xs break-words">{{ $pageCacheRefused }}</span>
+                                        </x-cipi::alert>
+                                    @endif
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        <button type="submit" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="savePageCache" data-page-cache-save>
+                                            <x-cipi::icon name="{{ $pcOn ? 'check' : 'bolt' }}" /> {{ $pcOn ? 'Save' : 'Turn the page cache on' }}
+                                        </button>
+                                        @if($pcOn)
+                                            <button type="button" wire:click="clearPageCache" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="clearPageCache" data-page-cache-clear><x-cipi::icon name="trash" /> Empty the cache now</button>
+                                            <button type="button" wire:click="disablePageCache" data-confirm="Turn the page cache of {{ $app['app'] }} off? Its pages are deleted and every request runs PHP again." class="btn btn-ghost btn-sm danger" data-page-cache-off>Turn off</button>
+                                        @endif
+                                    </div>
+                                </form>
+                            @else
+                                @if($pcOn && $pcMayClear)
+                                    <button type="button" wire:click="clearPageCache" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="clearPageCache" data-page-cache-clear><x-cipi::icon name="trash" /> Empty the cache now</button>
+                                @endif
+                                <p class="field-hint">Turning the page cache on or off needs the Edit ability on this app{{ $pcMayClear ? '; emptying it comes with Deploy' : '' }}.</p>
+                            @endif
+                        @endif
+                    </div>
+
+                    <div class="card" data-page-cache-purge>
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="refresh" /> When the content changes</h2>
+                                <p class="card-subtitle">A cached page is the old page until it expires or the cache is emptied.</p>
+                            </div>
+                        </div>
+                        <dl class="kv mb-4">
+                            <dt>A Cipi deploy</dt>
+                            <dd>
+                                @if(! $pageCacheLoaded || ($pc['clear_on_deploy'] ?? true))
+                                    Nothing to add: Cipi empties the cache by itself after every successful deploy and rollback — <code>cipi deploy</code>, the Git webhook, the Deploy button here.
+                                @else
+                                    <span class="text-warn">Not emptied</span> — "Empty it after every deploy" is off for this app: the old pages stay until they expire.
+                                @endif
+                            </dd>
+                            <dt>From this page</dt><dd><em>Empty the cache now</em>, above — or <code>cipi cache {{ $app['app'] }} clear</code> on the server.</dd>
+                            <dt>Anything else</dt><dd>One command, as the app's own user (no password asked, and it can empty this app's cache only):</dd>
+                        </dl>
+                        <x-cipi::secret label="Command" :value="$pcClear" />
+                        <p class="stat-label mt-5 mb-2">In a deploy recipe of your own</p>
+                        @include('cipi-gui::partials.terminal', ['lines' => $pcRecipe, 'title' => 'deploy recipe', 'autoScroll' => false])
+                        <p class="stat-label mt-5 mb-2">When a post is published (WordPress)</p>
+                        @include('cipi-gui::partials.terminal', ['lines' => $pcWordpress, 'title' => 'mu-plugin', 'autoScroll' => false])
+                        <p class="field-hint">Or leave it to the time above: with pages kept {{ $pageCacheLoaded ? \CipiGui\Support\PageCache::ttlLabel((string) ($pc['ttl'] ?? '10m')) : '10 minutes' }}, an edit shows up by itself within that time.</p>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-2 space-y-4">
+                    <div class="card" data-page-cache-explained>
+                        <div class="card-header"><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="light-bulb" /> Not OPcache — the other cache</h2></div>
+                        <div class="space-y-3 text-sm text-soft">
+                            <p><strong class="text-strong">OPcache is on already</strong>, on every PHP of this server, and there is nothing to turn on: it keeps PHP's compiled code in memory, so PHP does not read and parse its files at every request.</p>
+                            <p>But with OPcache <strong class="text-strong">PHP still runs</strong>: the framework boots, WordPress loads its plugins and theme, the database is asked, and the same page is built again — for every visitor.</p>
+                            <p><strong class="text-strong">The page cache keeps the page itself.</strong> nginx answers the next visitors from its disk, and PHP does not start. The two add up: OPcache makes the first build of a page quicker, the page cache makes the others free.</p>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h2 class="card-title">What you get</h2></div>
+                        <ul class="space-y-2 text-sm text-soft" style="list-style:disc;padding-left:1.1rem;">
+                            <li><strong class="text-strong">WordPress, WooCommerce, blogs, catalogues, landing pages:</strong> a page comes back in about a millisecond instead of a few hundred.</li>
+                            <li><strong class="text-strong">Traffic peaks:</strong> a newsletter, an ad, a post that goes around — a small server holds what would have filled its PHP workers.</li>
+                            <li><strong class="text-strong">A safety net:</strong> while PHP or the database is down or slow, nginx keeps answering with the page it has.</li>
+                            <li><strong class="text-strong">Nothing to install in the app:</strong> no cache plugin, no change to the code.</li>
+                        </ul>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h2 class="card-title">What is never cached</h2></div>
+                        <ul class="space-y-2 text-sm text-soft" style="list-style:disc;padding-left:1.1rem;">
+                            <li>Signed-in visitors and carts: WordPress and WooCommerce cookies, PHP and Laravel sessions.</li>
+                            <li>Anything but GET and HEAD — a form, a checkout, an API write.</li>
+                            <li><code>/wp-admin</code>, <code>wp-login.php</code>, <code>/wp-json</code>, <code>xmlrpc.php</code>, and a request with an <code>Authorization</code> header.</li>
+                            <li>A URL with a query string — searches, filters, previews — unless it only carries tracking parameters (<code>utm_*</code>, <code>fbclid</code>, <code>gclid</code>).</li>
+                            <li>Whatever the app marks <code>private</code> or <code>no-cache</code>, or answers with a cookie.</li>
+                        </ul>
+                        @if($isLaravel)
+                            <x-cipi::alert type="info" class="mt-4" title="A Laravel app chooses its pages">
+                                Laravel marks every response <code>no-cache, private</code>, and a route of the <code>web</code> group starts a session: nothing is cached until a route says so. Give the pages that are the same for everyone a route without session and cookies, and <code>-&gt;middleware('cache.headers:public;max_age=600')</code>.
+                            </x-cipi::alert>
+                        @endif
+                        <p class="field-hint mt-4">Every answer says what happened in the <code>X-Cache-Status</code> header — <code>HIT</code>, <code>MISS</code>, <code>BYPASS</code>, <code>EXPIRED</code>, <code>STALE</code>:</p>
+                        <x-cipi::secret label="Check" :value="$pcCheck" />
+                    </div>
+                </div>
+            </div>
+
+        {{-- ═══ Octane: the PHP that answers requests, the PHP that runs the rest (Cipi 5.17.0) ═══ --}}
+        @elseif($activeTab === 'octane')
+            @php
+                $oc = $octane ?? [];
+                $ocState = (string) ($oc['state'] ?? '');
+                $ocMinor = $this->octaneBuildMinor();
+                $ocAvailable = array_values(array_filter((array) ($oc['available_php'] ?? []), 'is_string'));
+                $ocFix = is_array($oc['fix'] ?? null) ? $oc['fix'] : null;
+                $ocFixVersion = $ocFix && preg_match('/^cipi frankenphp php \S+ (\d\.\d)$/', (string) ($ocFix['command'] ?? ''), $m) ? $m[1] : null;
+                $ocStates = [
+                    'ok' => ['badge-green', 'One PHP'],
+                    'mismatch' => ['badge-amber', 'Two PHP versions'],
+                    'vulnerable' => ['badge-red', 'Build to update'],
+                    'unpinned' => ['badge-gray', 'Not pinned yet'],
+                    'missing' => ['badge-red', 'Build missing'],
+                ];
+            @endphp
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-4" data-octane>
+                <div class="lg:col-span-3 space-y-4">
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="cpu" /> Octane</h2>
+                                <p class="card-subtitle">The app stays in memory and FrankenPHP answers its requests. An Octane app runs two PHP — this page keeps them on one.</p>
+                            </div>
+                            @if($octaneLoaded && isset($ocStates[$ocState]))
+                                <span class="badge {{ $ocStates[$ocState][0] }}" data-octane-state>{{ $ocStates[$ocState][1] }}</span>
+                            @endif
+                        </div>
+                        @if($octaneUnavailable)
+                            <p class="text-muted" data-octane-unavailable>{{ $octaneUnavailable }}</p>
+                        @elseif(! $octaneLoaded)
+                            <div class="skeleton h-24 w-full"></div>
+                        @else
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                                <div class="card p-4 bg-raised">
+                                    <p class="stat-label">Answers the requests</p>
+                                    <p class="stat-value-sm mt-1" data-octane-request-php>PHP {{ $oc['octane_php'] ?? '—' }}</p>
+                                    <p class="stat-meta mt-1">Built into FrankenPHP {{ $oc['frankenphp'] ?? '—' }}@if(!empty($oc['build'])) · <span class="font-mono">{{ $oc['build'] }}</span>@endif</p>
+                                </div>
+                                <div class="card p-4 bg-raised">
+                                    <p class="stat-label">Runs the rest</p>
+                                    <p class="stat-value-sm mt-1" data-octane-cli-php>PHP {{ $oc['php'] ?? $app['php'] }}</p>
+                                    <p class="stat-meta mt-1">Composer, artisan, cron, queue workers · <span class="font-mono">/usr/bin/php{{ $oc['php'] ?? $app['php'] }}</span></p>
+                                </div>
+                            </div>
+
+                            @if($ocState === 'mismatch')
+                                <x-cipi::alert type="warn" title="Two PHP versions in one app" class="mb-4" data-octane-mismatch>
+                                    Requests are answered on PHP {{ $oc['octane_php'] ?? '?' }}, while Composer, artisan, cron and the workers run PHP {{ $oc['php'] ?? '?' }}: a package installed for one may not load on the other.
+                                    @if($ocFix && !empty($ocFix['why'])) <span class="text-muted">{{ $ocFix['why'] }}.</span>@endif
+                                    @if(($can['edit'] ?? false) && $ocFixVersion)
+                                        <p class="mt-3"><button type="button" wire:click="switchOctanePhp('{{ $ocFixVersion }}')" data-confirm="Put {{ $app['app'] }} on PHP {{ $ocFixVersion }}? Octane restarts and is checked; the previous build comes back if it does not answer." class="btn btn-secondary btn-sm" data-octane-fix><x-cipi::icon name="wrench" /> Put everything on PHP {{ $ocFixVersion }}</button></p>
+                                    @elseif($ocFix && !empty($ocFix['command']))
+                                        <p class="mt-2">On the server: <code>{{ $ocFix['command'] }}</code></p>
+                                    @endif
+                                </x-cipi::alert>
+                            @elseif($ocState === 'vulnerable')
+                                <x-cipi::alert type="danger" title="The PHP inside this build has security fixes waiting" class="mb-4">
+                                    apt never patches the PHP built into FrankenPHP: a newer build does. <em>Update the build</em>, below, moves the app to the newest one on PHP {{ $ocMinor ?? ($oc['php'] ?? '') }}.
+                                </x-cipi::alert>
+                            @elseif($ocState === 'unpinned')
+                                <x-cipi::alert type="info" class="mb-4">The app runs the FrankenPHP binary it downloaded at its first deploy. Choosing a PHP version, or updating the build, pins one Cipi keeps and checks.</x-cipi::alert>
+                            @elseif($ocState === 'missing')
+                                <x-cipi::alert type="danger" class="mb-4">The build this app is pinned to is not on the server any more. Choose a PHP version below to fetch one.</x-cipi::alert>
+                            @endif
+                            @if($oc['restart_pending'] ?? false)
+                                <x-cipi::alert type="warn" class="mb-4" data-octane-restart-pending>Octane has not been restarted since its build changed: it still runs the previous one.</x-cipi::alert>
+                            @endif
+
+                            @if($can['edit'] ?? false)
+                                <div class="space-y-3" data-octane-php-form>
+                                    <div class="flex flex-wrap items-start gap-3">
+                                        <div class="w-56">
+                                            <label for="octane-php">PHP version</label>
+                                            <select id="octane-php" wire:model="octanePhpTarget">
+                                                @foreach($phpVersions as $version)
+                                                    <option value="{{ $version }}">PHP {{ $version }}@if($version === ($oc['php'] ?? null) && $version === $ocMinor) — current @elseif(in_array($version, $ocAvailable, true)) — build on this server @endif</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                        <button type="button" wire:click="switchOctanePhp" class="btn btn-primary field-action" data-confirm="Put {{ $app['app'] }} on the PHP version chosen? Octane restarts and is checked; the previous build comes back if it does not answer." data-octane-switch><x-cipi::icon name="arrow-path" /> Switch PHP</button>
+                                    </div>
+                                    @error('octanePhpTarget') <p class="field-error">{{ $message }}</p> @enderror
+                                    <p class="field-hint">By its number, as for any other app. Octane first: the FrankenPHP build that carries that PHP — fetched from FrankenPHP's releases when this server has none — is started and has to answer; when it does not, the previous build comes back and nothing else changes. Then Composer, artisan, cron and the workers move. Versions listed are the ones installed on this server (<a href="{{ route('cipi-gui.server-manage', ['serverId' => $server?->id, 'tab' => 'php']) }}" class="text-link">Server → PHP</a>).</p>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2 mt-5 pt-4 border-t">
+                                    <button type="button" wire:click="restartOctane" data-confirm="Restart Octane of {{ $app['app'] }}? Requests wait a moment while it comes back." class="btn btn-secondary btn-sm" data-octane-restart><x-cipi::icon name="refresh" /> Restart Octane</button>
+                                    <button type="button" wire:click="upgradeOctaneBuild" data-confirm="Move {{ $app['app'] }} to the newest FrankenPHP build on PHP {{ $ocMinor ?? ($oc['php'] ?? '') }}? Octane restarts and is checked." class="btn btn-secondary btn-sm" data-octane-upgrade><x-cipi::icon name="download" /> Update the build</button>
+                                </div>
+                                <p class="field-hint"><em>Update the build</em> takes the newest FrankenPHP on the PHP the app has — security fixes of that PHP, never another version. Another version is <em>Switch PHP</em>.</p>
+                            @else
+                                <p class="field-hint">Switching PHP and restarting Octane need the Edit ability on this app.</p>
+                            @endif
+                        @endif
+                    </div>
+                </div>
+
+                <div class="lg:col-span-2 space-y-4">
+                    <div class="card">
+                        <div class="card-header"><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="light-bulb" /> Why two PHP</h2></div>
+                        <div class="space-y-3 text-sm text-soft">
+                            <p>FrankenPHP is one binary with PHP built in: <strong class="text-strong">a release carries one PHP version</strong>, and apt never updates it. So Cipi keeps a build per Octane app, pinned — each app has its own, and updating one never moves another.</p>
+                            <p>Everything that is not a web request — <code>composer install</code> at a deploy, <code>artisan</code>, the scheduler, the queue workers — runs the server's PHP, the one apt keeps patched.</p>
+                            <p>The two should be the same version. They drift when a deploy downloads the newest FrankenPHP and it carries a newer PHP than the app was created with; this page puts them back on one.</p>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-header"><h2 class="card-title">On the server</h2></div>
+                        <dl class="kv">
+                            <dt>What it runs</dt><dd><code>cipi frankenphp php {{ $app['app'] }}</code></dd>
+                            <dt>Switch PHP</dt><dd><code>cipi frankenphp php {{ $app['app'] }} 8.5</code></dd>
+                            <dt>Update the build</dt><dd><code>cipi frankenphp upgrade {{ $app['app'] }}</code></dd>
+                            <dt>Restart</dt><dd><code>cipi frankenphp restart {{ $app['app'] }}</code></dd>
+                            <dt>Log</dt><dd><code>/var/log/cipi-apps/{{ $app['app'] }}/octane.log</code> — the Logs tab</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+
         @elseif($activeTab === 'deploy')
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div class="card">
@@ -1337,6 +1640,17 @@
                         <div class="card p-4 mb-4" style="border-color: var(--accent-line);">
                             <p class="text-xs text-muted mb-1">Generated password — shown once</p>
                             <x-cipi::secret label="Password" :value="$generatedPassword" />
+                            @php
+                                $basicAuthLogins = [[
+                                    'title' => $app['app'].' — HTTP basic auth'.($server ? ' on '.$server->name : ''),
+                                    'url' => $this->siteUrl(),
+                                    'username' => ($basicAuth['users'] ?? [])[0] ?? $app['app'],
+                                    'password' => $generatedPassword,
+                                    'notes' => 'The password in front of '.$app['domain'].' (HTTP basic auth). Saved from the Cipi panel.',
+                                ]];
+                                $basicAuthFile = 'cipi-'.$app['app'].'-basic-auth';
+                            @endphp
+                            <x-cipi::save-to class="mt-3" :name="$basicAuthFile" :logins="$basicAuthLogins" />
                         </div>
                     @endif
                     @if($basicAuthAgent !== null)

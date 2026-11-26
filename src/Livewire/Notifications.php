@@ -85,6 +85,18 @@ class Notifications extends Component
     /** Single triggers the channel takes (set at the server): kept as they are. */
     public array $formEventsExtra = [];
 
+    /**
+     * How notifications read (Cipi 5.17.0): {timezone, server_timezone,
+     * server_name, hostname, now}; null on a server that does not say.
+     */
+    public ?array $settings = null;
+
+    /** The form: an IANA name, or '' for the server's own time zone. */
+    public string $settingsTimezone = '';
+
+    /** The form: the name notifications give the server, or '' for its hostname. */
+    public string $settingsServerName = '';
+
     public function mount(?int $serverId = null): void
     {
         $this->serverId = $serverId ?? (int) session('cipi_gui_server_id');
@@ -117,7 +129,9 @@ class Notifications extends Component
         try {
             $api = $this->client();
             $api->prefetch(['/notifications', '/notifications/triggers']);
-            $this->syncStatus($api->notifications());
+            $status = $api->notifications();
+            $this->syncStatus($status);
+            $this->syncSettings($status['settings'] ?? null);
             $this->syncTriggers($api->notificationTriggers());
             $this->unsupported = false;
             $this->unsupportedReason = '';
@@ -141,6 +155,99 @@ class Notifications extends Component
         $this->summary = (array) ($status['triggers'] ?? []);
         $this->categories = array_values(array_filter((array) ($status['categories'] ?? []),
             fn ($c) => is_array($c) && is_string($c['id'] ?? null) && preg_match('/^[a-z][a-z0-9-]{0,40}$/', $c['id']) === 1));
+    }
+
+    /** @param  mixed  $settings  `settings` of the status, or the answer of a change */
+    protected function syncSettings(mixed $settings): void
+    {
+        if (! is_array($settings) || ! is_string($settings['server_timezone'] ?? null)) {
+            $this->settings = null;
+
+            return;
+        }
+        $text = fn (string $key): ?string => is_string($settings[$key] ?? null) && $settings[$key] !== '' ? $settings[$key] : null;
+        $this->settings = [
+            'timezone' => $text('timezone'),
+            'server_timezone' => $settings['server_timezone'],
+            'server_name' => $text('server_name'),
+            'hostname' => $text('hostname') ?? '',
+            'now' => $text('now') ?? '',
+        ];
+        $this->settingsTimezone = $this->settings['timezone'] ?? '';
+        $this->settingsServerName = $this->settings['server_name'] ?? '';
+    }
+
+    /** The name this panel gives the server, when it is one a notification can carry and is not in use already. */
+    public function panelServerName(): ?string
+    {
+        $name = trim((string) $this->currentServer()?->name);
+        if ($name === '' || preg_match(N::SERVER_NAME_PATTERN, $name) !== 1 || $this->settings === null) {
+            return null;
+        }
+
+        return $name !== ($this->settings['server_name'] ?? null) && strcasecmp($name, (string) $this->settings['hostname']) !== 0 ? $name : null;
+    }
+
+    /** Time zones for the form: the server's own first (''), then every IANA name PHP knows. */
+    public function timezoneChoices(): array
+    {
+        return \DateTimeZone::listIdentifiers();
+    }
+
+    public function saveSettings(): void
+    {
+        if (! $this->guardManage() || $this->settings === null) {
+            return;
+        }
+        $this->resetErrorBag(['settingsTimezone', 'settingsServerName']);
+        $timezone = trim($this->settingsTimezone);
+        $name = trim($this->settingsServerName);
+        if ($timezone !== '' && (preg_match(N::TIMEZONE_PATTERN, $timezone) !== 1 || ! in_array($timezone, \DateTimeZone::listIdentifiers(\DateTimeZone::ALL_WITH_BC), true))) {
+            $this->addError('settingsTimezone', 'Choose a time zone such as Europe/Rome, or leave it to the server\'s own.');
+
+            return;
+        }
+        if ($name !== '' && preg_match(N::SERVER_NAME_PATTERN, $name) !== 1) {
+            $this->addError('settingsServerName', 'Letters, digits, spaces, dots, dashes and underscores — 40 characters at most.');
+
+            return;
+        }
+
+        $payload = [];
+        if ($timezone !== ($this->settings['timezone'] ?? '')) {
+            $payload['timezone'] = $timezone === '' ? null : $timezone;
+        }
+        if ($name !== ($this->settings['server_name'] ?? '')) {
+            $payload['server_name'] = $name === '' ? null : $name;
+        }
+        if ($payload === []) {
+            $this->dispatch('notify', type: 'info', message: 'Nothing to change.');
+
+            return;
+        }
+
+        try {
+            $this->syncSettings($this->client()->updateNotificationSettings($payload));
+            $this->dispatch('notify', type: 'success', message: 'Saved — the next notification is written this way.');
+        } catch (CipiApiException $e) {
+            if ($e->getStatusCode() === 422) {
+                $this->addError(array_key_exists('timezone', $payload) && ! array_key_exists('server_name', $payload) ? 'settingsTimezone' : 'settingsServerName', self::plainCliText($e->getMessage()));
+
+                return;
+            }
+            $this->handleApiError($e);
+        }
+    }
+
+    /** One click: notifications call the server what this panel calls it. */
+    public function usePanelName(): void
+    {
+        $name = $this->panelServerName();
+        if ($name === null) {
+            return;
+        }
+        $this->settingsServerName = $name;
+        $this->saveSettings();
     }
 
     /** Whether the server keeps what each channel takes. */
@@ -552,6 +659,7 @@ class Notifications extends Component
             'canManage' => $this->canManage(),
             'groups' => $this->triggerGroups(),
             'changed' => $this->changedTriggers(),
+            'panelName' => $this->panelServerName(),
         ]);
     }
 }

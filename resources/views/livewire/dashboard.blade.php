@@ -96,6 +96,7 @@
                             <div class="flex items-center gap-2">
                                 <span class="dot {{ ! $loaded ? '' : ($error ? 'dot-red' : ($down ? 'dot-amber' : 'dot-green')) }}"></span>
                                 <h2 class="text-lg font-semibold truncate">{{ $server->name }}</h2>
+                                @if($server->machine_name)<span class="badge badge-accent badge-mono" title="The machine's own name (hostname): what a notification calls this server">{{ $server->machine_name }}</span>@endif
                             </div>
                             <p class="text-xs text-muted mt-0.5 truncate">
                                 {{ $server->host }}@if($ip) · <x-cipi::copyable :value="$ip" label="Copy IP" class="font-mono" />@endif
