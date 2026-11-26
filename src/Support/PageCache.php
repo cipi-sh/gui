@@ -17,6 +17,65 @@ final class PageCache
 
     public const SIZE_CHOICES = ['128m' => '128 MB', '256m' => '256 MB', '512m' => '512 MB', '1g' => '1 GB', '2g' => '2 GB', '5g' => '5 GB'];
 
+    /** How many paths of its own an app may keep out of its cache. */
+    public const EXCLUDE_MAX = 50;
+
+    /**
+     * The paths written in the form — one per line, or separated by commas or
+     * spaces (a path holds neither) — as the server keeps them: each with its
+     * leading /, several * as one, once.
+     *
+     * @return list<string>
+     */
+    public static function excludeParse(string $text): array
+    {
+        $out = [];
+        foreach (preg_split('/[\s,]+/', $text, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $path) {
+            $path = (string) preg_replace('/\*{2,}/', '*', '/'.ltrim($path, '/'));
+            if (! in_array($path, $out, true)) {
+                $out[] = $path;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * What is wrong with a list of paths, or null: checked as the server
+     * checks it — letters, digits, . _ ~ % - / and * for anything.
+     *
+     * @param  list<string>  $paths
+     */
+    public static function excludeError(array $paths): ?string
+    {
+        if (count($paths) > self::EXCLUDE_MAX) {
+            return 'Up to '.self::EXCLUDE_MAX.' paths — one with a * covers many: /shop/*';
+        }
+        foreach ($paths as $path) {
+            if ($path === '/*') {
+                return '/* is every page: turn the cache off instead.';
+            }
+            if (preg_match('#^/[A-Za-z0-9._~%/*-]{0,127}$#', $path) !== 1) {
+                return '"'.mb_substr($path, 0, 60).'" is not a path: letters, digits, . _ ~ % - / and * for anything — /cart*, /feed, /shop/*/reviews.';
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The app's own paths as the server gave them, and nothing that is not one.
+     *
+     * @param  array<string, mixed>|null  $cache
+     * @return list<string>
+     */
+    public static function excludes(?array $cache): array
+    {
+        $paths = array_values(array_filter((array) ($cache['exclude'] ?? []), 'is_string'));
+
+        return array_values(array_filter($paths, fn (string $p) => preg_match('#^/[A-Za-z0-9._~%/*-]{0,127}$#', $p) === 1));
+    }
+
     /** A number and s, m, h or d — one second to thirty days. */
     public static function ttlSeconds(string $ttl): ?int
     {

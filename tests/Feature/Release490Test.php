@@ -24,7 +24,7 @@ class Release490Test extends TestCase
     private CipiServer $server;
 
     /** The page cache the server holds for shop. */
-    private array $cache = ['enabled' => false, 'ttl' => '10m', 'size' => '256m', 'clear_on_deploy' => true, 'files' => 0];
+    private array $cache = ['enabled' => false, 'ttl' => '10m', 'size' => '256m', 'clear_on_deploy' => true, 'exclude' => [], 'files' => 0];
 
     /** What the server says of shop's Octane. */
     private array $octane = ['app' => 'shop', 'php' => '8.5', 'octane_php' => '8.6.0', 'build' => '1.14.0-php8.6.0-99137391', 'frankenphp' => '1.14.0', 'state' => 'mismatch', 'restart_pending' => false, 'available_php' => ['8.5', '8.6'], 'fix' => ['command' => 'cipi frankenphp php shop 8.5', 'why' => 'a FrankenPHP build with PHP 8.5 is on this server']];
@@ -53,6 +53,7 @@ class Release490Test extends TestCase
             return match (true) {
                 $path === '/api/apps/shop/cache' && $method === 'GET' => Http::response(['data' => $this->cacheView()]),
                 $path === '/api/apps/shop/cache' && $method === 'PUT' => $this->putCache($request),
+                $path === '/api/apps/shop/cache/exclude' => $this->putExclude($request),
                 $path === '/api/apps/shop/cache/clear' => Http::response(['data' => $this->clearCache()]),
                 $path === '/api/apps/shop/octane' => Http::response(['data' => $this->octane]),
                 $path === '/api/apps/shop/octane/php', $path === '/api/apps/shop/octane/restart', $path === '/api/frankenphp/upgrade',
@@ -87,6 +88,13 @@ class Release490Test extends TestCase
     {
         $data = $request->data();
         $this->cache = ['enabled' => (bool) $data['enabled'], 'files' => 0] + array_intersect_key($data, array_flip(['ttl', 'size', 'clear_on_deploy'])) + $this->cache;
+
+        return Http::response(['data' => $this->cacheView()]);
+    }
+
+    private function putExclude(Request $request): mixed
+    {
+        $this->cache = ['exclude' => array_values($request->data()['exclude'])] + $this->cache;
 
         return Http::response(['data' => $this->cacheView()]);
     }
@@ -173,6 +181,62 @@ class Release490Test extends TestCase
             ->assertSet('pageCacheRefused', 'nginx refused the configuration — nothing changed')
             ->assertSeeHtml('data-page-cache-refused')
             ->assertSet('pageCache.enabled', false);
+    }
+
+    #[Test]
+    public function the_paths_an_app_keeps_out_of_its_cache_are_saved_on_their_own(): void
+    {
+        $page = Livewire::test(AppDetail::class, ['name' => 'shop'])->call('setTab', 'cache')
+            ->assertSeeHtml('data-page-cache-exclude')
+            ->assertSee('Paths that are never cached')
+            ->assertSee('The cache is off: the list is kept for when it is turned on.')
+            ->assertSet('cacheExclude', '');
+
+        // One per line, as typed: each gets its /, a path given twice is one.
+        $page->set('cacheExclude', "cart*\n/feed\n/cart*")->call('saveCacheExclude')
+            ->assertHasNoErrors()
+            ->assertSet('cacheExclude', "/cart*\n/feed")
+            ->assertSet('pageCache.exclude', ['/cart*', '/feed'])
+            ->assertSet('cacheExcludeRefused', null)
+            ->assertDispatched('notify');
+        $this->assertSame(['exclude' => ['/cart*', '/feed']], $this->sent('PUT', '/api/apps/shop/cache/exclude')->data());
+        // The cache itself was not touched.
+        $this->assertNull($this->sent('PUT', '/api/apps/shop/cache'));
+
+        // What is not a path never leaves the panel.
+        $page->set('cacheExclude', "/ok\n/x;rm")->call('saveCacheExclude')->assertHasErrors('cacheExclude');
+        $page->set('cacheExclude', '/*')->call('saveCacheExclude')->assertHasErrors('cacheExclude');
+        $this->assertSame(['exclude' => ['/cart*', '/feed']], $this->sent('PUT', '/api/apps/shop/cache/exclude')->data());
+
+        // The server's refusal, in its words; the list on the server stays.
+        $this->refuse = fn () => Http::response(['error' => 'nginx refused the configuration — nothing changed'], 422);
+        $page->set('cacheExclude', '/account*')->call('saveCacheExclude')
+            ->assertSet('cacheExcludeRefused', 'nginx refused the configuration — nothing changed')
+            ->assertSeeHtml('data-page-cache-exclude-refused')
+            ->assertSet('pageCache.exclude', ['/cart*', '/feed']);
+
+        // An empty form is no path of its own.
+        $this->refuse = null;
+        $page->set('cacheExclude', " \n")->call('saveCacheExclude')->assertSet('pageCache.exclude', [])->assertSet('cacheExclude', '');
+        $this->assertSame(['exclude' => []], $this->sent('PUT', '/api/apps/shop/cache/exclude')->data());
+    }
+
+    #[Test]
+    public function the_paths_are_read_only_without_edit_on_the_app(): void
+    {
+        $member = $this->member();
+        Access::replaceGrants((int) $member->getKey(), [], [$this->server->id => ['shop' => ['view', 'deploy']]]);
+        $this->actingAs($member);
+        $this->cache = ['enabled' => true, 'exclude' => ['/cart*', '/feed']] + $this->cache;
+
+        Livewire::test(AppDetail::class, ['name' => 'shop'])->call('setTab', 'cache')
+            ->assertSeeHtml('data-page-cache-exclude')
+            ->assertSee('/cart*')
+            ->assertDontSee('Save paths')
+            ->set('cacheExclude', '/x')
+            ->call('saveCacheExclude');
+
+        $this->assertNull($this->sent('PUT', '/api/apps/shop/cache/exclude'));
     }
 
     #[Test]

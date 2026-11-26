@@ -752,6 +752,10 @@
                     '});',
                 ];
                 $pcCheck = 'curl -sI '.$this->siteUrl().' | grep -i x-cache-status';
+                // The app's own paths: shown when the server gives them.
+                $pcHasExclude = $pageCacheLoaded && array_key_exists('exclude', $pc) && ($pc['supported'] ?? true);
+                $pcExclude = \CipiGui\Support\PageCache::excludes($pageCache);
+                $pcExcludeHint = implode("\n", ['/cart*', '/checkout*', '/my-account*', '/feed']);
             @endphp
             <div class="grid grid-cols-1 lg:grid-cols-5 gap-4" data-page-cache>
                 <div class="lg:col-span-3 space-y-4">
@@ -840,6 +844,49 @@
                         @endif
                     </div>
 
+                    @if($pcHasExclude)
+                        <div class="card" data-page-cache-exclude>
+                            <div class="card-header">
+                                <div>
+                                    <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="eye-off" /> Paths that are never cached</h2>
+                                    <p class="card-subtitle">Of this app, on top of the rules for every app: a page that is different for each visitor with no cookie saying so, a feed, a page with a counter.</p>
+                                </div>
+                                <span class="badge badge-gray" data-page-cache-exclude-count>{{ count($pcExclude) === 0 ? 'None' : count($pcExclude) }}</span>
+                            </div>
+                            @if($can['edit'] ?? false)
+                                <form wire:submit="saveCacheExclude" class="space-y-3">
+                                    <div>
+                                        <label for="cache-exclude">One path per line</label>
+                                        <textarea id="cache-exclude" wire:model="cacheExclude" rows="5" class="font-mono text-sm" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="{{ $pcExcludeHint }}"></textarea>
+                                        @error('cacheExclude') <p class="field-error">{{ $message }}</p> @enderror
+                                        <p class="field-hint"><code>/cart*</code> is everything that starts so — <code>*</code> stands for anything. Without it, the path itself: <code>/feed</code> is <code>/feed</code> and <code>/feed/</code>, whatever its query string. Upper and lower case are the same. Up to {{ \CipiGui\Support\PageCache::EXCLUDE_MAX }}.</p>
+                                    </div>
+                                    @if($cacheExcludeRefused)
+                                        <x-cipi::alert type="danger" title="Refused — nothing changed on the server" data-page-cache-exclude-refused>
+                                            <span class="font-mono text-xs break-words">{{ $cacheExcludeRefused }}</span>
+                                        </x-cipi::alert>
+                                    @endif
+                                    <div class="flex flex-wrap items-center gap-3">
+                                        <button type="submit" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="saveCacheExclude" data-page-cache-exclude-save><x-cipi::icon name="check" /> Save paths</button>
+                                        @unless($pcOn)
+                                            <span class="text-xs text-muted">The cache is off: the list is kept for when it is turned on.</span>
+                                        @endunless
+                                    </div>
+                                </form>
+                            @elseif($pcExclude === [])
+                                <p class="text-sm text-muted">None: only the rules for every app apply.</p>
+                            @else
+                                <ul class="space-y-1">
+                                    @foreach($pcExclude as $path)
+                                        <li><code>{{ $path }}</code></li>
+                                    @endforeach
+                                </ul>
+                                <p class="field-hint">Changing the list needs the Edit ability on this app.</p>
+                            @endif
+                            <p class="field-hint mt-3">On the server: <code>cipi cache {{ $app['app'] }} exclude add '/cart*'</code>.</p>
+                        </div>
+                    @endif
+
                     <div class="card" data-page-cache-purge>
                         <div class="card-header">
                             <div>
@@ -894,6 +941,9 @@
                             <li><code>/wp-admin</code>, <code>wp-login.php</code>, <code>/wp-json</code>, <code>xmlrpc.php</code>, and a request with an <code>Authorization</code> header.</li>
                             <li>A URL with a query string — searches, filters, previews — unless it only carries tracking parameters (<code>utm_*</code>, <code>fbclid</code>, <code>gclid</code>).</li>
                             <li>Whatever the app marks <code>private</code> or <code>no-cache</code>, or answers with a cookie.</li>
+                            @if($pcHasExclude)
+                                <li>The paths this app adds itself, in <em>Paths that are never cached</em> — {{ count($pcExclude) === 0 ? 'none for now' : count($pcExclude).' now' }}.</li>
+                            @endif
                         </ul>
                         @if($isLaravel)
                             <x-cipi::alert type="info" class="mt-4" title="A Laravel app chooses its pages">

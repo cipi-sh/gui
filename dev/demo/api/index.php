@@ -592,6 +592,9 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
                 if (array_key_exists('clear_on_deploy', $body) && $body['clear_on_deploy'] !== null) {
                     $cache['clear_on_deploy'] = (bool) $body['clear_on_deploy'];
                 }
+                if (is_array($body['exclude'] ?? null)) {
+                    $cache['exclude'] = pageCacheExclude($body['exclude']);
+                }
                 if (! $cache['enabled']) {
                     // Just turned on: nothing is kept yet.
                     $cache['files'] = 0;
@@ -599,13 +602,24 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
                 }
                 $cache['enabled'] = true;
             } else {
-                if (array_filter(array_intersect_key($body, array_flip(['ttl', 'size', 'clear_on_deploy'])), fn ($v) => $v !== null && $v !== '') !== []) {
-                    throw new DemoHttpError(422, 'ttl, size and clear_on_deploy apply when enabled is true');
+                if (array_filter(array_intersect_key($body, array_flip(['ttl', 'size', 'clear_on_deploy', 'exclude'])), fn ($v) => $v !== null && $v !== '') !== []) {
+                    throw new DemoHttpError(422, 'ttl, size, clear_on_deploy and exclude apply when enabled is true (the list alone: PUT /apps/{name}/cache/exclude)');
                 }
                 $cache['enabled'] = false;
                 $cache['files'] = 0;
             }
             $info['page_cache'] = $cache;
+
+            return [200, ['data' => pageCacheView($name, $info)]];
+        // The app's own paths that are never cached: the whole list, cache on or off.
+        case $sub === '/cache/exclude' && $method === 'PUT':
+            if ($isNode) {
+                throw new DemoHttpError(422, "'{$name}' is a Node app: its pages come from its own server, and the page cache is written for PHP apps");
+            }
+            if (! is_array($body['exclude'] ?? null)) {
+                throw new DemoHttpError(422, 'The exclude field must be present.');
+            }
+            $info['page_cache'] = ['exclude' => pageCacheExclude($body['exclude'])] + ($info['page_cache'] ?? []);
 
             return [200, ['data' => pageCacheView($name, $info)]];
         case $sub === '/cache/clear' && $method === 'POST':
@@ -1652,10 +1666,38 @@ function publicApp(array $info, bool $show): array
     return $out;
 }
 
+/**
+ * The paths an app keeps out of its cache, as the server keeps them — or the
+ * 422 it answers to what is not one.
+ *
+ * @return list<string>
+ */
+function pageCacheExclude(array $paths): array
+{
+    if (count($paths) > 50) {
+        throw new DemoHttpError(422, 'exclude: 50 paths at most — one with a * covers many (/shop/*)');
+    }
+    $out = [];
+    foreach ($paths as $path) {
+        if (! is_string($path) || preg_match('#^/?[A-Za-z0-9._~%/*-]{1,127}$#', $path) !== 1) {
+            throw new DemoHttpError(422, 'exclude: a path is letters, digits, . _ ~ % - / and * for anything (/cart*, /feed, /shop/*/reviews), 128 characters at most');
+        }
+        $path = (string) preg_replace('/\*{2,}/', '*', '/'.ltrim($path, '/'));
+        if ($path === '/*') {
+            throw new DemoHttpError(422, 'exclude: /* is every page — turn the cache off instead');
+        }
+        if (! in_array($path, $out, true)) {
+            $out[] = $path;
+        }
+    }
+
+    return $out;
+}
+
 /** What `cipi cache <app> status --json` answers; the pages on disk grow with the minutes since the cache was emptied. */
 function pageCacheView(string $name, array $info): array
 {
-    $cache = ($info['page_cache'] ?? []) + ['enabled' => false, 'ttl' => '10m', 'size' => '256m', 'clear_on_deploy' => true, 'files' => 0, 'since' => time() - 5400];
+    $cache = ($info['page_cache'] ?? []) + ['enabled' => false, 'ttl' => '10m', 'size' => '256m', 'clear_on_deploy' => true, 'exclude' => [], 'files' => 0, 'since' => time() - 5400];
     $node = ! empty($info['node']);
     $files = $cache['enabled'] ? min(1800, (int) $cache['files'] + (int) ((time() - (int) $cache['since']) / 20)) : 0;
     $seconds = (int) $cache['ttl'] * ['s' => 1, 'm' => 60, 'h' => 3600, 'd' => 86400][substr((string) $cache['ttl'], -1)];
@@ -1664,6 +1706,7 @@ function pageCacheView(string $name, array $info): array
         'app' => $name, 'supported' => ! $node, 'kind' => $node ? null : (! empty($info['octane']) ? 'proxy' : 'fastcgi'),
         'enabled' => (bool) $cache['enabled'], 'active' => $cache['enabled'] && empty($info['suspended']),
         'ttl' => $cache['ttl'], 'ttl_seconds' => $seconds, 'size' => $cache['size'], 'clear_on_deploy' => (bool) $cache['clear_on_deploy'],
+        'exclude' => array_values((array) $cache['exclude']), 'exclude_max' => 50,
         'files' => $files, 'bytes' => $files * 41800, 'path' => "/var/cache/nginx/cipi/{$name}",
         'suspended' => ! empty($info['suspended']), 'clear_command' => "sudo /usr/local/bin/cipi-cache-clear {$name}",
     ];

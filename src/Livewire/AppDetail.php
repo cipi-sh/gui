@@ -158,7 +158,7 @@ class AppDetail extends Component
 
     // ── the nginx page cache of the app (Cipi 5.17.0) ──
 
-    /** As the server has it: supported, kind, enabled, active, ttl, size, clear_on_deploy, files, bytes, clear_command. */
+    /** As the server has it: supported, kind, enabled, active, ttl, size, clear_on_deploy, exclude, files, bytes, clear_command. */
     public ?array $pageCache = null;
 
     public bool $pageCacheLoaded = false;
@@ -174,6 +174,12 @@ class AppDetail extends Component
     public string $cacheSize = '256m';
 
     public bool $cacheClearOnDeploy = true;
+
+    /** The app's own paths that are never cached, one per line, as the form holds them. */
+    public string $cacheExclude = '';
+
+    /** Why the last list of paths was refused (the server's words); nothing changed. */
+    public ?string $cacheExcludeRefused = null;
 
     // ── the PHP of an Octane app (Cipi 5.17.0) ──
 
@@ -1144,7 +1150,9 @@ class AppDetail extends Component
         $this->cacheTtl = is_string($data['ttl'] ?? null) && $data['ttl'] !== '' ? $data['ttl'] : '10m';
         $this->cacheSize = is_string($data['size'] ?? null) && $data['size'] !== '' ? $data['size'] : '256m';
         $this->cacheClearOnDeploy = (bool) ($data['clear_on_deploy'] ?? true);
+        $this->cacheExclude = implode("\n", PageCache::excludes($data));
         $this->pageCacheRefused = null;
+        $this->cacheExcludeRefused = null;
         $this->pageCacheLoaded = true;
     }
 
@@ -1182,6 +1190,42 @@ class AppDetail extends Component
         }
 
         $this->pageCacheChange(['enabled' => false], 'Page cache off — its pages were deleted, every request runs PHP again.');
+    }
+
+    /**
+     * The paths of its own the app keeps out of its cache: the whole list, as
+     * the form has it. With the cache off the server keeps it for later.
+     */
+    public function saveCacheExclude(): void
+    {
+        if (! $this->allowed('edit')) {
+            return;
+        }
+        $this->resetErrorBag('cacheExclude');
+        $this->cacheExcludeRefused = null;
+        $paths = PageCache::excludeParse($this->cacheExclude);
+        if ($error = PageCache::excludeError($paths)) {
+            $this->addError('cacheExclude', $error);
+
+            return;
+        }
+
+        try {
+            $this->syncPageCache($this->client()->setPageCacheExclude($this->appName, $paths));
+            $this->dispatch('notify', type: 'success', message: match (true) {
+                $paths === [] => 'No path of its own any more — the rules of every app stay.',
+                (bool) ($this->pageCache['enabled'] ?? false) => 'Paths saved — nginx reloaded with them.',
+                default => 'Paths saved — they apply when the page cache is turned on.',
+            });
+        } catch (CipiApiException $e) {
+            if ($e->getStatusCode() === 422) {
+                // Refused — a path, or nginx -t — and nothing changed.
+                $this->cacheExcludeRefused = self::plainCliText($e->getMessage());
+
+                return;
+            }
+            $this->handleApiError($e);
+        }
     }
 
     /** @param  array<string, mixed>  $payload */

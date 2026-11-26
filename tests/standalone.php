@@ -578,8 +578,22 @@ namespace {
         && $PC::clearCommand(null, 'blog') === 'sudo /usr/local/bin/cipi-cache-clear blog',
         'the command shown for a recipe is the helper and the app, whatever the server sent');
 
+    // The paths an app keeps out of its cache.
+    $check($PC::excludeParse("cart*\n /feed ,/cart*\r\n\n/a**b  /caff%C3%A8_1.0~x") === ['/cart*', '/feed', '/a*b', '/caff%C3%A8_1.0~x'] && $PC::excludeParse(" \n ") === [] && $PC::excludeParse('//x') === ['/x'],
+        'page cache paths: one per line (or commas, or spaces), each with its /, several * as one, once');
+    $check($PC::excludeError(['/cart*', '/feed', '/shop/*/reviews', '/']) === null && $PC::excludeError([]) === null, 'page cache paths: letters, digits, . _ ~ % - / and *');
+    $badPaths = ['/a;b', '/a"b', "/a'b", '/a$b', '/a{b}', '/a|b', '/(a)', '/a\\b', '/a?b=1', '/a#b', '/a<b', '/'.str_repeat('a', 128)];
+    $check(array_filter($badPaths, fn ($b) => $PC::excludeError([$b]) === null) === [] && str_contains((string) $PC::excludeError(['/*']), 'every page') && $PC::excludeError($PC::excludeParse('*')) !== null,
+        'page cache paths: ; " \' $ { | ( \\ ? # <, 129 characters and /* (every page) never leave the panel');
+    $check($PC::excludeError(array_map(fn ($i) => "/p{$i}", range(1, 50))) === null && str_contains((string) $PC::excludeError(array_map(fn ($i) => "/p{$i}", range(1, 51))), 'Up to 50'), 'page cache paths: fifty at most');
+    $check($PC::excludes(['exclude' => ['/cart*', 7, '/x;y', null, '/feed']]) === ['/cart*', '/feed'] && $PC::excludes(null) === [] && $PC::excludes(['exclude' => 'nope']) === [], 'page cache paths: only what is a path is shown, whatever the server sent');
+
     $adv = (string) file_get_contents($root.'/resources/views/livewire/app-detail.blade.php');
     $ad = (string) file_get_contents($root.'/src/Livewire/AppDetail.php');
+    $check(str_contains($adv, 'data-page-cache-exclude') && str_contains($adv, 'wire:submit="saveCacheExclude"') && str_contains($adv, 'wire:model="cacheExclude"') && str_contains($adv, 'Paths that are never cached') && str_contains($adv, "array_key_exists('exclude', \$pc)") && str_contains($adv, 'The cache is off: the list is kept for when it is turned on.'),
+        'the Page cache tab has the app\'s own paths: one per line, saved on their own, kept while the cache is off — shown when the server gives them');
+    $check(preg_match('/public function saveCacheExclude\(\): void\s*\{\s*if \(! \$this->allowed\(\'edit\'\)\)/', $ad) === 1 && str_contains($ad, 'PageCache::excludeError($paths)') && str_contains($ad, '$this->cacheExcludeRefused = self::plainCliText($e->getMessage());') && str_contains((string) file_get_contents($root.'/src/Services/CipiApiClient.php'), '"/apps/{$app}/cache/exclude"'),
+        'saving the paths needs Edit, checks them first, and shows a refusal in the server\'s words');
     $check(str_contains($ad, "\$tabs['cache'] = 'Page cache';") && str_contains($ad, "\$tabs['octane'] = 'Octane';") && str_contains($ad, "'cache' => \$this->loadPageCache(),") && str_contains($ad, "'octane' => \$this->loadOctane(),"), 'an app has a Page cache tab (not a Node app) and, on Octane, an Octane tab');
     $check(str_contains($adv, 'OPcache is on already') && str_contains($adv, 'PHP still runs') && str_contains($adv, 'The page cache keeps the page itself.') && str_contains($adv, 'Not OPcache — the other cache'), 'the tab says what OPcache does and what the page cache adds');
     $check(str_contains($adv, 'WordPress, WooCommerce, blogs, catalogues, landing pages') && str_contains($adv, 'Traffic peaks') && str_contains($adv, 'What is never cached') && str_contains($adv, 'A Laravel app chooses its pages'), 'what one gets (WordPress and the like), what is never cached, and Laravel\'s own case');

@@ -601,7 +601,7 @@ class CipiApiClient
     // the page PHP made and answers the next visitors without running PHP.
     // Not OPcache, which is always on. Synchronous; a refusal is a 422.
 
-    /** supported, kind, enabled, active, ttl, size, clear_on_deploy, files, bytes, clear_command. */
+    /** supported, kind, enabled, active, ttl, size, clear_on_deploy, exclude, files, bytes, clear_command. */
     public function pageCache(string $app): array
     {
         return $this->get("/apps/{$app}/cache")['data'] ?? [];
@@ -611,6 +611,17 @@ class CipiApiClient
     public function setPageCache(string $app, array $payload): array
     {
         return $this->put("/apps/{$app}/cache", $payload)['data'] ?? [];
+    }
+
+    /**
+     * The whole list of the app's own paths that are never cached (`/cart*`,
+     * `/feed`); an empty one for none. With the cache off it waits for it.
+     *
+     * @param  list<string>  $paths
+     */
+    public function setPageCacheExclude(string $app, array $paths): array
+    {
+        return $this->put("/apps/{$app}/cache/exclude", ['exclude' => array_values($paths)])['data'] ?? [];
     }
 
     /** The cache after it, with `cleared` (pages deleted). */
