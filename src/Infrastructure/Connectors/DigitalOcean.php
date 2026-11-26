@@ -173,7 +173,7 @@ final class DigitalOcean extends Connector
             ->columns([
                 Column::make('name', __('Name')),
                 Column::make('status', __('Status'))->badge(self::STATUS),
-                Column::make('ip', __('Public IP'))->mono()->using(fn ($row) => collect(self::items(data_get($row, 'networks.v4', [])))->firstWhere('type', 'public')['ip_address'] ?? ''),
+                Column::make('ip', __('Public IP'))->mono()->using(fn ($row) => ServerTargets::label(collect(self::items(data_get($row, 'networks.v4', [])))->firstWhere('type', 'public')['ip_address'] ?? null)),
                 Column::make('size_slug', __('Size'))->mono(),
                 Column::make('region.slug', __('Region')),
                 Column::make('image', __('Image'))->using(fn ($row) => trim(data_get($row, 'image.distribution', '').' '.data_get($row, 'image.name', ''))),
@@ -418,7 +418,7 @@ final class DigitalOcean extends Connector
             ->id('ip')
             ->list(fn (ApiClient $api) => self::every($api, '/reserved_ips', 'reserved_ips'))
             ->columns([
-                Column::make('ip', __('IP'))->mono(),
+                Column::make('ip', __('IP'))->mono()->using(fn ($row) => ServerTargets::label($row['ip'] ?? null)),
                 Column::make('region.slug', __('Region')),
                 Column::make('droplet.name', __('Droplet')),
             ])
@@ -443,7 +443,7 @@ final class DigitalOcean extends Connector
             ->list(fn (ApiClient $api) => self::every($api, '/load_balancers', 'load_balancers'))
             ->columns([
                 Column::make('name', __('Name')),
-                Column::make('ip', __('IP'))->mono(),
+                Column::make('ip', __('IP'))->mono()->using(fn ($row) => ServerTargets::label($row['ip'] ?? null)),
                 Column::make('status', __('Status'))->badge(self::STATUS),
                 Column::make('region.slug', __('Region')),
                 Column::make('droplets', __('Droplets'))->using(fn ($row) => count($row['droplet_ids'] ?? [])),

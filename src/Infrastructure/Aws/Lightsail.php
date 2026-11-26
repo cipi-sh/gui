@@ -7,6 +7,7 @@ use CipiGui\Infrastructure\Column;
 use CipiGui\Infrastructure\Field;
 use CipiGui\Infrastructure\Outcome;
 use CipiGui\Infrastructure\Section;
+use CipiGui\Infrastructure\ServerTargets;
 
 /**
  * Amazon Lightsail, every kind of resource it has, for the AWS connector:
@@ -166,7 +167,7 @@ trait Lightsail
             ->columns([
                 Column::make('name', __('Name')),
                 Column::make('state.name', __('State'))->badge(self::LIGHTSAIL_STATE),
-                Column::make('publicIpAddress', __('Public IP'))->mono(),
+                Column::make('publicIpAddress', __('Public IP'))->mono()->using(fn ($row) => ServerTargets::label($row['publicIpAddress'] ?? null)),
                 Column::make('isStaticIp', __('Static IP'))->bool(),
                 Column::make('blueprintName', __('Blueprint')),
                 Column::make('bundleId', __('Plan'))->mono(),
@@ -263,7 +264,7 @@ trait Lightsail
             ->list(fn (AwsClient $api, array $scope) => self::lightsailAll($api, $scope, 'GetStaticIps', 'staticIps'))
             ->columns([
                 Column::make('name', __('Name')),
-                Column::make('ipAddress', __('IP'))->mono(),
+                Column::make('ipAddress', __('IP'))->mono()->using(fn ($row) => ServerTargets::label($row['ipAddress'] ?? null)),
                 Column::make('attachedTo', __('Attached to')),
                 Column::make('location.regionName', __('Region')),
             ])

@@ -254,7 +254,7 @@ final class Aws extends Connector
             ->columns([
                 Column::make('name', __('Name'))->using(fn ($row) => self::tag($row, 'Name') ?: $row['instanceId']),
                 Column::make('instanceState.name', __('State'))->badge(self::STATE),
-                Column::make('ipAddress', __('Public IP'))->mono(),
+                Column::make('ipAddress', __('Public IP'))->mono()->using(fn ($row) => ServerTargets::label($row['ipAddress'] ?? null)),
                 Column::make('privateIpAddress', __('Private IP'))->mono(),
                 Column::make('instanceType', __('Type'))->mono(),
                 Column::make('placement.availabilityZone', __('Zone')),
@@ -458,7 +458,7 @@ final class Aws extends Connector
             ->filters([self::regionFilter()])
             ->list(fn (AwsClient $api, array $scope) => Xml::list(self::ec2($api, $scope, 'DescribeAddresses')['addressesSet'] ?? null))
             ->columns([
-                Column::make('publicIp', __('IP'))->mono(),
+                Column::make('publicIp', __('IP'))->mono()->using(fn ($row) => ServerTargets::label($row['publicIp'] ?? null)),
                 Column::make('name', __('Name'))->using(fn ($row) => self::tag($row, 'Name')),
                 Column::make('instanceId', __('Instance'))->mono(),
                 Column::make('privateIpAddress', __('Private IP'))->mono(),

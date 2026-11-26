@@ -214,6 +214,10 @@ namespace {
     $check(in_array('access-rules', array_map(fn ($a) => $a->key, $zones->actions), true) && count($cf->instructions()) >= 4, 'zones open their IP access rules; the token\'s permissions are spelled out');
 
     echo "--- DigitalOcean, Hetzner, AWS: records to a server\n";
+    $drop = Connectors::make('digitalocean')->section('droplets');
+    $ec2 = Connectors::make('aws')->section('ec2');
+    $check($render($drop, [['name' => 'web-1', 'networks' => ['v4' => [['type' => 'private', 'ip_address' => '10.0.0.2'], ['type' => 'public', 'ip_address' => '203.0.113.10']]]]])[0]['ip'] === '203.0.113.10 → mozart'
+        && $render($ec2, [['instanceId' => 'i-1', 'ipAddress' => '2001:db8::7']])[0]['ipAddress'] === '2001:db8::7 → bach', 'a Droplet or an EC2 instance says which server of the panel it is');
     $do = Connectors::make('digitalocean')->section('records');
     $api = new FakeApi(['POST /domains/example.com/records' => ['domain_record' => ['id' => 9]]]);
     ($do->toolbarAction('create')->run)($api, [], ['type' => 'A', 'name' => '@', 'data' => 'mozart', 'ttl' => 1800, 'priority' => null, 'port' => null, 'weight' => null], ['domain' => 'example.com']);

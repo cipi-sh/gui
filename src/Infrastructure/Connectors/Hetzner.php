@@ -142,7 +142,7 @@ final class Hetzner extends Connector
             ->columns([
                 Column::make('name', __('Name')),
                 Column::make('status', __('Status'))->badge(self::STATUS),
-                Column::make('public_net.ipv4.ip', __('IPv4'))->mono(),
+                Column::make('public_net.ipv4.ip', __('IPv4'))->mono()->using(fn ($row) => ServerTargets::label(data_get($row, 'public_net.ipv4.ip'))),
                 Column::make('server_type.name', __('Type'))->mono(),
                 Column::make('datacenter.location.name', __('Location')),
                 Column::make('image.description', __('Image')),
@@ -350,7 +350,7 @@ final class Hetzner extends Connector
             ->icon('map-pin')
             ->list(fn (ApiClient $api) => self::every($api, '/floating_ips', 'floating_ips'))
             ->columns([
-                Column::make('ip', __('IP'))->mono(),
+                Column::make('ip', __('IP'))->mono()->using(fn ($row) => ServerTargets::label($row['ip'] ?? null)),
                 Column::make('type', __('Type'))->badge(),
                 Column::make('name', __('Name')),
                 Column::make('home_location.name', __('Home')),
@@ -377,7 +377,7 @@ final class Hetzner extends Connector
             ->icon('map-pin')
             ->list(fn (ApiClient $api) => self::every($api, '/primary_ips', 'primary_ips'))
             ->columns([
-                Column::make('ip', __('IP'))->mono(),
+                Column::make('ip', __('IP'))->mono()->using(fn ($row) => ServerTargets::label($row['ip'] ?? null)),
                 Column::make('type', __('Type'))->badge(),
                 Column::make('name', __('Name')),
                 Column::make('datacenter.name', __('Datacenter')),
@@ -428,7 +428,7 @@ final class Hetzner extends Connector
             ->list(fn (ApiClient $api) => self::every($api, '/load_balancers', 'load_balancers'))
             ->columns([
                 Column::make('name', __('Name')),
-                Column::make('public_net.ipv4.ip', __('IPv4'))->mono(),
+                Column::make('public_net.ipv4.ip', __('IPv4'))->mono()->using(fn ($row) => ServerTargets::label(data_get($row, 'public_net.ipv4.ip'))),
                 Column::make('load_balancer_type.name', __('Type'))->mono(),
                 Column::make('location.name', __('Location')),
                 Column::make('targets', __('Targets'))->using(fn ($row) => count($row['targets'] ?? [])),
