@@ -1058,3 +1058,24 @@ input[type="checkbox"].switch:checked { background: var(--accent); }
 input[type="checkbox"].switch:checked::after { transform: translateX(0.8125rem); }
 input[type="checkbox"].switch:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
 input[type="checkbox"].switch:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Infrastructure connectors (4.8.0) ───────────────────────── */
+.infra-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.5rem; }
+.infra-toolbar .infra-filter { width: auto; min-width: 10rem; }
+.infra-toolbar .infra-search { width: 14rem; max-width: 100%; }
+.infra-info { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1rem; background: var(--bg-raised); }
+.infra-result { max-height: 24rem; overflow: auto; white-space: pre-wrap; word-break: break-all; font-family: var(--font-mono); font-size: 0.75rem; line-height: 1.5; padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-raised); color: var(--text); }
+.connector-group { margin: 1.25rem 0 0.625rem; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-subtle); }
+.connector-group:first-of-type { margin-top: 0.25rem; }
+.connector-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: 0.75rem; }
+.connector-tile { display: flex; flex-direction: column; gap: 0.5rem; text-align: left; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0.875rem 1rem; background: var(--bg-elevated); transition: border-color 0.15s ease, background 0.15s ease; }
+.connector-tile:hover { border-color: var(--border-strong); background: var(--bg-hover); }
+.connector-tile-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.connector-tile-name { font-weight: 600; color: var(--text); display: inline-flex; align-items: center; gap: 0.5rem; }
+.connector-tile-text { font-size: 0.75rem; line-height: 1.45; color: var(--text-soft); }
+.connector-steps { margin: 0; padding-left: 1.25rem; list-style: decimal; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.8125rem; line-height: 1.5; color: var(--text-soft); }
+.connector-steps li::marker { color: var(--text-subtle); }
+.passkey-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.passkey-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.625rem 0.875rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-raised); }
+.auth-divider { display: flex; align-items: center; gap: 0.75rem; color: var(--text-subtle); font-size: 0.75rem; margin: 1rem 0; }
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; border-top: 1px solid var(--border); }

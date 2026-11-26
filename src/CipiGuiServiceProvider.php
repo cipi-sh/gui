@@ -57,6 +57,9 @@ class CipiGuiServiceProvider extends ServiceProvider
         Livewire::component('cipi-gui.firewall', \CipiGui\Livewire\Firewall::class);
         Livewire::component('cipi-gui.settings', \CipiGui\Livewire\Settings::class);
         Livewire::component('cipi-gui.team', \CipiGui\Livewire\Team::class);
+        Livewire::component('cipi-gui.infrastructure', \CipiGui\Livewire\Infrastructure::class);
+        Livewire::component('cipi-gui.connector-accounts', \CipiGui\Livewire\ConnectorAccounts::class);
+        Livewire::component('cipi-gui.passkey-list', \CipiGui\Livewire\PasskeyList::class);
         // Parts of the layout that follow the data they show (see the classes).
         Livewire::component('cipi-gui.header', \CipiGui\Livewire\Header::class);
         Livewire::component('cipi-gui.nav', \CipiGui\Livewire\Nav::class);

@@ -3,6 +3,7 @@
 use CipiGui\Http\Controllers\AssetsController;
 use CipiGui\Http\Controllers\Auth\InviteController;
 use CipiGui\Http\Controllers\Auth\LoginController;
+use CipiGui\Http\Controllers\Auth\PasskeyController;
 use CipiGui\Http\Controllers\Auth\SsoController;
 use CipiGui\Http\Controllers\Auth\TwoFactorController;
 use CipiGui\Http\Controllers\DbUploadController;
@@ -11,6 +12,7 @@ use CipiGui\Livewire\AppDetail;
 use CipiGui\Livewire\Apps;
 use CipiGui\Livewire\Dashboard;
 use CipiGui\Livewire\Databases;
+use CipiGui\Livewire\Infrastructure;
 use CipiGui\Livewire\ServerManage;
 use CipiGui\Livewire\Settings;
 use CipiGui\Livewire\Servers;
@@ -40,6 +42,9 @@ Route::middleware('guest')->group(function () {
     // Single sign-on (OIDC); both 404 unless cipi-gui.sso is configured.
     Route::get('/auth/sso', [SsoController::class, 'redirect'])->name('cipi-gui.sso.redirect');
     Route::get('/auth/sso/callback', [SsoController::class, 'callback'])->name('cipi-gui.sso.callback');
+    // Passkeys (4.8.0): sign in with one alone — the device and its face, finger or PIN.
+    Route::post('/passkeys/login/options', [PasskeyController::class, 'loginOptions'])->middleware('throttle:30,1')->name('cipi-gui.passkeys.login.options');
+    Route::post('/passkeys/login', [PasskeyController::class, 'login'])->middleware('throttle:10,1')->name('cipi-gui.passkeys.login');
 });
 
 Route::post('/logout', [LoginController::class, 'logout'])
@@ -52,6 +57,11 @@ Route::middleware(['auth'])->group(function () {
     // Required by an admin for every account (Team, 4.6.0): set up before anything else.
     Route::get('/2fa/setup', [TwoFactorController::class, 'setup'])->name('cipi-gui.2fa.setup');
     Route::post('/2fa/setup', [TwoFactorController::class, 'enable'])->name('cipi-gui.2fa.enable');
+    // A passkey as the second step, and adding one (Settings, or the 2FA setup).
+    Route::post('/2fa/passkey/options', [PasskeyController::class, 'secondStepOptions'])->middleware('throttle:30,1')->name('cipi-gui.2fa.passkey.options');
+    Route::post('/2fa/passkey', [PasskeyController::class, 'secondStep'])->middleware('throttle:10,1')->name('cipi-gui.2fa.passkey');
+    Route::post('/passkeys/register/options', [PasskeyController::class, 'registerOptions'])->middleware('throttle:30,1')->name('cipi-gui.passkeys.register.options');
+    Route::post('/passkeys/register', [PasskeyController::class, 'register'])->middleware('throttle:10,1')->name('cipi-gui.passkeys.register');
 });
 
 Route::middleware(['auth', 'cipi-gui.2fa'])->group(function () {
@@ -59,6 +69,9 @@ Route::middleware(['auth', 'cipi-gui.2fa'])->group(function () {
     Route::middleware('cipi-gui.admin')->group(function () {
         Route::get('/servers', Servers::class)->name('cipi-gui.servers');
         Route::get('/team', Team::class)->name('cipi-gui.team');
+        // Connectors (4.8.0): Cloudflare, DigitalOcean, AWS… — accounts in Settings → Connectors.
+        Route::get('/infrastructure/{connector}', Infrastructure::class)->name('cipi-gui.infrastructure')
+            ->where('connector', '[a-z0-9-]+');
     });
     Route::post('/servers/switch', ServerSwitchController::class)->name('cipi-gui.servers.switch');
     Route::get('/server/{serverId?}', ServerManage::class)->name('cipi-gui.server-manage')

@@ -62,7 +62,7 @@
                                     <button type="button" wire:click="openEdit({{ $user['id'] }})" class="btn btn-secondary btn-sm">{{ $user['self'] ? 'Your access' : 'Edit access' }}</button>
                                     @unless($user['self'])
                                         @if($user['two_factor'])
-                                            <button type="button" wire:click="confirmResetTwoFactor({{ $user['id'] }})" class="btn btn-ghost btn-sm" title="A lost phone: remove this account's 2FA">Reset 2FA</button>
+                                            <button type="button" wire:click="confirmResetTwoFactor({{ $user['id'] }})" class="btn btn-ghost btn-sm" title="A lost phone: remove this account's 2FA and its passkeys">Reset 2FA</button>
                                         @endif
                                         <button type="button" wire:click="confirmDelete({{ $user['id'] }})" class="btn btn-ghost btn-sm danger">Remove</button>
                                     @endunless
@@ -168,7 +168,7 @@
     @if($resetting)
         <x-cipi::modal title="Reset two-factor authentication" close="cancelResetTwoFactor">
             <div class="modal-body space-y-3">
-                <p class="text-soft">Remove the 2FA of <strong class="text-strong">{{ $resetting['name'] ?: $resetting['email'] }}</strong>? For a lost or replaced phone: their authenticator app stops being asked for.</p>
+                <p class="text-soft">Remove the 2FA of <strong class="text-strong">{{ $resetting['name'] ?: $resetting['email'] }}</strong>? For a lost or replaced phone: their authenticator app stops being asked for, and their passkeys are removed.</p>
                 <p class="text-sm text-muted">{{ $twoFactorRequired ? 'Two-factor authentication is required: they set it up again before anything else, at their next page.' : 'They can set it up again from Settings. Sessions already open stay open.' }}</p>
             </div>
             <div class="modal-footer">

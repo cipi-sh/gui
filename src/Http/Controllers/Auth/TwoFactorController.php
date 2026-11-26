@@ -3,6 +3,7 @@
 namespace CipiGui\Http\Controllers\Auth;
 
 use CipiGui\Services\OidcClient;
+use CipiGui\Services\Passkeys;
 use CipiGui\Services\TwoFactorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -14,7 +15,7 @@ class TwoFactorController
     {
         $user = Auth::user();
 
-        if (! $user || ! ($user->two_factor_enabled ?? false)) {
+        if (! $user || ! TwoFactorService::hasSecondFactor($user)) {
             return redirect()->route('cipi-gui.dashboard');
         }
 
@@ -22,7 +23,10 @@ class TwoFactorController
             return redirect()->route('cipi-gui.dashboard');
         }
 
-        return view('cipi-gui::auth.2fa');
+        return view('cipi-gui::auth.2fa', [
+            'totp' => (bool) ($user->two_factor_enabled ?? false),
+            'passkey' => Passkeys::enabled() && Passkeys::has($user),
+        ]);
     }
 
     public function verify(Request $request, TwoFactorService $twoFactor)
@@ -53,7 +57,7 @@ class TwoFactorController
     {
         $user = Auth::user();
 
-        if ($user->two_factor_enabled ?? false) {
+        if (TwoFactorService::hasSecondFactor($user)) {
             return redirect()->route($request->session()->get('cipi_gui_2fa_verified') ? 'cipi-gui.dashboard' : 'cipi-gui.2fa');
         }
 
@@ -74,6 +78,7 @@ class TwoFactorController
             'qrCodeSvg' => $twoFactor->qrCodeSvg($user, $secret),
             'sso' => OidcClient::configured(),
             'ssoLabel' => OidcClient::label(),
+            'passkeys' => Passkeys::enabled() && Passkeys::ready(),
         ]);
     }
 

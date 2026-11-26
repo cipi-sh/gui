@@ -18,7 +18,7 @@
 
             <div>
                 <label for="email">Email</label>
-                <input type="email" id="email" name="email" value="{{ old('email') }}" required @unless($sso) autofocus @endunless autocomplete="username">
+                <input type="email" id="email" name="email" value="{{ old('email') }}" required @unless($sso) autofocus @endunless autocomplete="{{ ($passkeys ?? false) ? 'username webauthn' : 'username' }}">
                 @error('email') <p class="field-error">{{ $message }}</p> @enderror
             </div>
 
@@ -34,5 +34,34 @@
 
             <button type="submit" class="btn btn-primary w-full" style="min-height: 2.5rem;">Sign in</button>
         </form>
+
+        @if($passkeys ?? false)
+            <div data-passkey-login hidden>
+                <div class="auth-divider">or</div>
+                <button type="button" class="btn btn-secondary w-full" style="min-height: 2.5rem;" data-passkey-button>
+                    <x-cipi::icon name="key" /> Sign in with a passkey
+                </button>
+                <p class="field-error mt-2" data-passkey-error hidden></p>
+                <p class="text-xs text-muted text-center mt-3">Face ID, Touch ID, Windows Hello, your phone or a security key — no password, no code.</p>
+            </div>
+            @include('cipi-gui::partials.passkey-script')
+            <script>
+                (() => {
+                    const box = document.querySelector('[data-passkey-login]');
+                    if (!box || !window.cipiPasskey.supported()) return;
+                    box.hidden = false;
+                    const btn = box.querySelector('[data-passkey-button]');
+                    const err = box.querySelector('[data-passkey-error]');
+                    const show = (m) => { err.textContent = m; err.hidden = false; btn.disabled = false; };
+                    const remember = () => ({ remember: document.getElementById('remember')?.checked ? 1 : 0 });
+                    btn.addEventListener('click', async () => {
+                        err.hidden = true; btn.disabled = true;
+                        try { await window.cipiPasskey.use(@js(route('cipi-gui.passkeys.login.options')), @js(route('cipi-gui.passkeys.login')), remember()); }
+                        catch (e) { show(window.cipiPasskey.why(e)); }
+                    });
+                    window.cipiPasskey.autofill(@js(route('cipi-gui.passkeys.login.options')), @js(route('cipi-gui.passkeys.login')), show);
+                })();
+            </script>
+        @endif
     @endunless
 @endsection

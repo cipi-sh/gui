@@ -12,6 +12,8 @@ class CipiServer extends Model
         'url',
         'ip',
         'token',
+        'cf_access_client_id',
+        'cf_access_client_secret',
         'is_active',
         'last_connected_at',
         'last_error',
@@ -19,6 +21,7 @@ class CipiServer extends Model
 
     protected $hidden = [
         'token',
+        'cf_access_client_secret',
     ];
 
     protected function casts(): array
@@ -45,6 +48,34 @@ class CipiServer extends Model
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /** The service token's secret (cipi zt service-token create … --for=api), encrypted like the API token. */
+    public function setCfAccessClientSecretAttribute(?string $value): void
+    {
+        $this->attributes['cf_access_client_secret'] = $value === null || $value === '' ? null : Crypt::encryptString($value);
+    }
+
+    public function getCfAccessClientSecretAttribute(?string $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        try {
+            return Crypt::decryptString($value);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /** @return array<string, string> the headers that open Cloudflare Access in front of the API, when it has them */
+    public function cloudflareAccessHeaders(): array
+    {
+        $id = trim((string) $this->cf_access_client_id);
+        $secret = (string) $this->cf_access_client_secret;
+
+        return $id !== '' && $secret !== '' ? ['CF-Access-Client-Id' => $id, 'CF-Access-Client-Secret' => $secret] : [];
     }
 
     public function getBaseUrlAttribute(): string

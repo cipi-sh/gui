@@ -3,6 +3,7 @@
 namespace CipiGui\Http\Controllers\Auth;
 
 use CipiGui\Services\OidcClient;
+use CipiGui\Services\Passkeys;
 use CipiGui\Services\TwoFactorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -17,6 +18,7 @@ class LoginController
         }
 
         return view('cipi-gui::auth.login', [
+            'passkeys' => Passkeys::enabled() && Passkeys::ready(),
             'sso' => OidcClient::configured(),
             'ssoLabel' => OidcClient::label(),
             'ssoOnly' => OidcClient::only(),
@@ -47,7 +49,8 @@ class LoginController
 
         $user = Auth::user();
 
-        if ($user->two_factor_enabled ?? false) {
+        // A code from the authenticator app, or a passkey: the second step.
+        if (TwoFactorService::hasSecondFactor($user)) {
             return redirect()->route('cipi-gui.2fa');
         }
 

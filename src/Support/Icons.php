@@ -73,10 +73,28 @@ class Icons
         'grip' => 'M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01',
     ];
 
+    /**
+     * Heroicon names the infrastructure connectors use (the same as in
+     * Studio), drawn with the closest icon the panel has.
+     *
+     * @var array<string, string>
+     */
+    public const ALIASES = [
+        'list-bullet' => 'list', 'circle-stack' => 'database', 'globe-europe-africa' => 'globe', 'shield-check' => 'shield',
+        'lock-closed' => 'lock', 'lock-open' => 'unlock', 'arrows-right-left' => 'routing', 'archive-box' => 'package',
+        'server-stack' => 'servers', 'rocket-launch' => 'rocket', 'document-arrow-down' => 'download', 'command-line' => 'terminal',
+        'arrow-path' => 'refresh', 'code-bracket' => 'code', 'document-text' => 'document', 'document-duplicate' => 'copy',
+        'adjustments-horizontal' => 'settings', 'squares-2x2' => 'dashboard', 'chart-bar' => 'chart', 'fire' => 'bolt',
+        'link-slash' => 'x-circle', 'camera' => 'eye', 'map-pin' => 'globe', 'arrows-pointing-out' => 'external',
+        'currency-dollar' => 'chart', 'cube' => 'package', 'cube-transparent' => 'package', 'sparkles' => 'bolt',
+        'share' => 'link', 'lifebuoy' => 'wrench', 'stop' => 'pause', 'arrow-uturn-left' => 'rollback', 'archive-box-x-mark' => 'trash',
+        'light-bulb' => 'bolt', 'arrow-down-tray' => 'download', 'globe-alt' => 'globe', 'finger-print' => 'key', 'bell-alert' => 'signal',
+    ];
+
     /** @return list<string> */
     public static function paths(string $name): array
     {
-        $paths = self::PATHS[$name] ?? self::PATHS['info'];
+        $paths = self::PATHS[$name] ?? self::PATHS[self::ALIASES[$name] ?? 'info'] ?? self::PATHS['info'];
 
         return is_array($paths) ? $paths : [$paths];
     }

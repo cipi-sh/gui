@@ -31,6 +31,30 @@
         </form>
 
         <p class="text-xs text-muted">From now on every sign-in asks for a code from this app. Lost the phone? An admin can reset your 2FA from Team, or on the server: <code>cipi gui reset-user</code>.</p>
+
+        @if($passkeys ?? false)
+            <div data-passkey-setup hidden>
+                <div class="auth-divider">or</div>
+                <button type="button" class="btn btn-secondary w-full" style="min-height: 2.5rem;" data-passkey-button><x-cipi::icon name="key" /> Use a passkey instead</button>
+                <p class="field-error mt-2" data-passkey-error hidden></p>
+                <p class="text-xs text-muted mt-2">Face ID, Touch ID, Windows Hello, a phone or a security key: it counts as two-factor authentication, and you can sign in with it alone.</p>
+            </div>
+            @include('cipi-gui::partials.passkey-script')
+            <script>
+                (() => {
+                    const box = document.querySelector('[data-passkey-setup]');
+                    if (!box || !window.cipiPasskey.supported()) return;
+                    box.hidden = false;
+                    const btn = box.querySelector('[data-passkey-button]');
+                    const err = box.querySelector('[data-passkey-error]');
+                    btn.addEventListener('click', async () => {
+                        err.hidden = true; btn.disabled = true;
+                        try { await window.cipiPasskey.add(@js(route('cipi-gui.passkeys.register.options')), @js(route('cipi-gui.passkeys.register')), { setup: 1 }); }
+                        catch (e) { err.textContent = window.cipiPasskey.why(e); err.hidden = false; btn.disabled = false; }
+                    });
+                })();
+            </script>
+        @endif
         @if($sso)
             <p class="text-xs text-muted">Signing in with {{ $ssoLabel }} instead? Its own MFA counts: sign out and use “Sign in with {{ $ssoLabel }}”.</p>
         @endif

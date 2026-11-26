@@ -1499,6 +1499,12 @@ class CipiApiClient
 
     protected static function configure(PendingRequest $request, CipiServer $server): PendingRequest
     {
+        // Behind Cloudflare Access (cipi zt access enable --api): the service token, with every call.
+        $access = $server->cloudflareAccessHeaders();
+        if ($access !== []) {
+            $request = $request->withHeaders($access);
+        }
+
         return $request
             ->withToken((string) $server->token)
             ->acceptJson()

@@ -125,6 +125,25 @@
                         <input id="server-token" type="password" wire:model="token" placeholder="{{ $editingId ? 'Unchanged' : 'Paste the token from cipi api token create' }}" autocomplete="new-password">
                         @error('token') <p class="field-error">{{ $message }}</p> @enderror
                     </div>
+                    <details class="rounded-lg" @if($accessClientId !== '' || $errors->has('accessClientId') || $errors->has('accessClientSecret')) open @endif data-server-cf-access>
+                        <summary class="text-sm text-soft cursor-pointer">Behind Cloudflare Access <span class="text-subtle">(optional)</span></summary>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                            <div>
+                                <label for="server-cf-id">CF-Access-Client-Id</label>
+                                <input id="server-cf-id" type="text" wire:model="accessClientId" placeholder="1a2b3c….access" autocomplete="off" class="font-mono text-xs">
+                                @error('accessClientId') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                            <div>
+                                <label for="server-cf-secret">CF-Access-Client-Secret</label>
+                                <input id="server-cf-secret" type="password" wire:model="accessClientSecret" placeholder="{{ $editingId && $accessClientId !== '' ? 'Unchanged' : 'Shown once by the CLI' }}" autocomplete="new-password">
+                                @error('accessClientSecret') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                        </div>
+                        <p class="field-hint">When the server's API sits behind Cloudflare Access, the panel sends a service token with every call. On the server: <code>cipi zt hostname add --api</code>, <code>cipi zt access enable --api --allow=none</code>, <code>cipi zt service-token create panel --for=api</code> — it prints both values once.</p>
+                        @if($editingId && $accessClientId !== '')
+                            <label class="flex items-center gap-2 text-sm mt-2"><input type="checkbox" wire:model="accessClear"> Remove the service token from this connection</label>
+                        @endif
+                    </details>
                 </div>
                 <div class="modal-footer">
                     <button type="button" wire:click="closeForm" class="btn btn-secondary">Cancel</button>

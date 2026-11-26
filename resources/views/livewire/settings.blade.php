@@ -47,6 +47,8 @@
                     @endif
                     <p class="field-hint mt-4">Set up on the server that hosts the panel, where its <code>.env</code> is written: <code>cipi gui sso set --issuer=… --client-id=… --client-secret=…</code>, then <code>cipi gui sso status</code>, <code>cipi gui sso only on|off</code>, <code>cipi gui sso disable</code>.</p>
                 </div>
+
+                @livewire('cipi-gui.connector-accounts')
             @endif
 
             <div class="card">
@@ -176,6 +178,9 @@
                     <button wire:click="startTwoFactorSetup" class="btn btn-primary"><x-cipi::icon name="shield" /> Set up 2FA</button>
                 @endif
             </div>
+
+            @livewire('cipi-gui.passkey-list')
+
         </div>
 
         <div class="space-y-4">
