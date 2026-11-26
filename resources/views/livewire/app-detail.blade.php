@@ -1640,17 +1640,6 @@
                         <div class="card p-4 mb-4" style="border-color: var(--accent-line);">
                             <p class="text-xs text-muted mb-1">Generated password — shown once</p>
                             <x-cipi::secret label="Password" :value="$generatedPassword" />
-                            @php
-                                $basicAuthLogins = [[
-                                    'title' => $app['app'].' — HTTP basic auth'.($server ? ' on '.$server->name : ''),
-                                    'url' => $this->siteUrl(),
-                                    'username' => ($basicAuth['users'] ?? [])[0] ?? $app['app'],
-                                    'password' => $generatedPassword,
-                                    'notes' => 'The password in front of '.$app['domain'].' (HTTP basic auth). Saved from the Cipi panel.',
-                                ]];
-                                $basicAuthFile = 'cipi-'.$app['app'].'-basic-auth';
-                            @endphp
-                            <x-cipi::save-to class="mt-3" :name="$basicAuthFile" :logins="$basicAuthLogins" />
                         </div>
                     @endif
                     @if($basicAuthAgent !== null)

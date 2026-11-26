@@ -5,7 +5,6 @@ namespace CipiGui\Livewire\Concerns;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
 use CipiGui\Services\JobOutputParser;
-use CipiGui\Support\PasswordManagers;
 use Livewire\Attributes\Locked;
 
 trait ManagesAsyncJobs
@@ -196,25 +195,6 @@ trait ManagesAsyncJobs
     public function jobSecrets(): array
     {
         return app(JobOutputParser::class)->secrets($this->activeJobResult ?? []);
-    }
-
-    /**
-     * The same secrets as logins a password manager can import — the SSH and
-     * database users of a new app, a database's new password — for the
-     * "Save to…" menu of the overlay. Empty when the result has none.
-     *
-     * @return list<array{title: string, url: string, username: string, password: string, notes: string}>
-     */
-    public function jobLogins(): array
-    {
-        $server = method_exists($this, 'currentServer') ? $this->currentServer() : null;
-
-        return PasswordManagers::fromJobResult($this->activeJobResult ?? [], [
-            'server' => $server?->name,
-            'host' => $server?->host,
-            'ip' => $server?->ip,
-            'url' => $server?->base_url,
-        ]);
     }
 
     /**

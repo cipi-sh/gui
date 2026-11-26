@@ -2,7 +2,7 @@
 
 ## [4.9.0] — 2026-11-26
 
-The page cache and Octane of an app, Valkey per app, the server's own name wherever servers are listed, how notifications are written, and "Save to…" next to credentials. For Cipi 5.17.0 and cipi/api 1.47. No new token ability: what the panel's token has covers it.
+The page cache and Octane of an app, Valkey per app, the server's own name wherever servers are listed, and how notifications are written. For Cipi 5.17.0 and cipi/api 1.47. No new token ability: what the panel's token has covers it.
 
 ### Added
 
@@ -13,7 +13,6 @@ The page cache and Octane of an app, Valkey per app, the server's own name where
 - **Server → Services → Valkey per app**: every Laravel app with what its `.env` points at — *Its own* instance (port, memory, keys), *Shared* (the server's, whose password every app on it holds), *Elsewhere* — and how many are still on the shared one. **Isolate** one app, or **all** of them in one job; **Share again**; **Restart** an instance; and, once no app uses the shared instance, **Empty the shared instance** (its keys deleted, its password changed — the new one stays on the server). No password travels through the panel. *Manage* access to the server.
 - **The server's own name.** A server has the name the panel gives it (`production`) and the one the machine has (`vmi12334`) — which is what a notification says. The hostname is now kept from the server's status and shown, set apart: a **Hostname column in Connections**, the header and the System card of the server page, the dashboard's cards, the server switcher. Migration `add_hostname_to_cipi_servers_table` (`php artisan migrate`); filled at the next status read or connection test.
 - **Notifications → Written as** (Cipi 5.17.0): the **server name** notifications use — empty for the hostname, or **Use "production", the name it has in this panel** in one click; subjects then carry the name and bodies `name (hostname)` — and the **time zone** of their `Time:` line (the server's own, usually UTC, or any other: for notifications only). The card shows how the next notification reads.
-- **Save to…** next to credentials shown once — a finished job's (a new app's SSH and database users, a database's new password) and a basic auth password: a menu that downloads them as the import file of **1Password, Bitwarden, Proton Pass, Apple Passwords, Google Password Manager (Chrome, Edge, Brave), KeePassXC, LastPass**, or a plain CSV, and *Copy everything as text*. After a download the menu says where that manager imports it, and to delete the file. The file is made in the browser from what the page already shows (`CipiGui\Support\PasswordManagers`): no request, nothing stored, no third-party script.
 - `CipiApiClient`: `pageCache()`, `setPageCache()`, `clearPageCache()`, `octane()`, `octanePhp()`, `octaneRestart()`, `frankenphpUpgrade()`, `valkey()`, `valkeyIsolate()`, `valkeyShare()`, `valkeyRestart()`, `valkeyFlushShared()`, `notificationSettings()`, `updateNotificationSettings()`. `CipiServer::rememberHostname()`, `machine_name`. `Support\PageCache`.
 - Demo API: the page cache, Octane (the first server's `shop` runs two PHP versions until switched) and Valkey per app.
 
@@ -21,7 +20,6 @@ The page cache and Octane of an app, Valkey per app, the server's own name where
 
 - **Nothing to do with tokens.** The new pages use abilities the panel's token already has: `nginx-*` for the page cache, `php-*` for Octane, `services-*` for Valkey, `notifications-*` for *Written as*.
 - On a server older than Cipi 5.17.0 the Page cache and Octane tabs say that the server needs an update. The Valkey card is not shown by an API that does not have it, and says what is missing when the API has it and the core does not; *Written as* is shown by a server that sends its settings.
-- **"Save in 1Password" as a button.** 1Password is the only manager with a button a web page can embed, and it works by loading 1Password's script in the page that shows the passwords. The panel does not load third-party scripts, and has no build step to bundle one: the menu gives 1Password its import file like the others.
 
 ## [4.8.0] — 2026-11-26
 

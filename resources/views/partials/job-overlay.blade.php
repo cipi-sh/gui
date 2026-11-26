@@ -77,13 +77,6 @@
                     @foreach($secrets as $secret)
                         <x-cipi::secret :label="$secret['label']" :value="$secret['value']" :masked="$secret['masked']" />
                     @endforeach
-                    {{-- The same, as the file a password manager imports. --}}
-                    @php
-                        $saveLogins = $this->jobLogins();
-                        $saveSubject = $activeJobResult['app'] ?? ($activeJobResult['database'] ?? null);
-                        $saveName = 'cipi-'.(is_string($saveSubject) && $saveSubject !== '' ? $saveSubject : 'credentials');
-                    @endphp
-                    <x-cipi::save-to :logins="$saveLogins" :name="$saveName" class="mt-3" />
                 </div>
             @endif
 

@@ -675,10 +675,6 @@ svg.spark:not([class*="h-"]):not([class*="w-"]) { width: 96px; height: 24px; }
 .dropdown-divider { height: 1px; margin: 0.375rem 0; background: var(--border-subtle); }
 .dropdown-label { padding: 0.375rem 0.625rem 0.25rem; font-size: 0.6875rem; color: var(--text-subtle); }
 
-/* "Save to…" next to credentials shown once: a menu of password managers, each its import file. */
-.save-to .dropdown { display: inline-block; }
-.save-to .dropdown-menu { min-width: 16rem; }
-
 .qr-box { display: flex; justify-content: center; padding: 1rem; background: #fff; border: 1px solid var(--border); border-radius: var(--radius-lg); }
 .qr-box svg:not([class*="h-"]):not([class*="w-"]) { width: 220px; height: 220px; }
 

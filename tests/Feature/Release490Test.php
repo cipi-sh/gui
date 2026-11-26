@@ -8,7 +8,6 @@ use CipiGui\Livewire\ServerManage;
 use CipiGui\Livewire\Servers;
 use CipiGui\Models\CipiServer;
 use CipiGui\Services\Access;
-use CipiGui\Support\PasswordManagers;
 use CipiGui\Support\Theme;
 use CipiGui\Tests\TestCase;
 use Illuminate\Http\Client\Request;
@@ -18,8 +17,7 @@ use PHPUnit\Framework\Attributes\Test;
 
 /**
  * 4.9.0 (cipi/api 1.47, Cipi 5.17.0): the page cache and Octane of an app,
- * Valkey per app, the server's own name, how notifications are written, and
- * "Save to…" next to credentials shown once.
+ * Valkey per app, the server's own name, and how notifications are written.
  */
 class Release490Test extends TestCase
 {
@@ -320,30 +318,6 @@ class Release490Test extends TestCase
         $this->assertSame(['timezone' => null, 'server_name' => null], $this->sent('PUT', '/api/notifications/settings')->data());
         $page->set('settingsServerName', 'prod; rm -rf /')->call('saveSettings')->assertHasErrors('settingsServerName');
         $page->set('settingsServerName', '')->set('settingsTimezone', 'Mars/Olympus')->call('saveSettings')->assertHasErrors('settingsTimezone');
-    }
-
-    // ── Save to… ─────────────────────────────────────────────────────
-
-    #[Test]
-    public function credentials_shown_once_can_be_saved_to_a_password_manager(): void
-    {
-        $logins = PasswordManagers::fromJobResult(
-            ['app' => 'shop', 'domain' => 'shop.example.com', 'ssh' => ['user' => 'shop', 'password' => 'ssh-secret'], 'database' => ['user' => 'shop', 'password' => 'db-secret']],
-            ['server' => 'production', 'ip' => '203.0.113.24'],
-        );
-        $this->assertCount(2, $logins);
-
-        $html = (string) $this->blade('<x-cipi::save-to :logins="$logins" name="cipi-shop" />', ['logins' => $logins]);
-        $this->assertStringContainsString('data-save-to', $html);
-        $this->assertStringContainsString('Save to…', $html);
-        foreach (['1Password', 'Bitwarden', 'Proton Pass', 'Apple Passwords', 'Google Password Manager', 'KeePassXC', 'LastPass'] as $manager) {
-            $this->assertStringContainsString($manager, $html);
-        }
-        $this->assertStringContainsString('cipi-shop-bitwarden.csv', $html);
-        $this->assertStringContainsString('Then delete the downloaded file', $html);
-
-        // Nothing to save, no menu.
-        $this->assertStringNotContainsString('data-save-to', (string) $this->blade('<x-cipi::save-to :logins="[]" />'));
     }
 
     #[Test]

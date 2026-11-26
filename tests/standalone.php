@@ -559,11 +559,9 @@ namespace {
         $check(! preg_match('/\b(API|Cipi) \d+\.\d+/', $text), "{$v}: no version of Cipi or of its API in its text");
     }
 
-    echo "--- 4.9.0: page cache, Octane, Valkey per app, hostname, Written as, Save to…\n";
+    echo "--- 4.9.0: page cache, Octane, Valkey per app, hostname, Written as\n";
     require_once $root.'/src/Support/PageCache.php';
-    require_once $root.'/src/Support/PasswordManagers.php';
     $PC = \CipiGui\Support\PageCache::class;
-    $PM = \CipiGui\Support\PasswordManagers::class;
     $theme = (string) file_get_contents($root.'/src/Support/Theme.php');
     $changelog = (string) file_get_contents($root.'/CHANGELOG.md');
     $check(str_contains($theme, "VERSION = '4.9.0'") && str_contains($theme, "API = '1.47'") && str_contains($changelog, '## [4.9.0]'), 'version 4.9.0 for API 1.47');
@@ -629,45 +627,7 @@ namespace {
     $check(str_contains($nt, "\$this->syncSettings(\$status['settings'] ?? null);") && preg_match('/public function saveSettings\(\): void\s*\{\s*if \(! \$this->guardManage\(\)/', $nt) === 1 && str_contains($nt, 'public function usePanelName(): void'), 'Written as: read with the channels, changed with Manage access');
     $check(str_contains($ntv, 'data-notification-settings') && str_contains($ntv, 'wire:model="settingsTimezone"') && str_contains($ntv, 'wire:model="settingsServerName"') && str_contains($ntv, 'data-use-panel-name') && str_contains($ntv, '@if($settings !== null)'), 'Written as: the server name (the panel\'s own in one click) and the time zone, on a server that has them');
 
-    // Save to…: the import file of each password manager.
-    $logins = $PM::fromJobResult(
-        ['app' => 'shop', 'domain' => 'shop.example.com', 'ssh' => ['user' => 'shop', 'password' => 'Ssh,Pa"ss'], 'database' => ['user' => 'shop', 'password' => 'db-secret-1']],
-        ['server' => 'production', 'ip' => '203.0.113.24', 'host' => 'vps.example.com', 'url' => 'https://vps.example.com'],
-    );
-    $check(count($logins) === 2 && $logins[0]['title'] === 'shop — SSH / SFTP on production' && $logins[0]['url'] === 'https://shop.example.com' && $logins[0]['username'] === 'shop' && $logins[0]['password'] === 'Ssh,Pa"ss' && str_contains($logins[0]['notes'], 'ssh shop@203.0.113.24')
-        && $logins[1]['title'] === 'shop — database on production' && $logins[1]['password'] === 'db-secret-1', 'a new app: its SSH and its database user, each a login with what it opens in the notes');
-    $dbLogin = $PM::fromJobResult(['database' => 'shop_tenant', 'engine' => 'mariadb', 'user' => 'shop_tenant', 'password' => 'p4ss', 'url' => 'mysql://…'], ['server' => 'production', 'url' => 'https://vps.example.com']);
-    $check(count($dbLogin) === 1 && $dbLogin[0]['title'] === 'shop_tenant — database on production' && $dbLogin[0]['url'] === 'https://vps.example.com' && str_contains($dbLogin[0]['notes'], '(mariadb)'), 'a database\'s new password: one login');
-    $check($PM::fromJobResult(['app' => 'shop', 'released' => true]) === [] && $PM::fromJobResult([]) === [] && $PM::login(['title' => 'x', 'password' => '']) === null && $PM::login(['title' => 'x', 'password' => "a\nb"]) === null, 'a result without a password has nothing to save; nor has a password with a line break');
-    $check($PM::login(['title' => "a\nb", 'url' => 'javascript:alert(1)', 'username' => " u\t", 'password' => 'p'])  === ['title' => 'a b', 'url' => '', 'username' => 'u', 'password' => 'p', 'notes' => ''], 'a login is cleaned: one line per field, an address only when it is http(s)');
-    $check($PM::csvLine(['plain', 'a,b', 'say "hi"', "two\nlines", ' padded ', '']) === 'plain,"a,b","say ""hi""","two'."\n".'lines"," padded ",', 'CSV: commas, quotes, line breaks and outer spaces are quoted, quotes doubled');
-    $first = fn (string $id) => explode("\r\n", $PM::file($id, $logins));
-    $check($first('1password')[0] === 'Title,Website,Username,Password,Notes' && str_starts_with($first('1password')[1], 'shop — SSH / SFTP on production,https://shop.example.com,shop,"Ssh,Pa""ss",'), '1Password: Title, Website, Username, Password, Notes');
-    $check($first('bitwarden')[0] === 'folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp' && str_starts_with($first('bitwarden')[1], 'Cipi,,login,shop — SSH / SFTP on production,') && str_ends_with($first('bitwarden')[1], ',,,https://shop.example.com,shop,"Ssh,Pa""ss",'), 'Bitwarden (csv): its eleven columns, a login per row');
-    $check($first('proton')[0] === 'name,url,email,username,password,note,totp,vault' && $first('apple')[0] === 'Title,URL,Username,Password,Notes,OTPAuth' && $first('chrome')[0] === 'name,url,username,password,note' && $first('keepass')[0] === 'Group,Title,Username,Password,URL,Notes' && $first('lastpass')[0] === 'url,username,password,totp,extra,name,grouping,fav' && $first('csv')[0] === 'title,url,username,password,notes',
-        'Proton Pass, Apple Passwords, Chrome, KeePassXC, LastPass and the plain CSV: each its own first line');
-    $columns = true;
-    foreach (array_keys($PM::PROVIDERS) as $id) {
-        $lines = array_values(array_filter(explode("\r\n", $PM::file($id, $logins)), fn ($l) => $l !== ''));
-        $n = count(str_getcsv($lines[0], ',', '"', ''));
-        foreach (array_slice($lines, 1) as $line) {
-            $row = str_getcsv($line, ',', '"', '');
-            $columns = $columns && count($row) === $n && in_array('Ssh,Pa"ss', $row, true) !== in_array('db-secret-1', $row, true);
-        }
-        $columns = $columns && count($lines) === 3;
-    }
-    $check($columns, 'every file: as many fields in a row as in its first line, the password intact — read back with a CSV parser');
-    $menu = $PM::menu($logins, 'cipi-Shop!');
-    $check(count($menu) === count($PM::PROVIDERS) && $menu[0]['filename'] === 'cipi-shop-1password.csv' && $menu[0]['label'] === '1Password' && str_contains($menu[1]['hint'], 'Bitwarden (csv)') && $PM::file('nope', $logins) === $PM::file('csv', $logins), 'the menu: every manager with its file, its name and how to import it; an unknown one is the plain CSV');
-    $check(str_contains($PM::text($logins), "shop — SSH / SFTP on production\nURL: https://shop.example.com\nUsername: shop\nPassword: Ssh,Pa\"ss") && substr_count($PM::text($logins), 'Password: ') === 2, 'the same as text, for a paste');
-    $saveTo = (string) file_get_contents($root.'/resources/views/components/save-to.blade.php');
-    $overlay = (string) file_get_contents($root.'/resources/views/partials/job-overlay.blade.php');
-    $init = (string) file_get_contents($root.'/resources/views/partials/theme-init.blade.php');
-    $check(str_contains($saveTo, 'window.cipiDownload(') && str_contains($saveTo, 'Then delete the downloaded file') && str_contains($init, 'window.cipiDownload = function (filename, text)') && str_contains($init, 'new Blob([text]') && ! preg_match('/fetch\(|XMLHttpRequest|<script[^>]+src=/', $saveTo.$init),
-        'Save to…: the file is made in the browser from what the page holds — no request, no script of anybody else');
-    $check(str_contains($overlay, '<x-cipi::save-to :logins="$saveLogins" :name="$saveName"') && str_contains($adv, '<x-cipi::save-to class="mt-3" :name="$basicAuthFile" :logins="$basicAuthLogins" />') && str_contains((string) file_get_contents($root.'/src/Livewire/Concerns/ManagesAsyncJobs.php'), 'public function jobLogins(): array'),
-        'Save to… is where credentials are shown once: a finished job\'s, and a basic auth password');
-    foreach (['save-to' => $saveTo, 'page cache and Octane tabs' => substr($adv, (int) strpos($adv, "@elseif(\$activeTab === 'cache')"), (int) strpos($adv, "@elseif(\$activeTab === 'deploy')") - (int) strpos($adv, "@elseif(\$activeTab === 'cache')"))] as $label => $text) {
+    foreach (['page cache and Octane tabs' => substr($adv, (int) strpos($adv, "@elseif(\$activeTab === 'cache')"), (int) strpos($adv, "@elseif(\$activeTab === 'deploy')") - (int) strpos($adv, "@elseif(\$activeTab === 'cache')"))] as $label => $text) {
         $visible = (string) preg_replace('/\{\{--.*?--\}\}/s', '', $text);
         $check(! preg_match('/\b(API|Cipi) \d+\.\d+/', $visible), "{$label}: no version of Cipi or of its API in its text");
     }
