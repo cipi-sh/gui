@@ -603,6 +603,7 @@ namespace {
     foreach (['isolateValkey', 'isolateAllValkey', 'shareValkey', 'restartValkey', 'flushSharedValkey'] as $method) {
         $check(preg_match('/public function '.$method.'\([^)]*\): void\s*\{\s*if \(! \$this->serverAllowed\(Access::MANAGE, \(int\) \$this->serverId\)/', $sm) === 1, "{$method}: Manage access to the server, asked at the call");
     }
+    $check(str_contains($sm, "} elseif (\$tab === 'services' && ! (\$this->loaded['valkey'] ?? false)) {") && str_contains($sm, "\$this->loaded['valkey'] = true;"), 'Valkey is read when the Services tab is opened after the Overview, which has read the services already');
     $check(str_contains($smv, 'No password travels through the panel') && ! preg_match('/valkey[^\n]*password\'\]/i', $smv), 'the Valkey card shows no password, and says so');
 
     // The machine's own name.

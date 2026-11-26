@@ -191,6 +191,9 @@ class ServerManage extends Component
 
         if (! ($this->loaded[$tab] ?? false)) {
             $this->loadTab($tab);
+        } elseif ($tab === 'services' && ! ($this->loaded['valkey'] ?? false)) {
+            // The Overview has read the services already — not Valkey per app, which only this tab shows.
+            $this->loadValkey();
         }
     }
 
@@ -402,6 +405,8 @@ class ServerManage extends Component
     protected function loadValkey(): void
     {
         $this->valkeyUnavailable = null;
+        // Next to the tabs in $loaded, so that whatever empties it (a refresh, a finished job) has Valkey read again.
+        $this->loaded['valkey'] = true;
         try {
             $data = $this->client()->valkey();
             $this->valkey = is_array($data['apps'] ?? null) ? $data : null;
