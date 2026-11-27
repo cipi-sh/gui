@@ -749,6 +749,9 @@ namespace {
     $demo = (string) file_get_contents($root.'/dev/demo/api/index.php');
     $check(str_contains($demo, "\$r('/zt/mesh(/lock|/ssh)?')") && str_contains($demo, 'function ztMeshRoute('), 'the demo API joins, leaves and locks too');
 
+    $appsView = (string) file_get_contents($root.'/resources/views/livewire/apps.blade.php');
+    $check(str_contains($appsView, 'data-create-coming-soon') && str_contains($appsView, "@if(\$appKind === 'custom')") && str_contains($appsView, 'Coming soon</em> page'), 'Create app, custom: the form says what the domain shows while there is no repository');
+
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);
 }

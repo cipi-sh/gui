@@ -349,6 +349,9 @@
                             <label for="app-repo">Repository <span class="text-subtle font-normal">{{ $appKind === 'custom' ? '(optional — empty for SFTP only)' : '(Git SSH URL)' }}</span></label>
                             <input id="app-repo" type="text" wire:model="repository" placeholder="git@github.com:org/repo.git" autocomplete="off">
                             @error('repository') <p class="field-error">{{ $message }}</p> @enderror
+                            @if($appKind === 'custom')
+                                <p class="field-hint" data-create-coming-soon>Without a repository the files come over SFTP, and the domain shows a <em>Coming soon</em> page until your <code>index.php</code> or <code>index.html</code> is in the document root.</p>
+                            @endif
                         </div>
                         <div>
                             <label for="app-branch">Branch</label>
