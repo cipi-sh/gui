@@ -971,10 +971,57 @@ function ztMeshRoute(string $method, string $action, array $body, array &$s): ar
     throw new DemoHttpError(405, 'Method not allowed');
 }
 
+/**
+ * The firewall as Zero Trust leaves it: who holds a lock (`zero_trust.by`),
+ * and the rules a lock replaces — the mesh interface let through, the SSH
+ * port and 80/443 no longer open to everyone while a lock holds them.
+ */
+function demoFirewallZeroTrust(array &$fw, array $zt): void
+{
+    $d = is_array($zt['details'] ?? null) ? $zt['details'] : [];
+    $cf = ! empty($d['enabled']) && is_array($d['lock'] ?? null) ? $d['lock'] : [];
+    $mesh = is_array($d['mesh'] ?? null) && ! empty($d['mesh']['enabled']) ? $d['mesh'] : null;
+    $by = ['http' => [], 'ssh' => []];
+    foreach (['http', 'ssh'] as $port) {
+        if (! empty($cf[$port])) {
+            $by[$port][] = 'cloudflare';
+        }
+        if ($mesh !== null && ! empty($mesh['lock'][$port])) {
+            $by[$port][] = (string) $mesh['provider'];
+        }
+    }
+    $fw['zero_trust'] = ['lock_http' => $by['http'] !== [], 'lock_ssh' => $by['ssh'] !== [], 'by' => $by];
+
+    $rule = fn (string $port, string $from, string $family, string $comment, string $interface = '') => [
+        'action' => 'allow', 'port' => $port, 'proto' => $port === 'any' ? 'any' : 'tcp', 'from' => $from, 'to' => 'any', 'direction' => 'in', 'interface' => $interface, 'app' => '',
+        'comment' => $comment, 'family' => $family, 'log' => false, 'kind' => $port === 'any' ? 'other' : 'port', 'managed_by' => $comment === '' ? '' : 'zero-trust',
+        'protected' => $comment === '', 'removable' => false,
+    ];
+    // What the server is reached on, as the locks leave it — ahead of the other allows, after the blocks.
+    $reach = [];
+    if ($mesh !== null) {
+        $reach[] = $rule('any', 'any', 'both', 'cipi-zt-mesh', (string) ($mesh['interface'] ?? ''));
+    }
+    if ($by['ssh'] === []) {
+        $reach[] = $rule('22', 'any', 'both', '');
+    }
+    if ($by['http'] === []) {
+        $reach[] = $rule('80', 'any', 'both', '');
+        $reach[] = $rule('443', 'any', 'both', '');
+    } elseif (in_array('cloudflare', $by['http'], true) && ($cf['http_mode'] ?? '') !== 'dark' && count($by['http']) === 1) {
+        $reach[] = $rule('80,443', 'Cloudflare (22 ranges)', 'both', 'cipi-zt-cf');
+    }
+    $rules = (array) ($fw['ufw']['rules'] ?? []);
+    $blocks = array_values(array_filter($rules, fn ($r) => ($r['kind'] ?? '') === 'block'));
+    $others = array_values(array_filter($rules, fn ($r) => ($r['kind'] ?? '') !== 'block' && ($r['managed_by'] ?? '') !== 'zero-trust' && empty($r['protected'])));
+    $fw['ufw']['rules'] = array_merge($blocks, $reach, $others);
+}
+
 function firewallRoute(string $method, string $action, array $body, array &$s, array &$state, string $profile): array
 {
     $s['firewall'] ??= demoFirewall();
     $fw = &$s['firewall'];
+    demoFirewallZeroTrust($fw, (array) ($s['zt'] ?? []));
     $addr = function (string $v): bool {
         [$ip, $mask] = array_pad(explode('/', $v, 2), 2, null);
 

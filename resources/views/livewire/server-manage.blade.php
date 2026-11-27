@@ -36,7 +36,7 @@
             </x-cipi::empty>
         </div>
     @else
-        <nav class="tabs" aria-label="Server sections">
+        <nav class="tabs" aria-label="Server sections" x-data x-init="$nextTick(() => { const tab = $el.querySelector('.tab-btn.active'); if (tab) { $el.scrollLeft = Math.max(0, tab.offsetLeft - ($el.clientWidth - tab.offsetWidth) / 2); } })">
             @foreach($tabs as $tab => $label)
                 <button type="button" wire:click="setTab('{{ $tab }}')" class="tab-btn {{ $activeTab === $tab ? 'active' : '' }}" @if($activeTab === $tab) aria-current="page" @endif>{{ $label }}</button>
             @endforeach
@@ -917,7 +917,7 @@
                                     <span class="badge badge-{{ $meshView['tone'] }}" data-zt-mesh-state>{{ $meshView['badge'] }}</span>
                                 </div>
                                 @if($meshMessage !== null)
-                                    <x-cipi::alert type="success" class="mb-3" data-zt-mesh-message><span class="whitespace-pre-line">{{ $meshMessage }}</span></x-cipi::alert>
+                                    <x-cipi::alert type="success" class="mb-3" data-zt-mesh-message><span class="whitespace-pre-wrap">{{ $meshMessage }}</span></x-cipi::alert>
                                 @endif
                                 @if($meshView['on'])
                                     @foreach((array) ($mesh['warnings'] ?? []) as $meshWarning)
@@ -985,11 +985,11 @@
                                                     <input id="mesh-control" type="url" wire:model="meshControlUrl" class="font-mono" autocomplete="off" placeholder="{{ $meshProvider === 'netbird' ? 'https://netbird.example.com — a self-hosted NetBird' : 'https://headscale.example.com — a Headscale' }}">
                                                     @error('meshControlUrl') <p class="field-error">{{ $message }}</p> @enderror
                                                 </div>
-                                                <label class="check"><input type="checkbox" wire:model="meshDirect"> Direct connections — also open the client's UDP port, so devices connect straight to the server instead of through a relay</label>
-                                                <label class="check"><input type="checkbox" wire:model="meshAcceptDns"> Let the network set the server's DNS</label>
-                                                <label class="check"><input type="checkbox" wire:model="meshAcceptRoutes"> Accept the routes other machines of the network advertise</label>
+                                                <div><label class="check"><input type="checkbox" wire:model="meshDirect"> Direct connections — also open the client's UDP port, so devices connect straight to the server instead of through a relay</label></div>
+                                                <div><label class="check"><input type="checkbox" wire:model="meshAcceptDns"> Let the network set the server's DNS</label></div>
+                                                <div><label class="check"><input type="checkbox" wire:model="meshAcceptRoutes"> Accept the routes other machines of the network advertise</label></div>
                                                 @if($meshProvider === 'tailscale')
-                                                    <label class="check"><input type="checkbox" wire:model="meshSsh"> Tailscale SSH — the tailnet's policy says who signs in, without the server's keys</label>
+                                                    <div><label class="check"><input type="checkbox" wire:model="meshSsh"> Tailscale SSH — the tailnet's policy says who signs in, without the server's keys</label></div>
                                                 @endif
                                             </div>
                                         </details>

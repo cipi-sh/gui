@@ -89,7 +89,8 @@ const want = (...names) => !ONLY.length || names.some((n) => ONLY.includes(n));
 // One part of the page, with some air around it: a card, a form.
 async function shootElement(name, selector, pad = 20) {
   if (ONLY.length && !ONLY.includes(name)) return;
-  const box = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) throw new Error('no ' + ${JSON.stringify(selector)}); el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return { x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height }; })()`);
+  // A toast of the action just done would sit over the card.
+  const box = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) throw new Error('no ' + ${JSON.stringify(selector)}); document.querySelectorAll('.toast').forEach((t) => (t.style.display = 'none')); el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return { x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height }; })()`);
   await sleep(200);
   const clip = { x: Math.max(0, Math.floor(box.x - pad)), y: Math.max(0, Math.floor(box.y - pad)), width: Math.ceil(box.width + 2 * pad), height: Math.ceil(box.height + 2 * pad), scale: 1 };
   const r = await send('Page.captureScreenshot', { format: 'webp', quality: 88, captureBeyondViewport: true, clip });
