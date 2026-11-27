@@ -148,9 +148,9 @@ try {
   if (want('server-api-access')) { await goto('/server/1?tab=ip'); await ready(); await shoot('server-api-access'); }
   if (want('server-firewall', 'server-firewall-light')) { await goto('/server/1?tab=firewall'); await ready(); await shoot('server-firewall'); await theme('light'); await shoot('server-firewall-light'); await theme('dark'); }
   // Zero Trust: production has a tunnel and a tailnet side by side.
-  if (want('server-zero-trust', 'server-zero-trust-light', 'mesh-card', 'mesh-card-light')) {
-    await goto('/server/1?tab=zt'); await ready(); await shoot('server-zero-trust'); await shootElement('mesh-card', '[data-zt-mesh]');
-    await theme('light'); await shoot('server-zero-trust-light'); await shootElement('mesh-card-light', '[data-zt-mesh]'); await theme('dark');
+  if (want('server-zero-trust', 'server-zero-trust-light')) {
+    await goto('/server/1?tab=zt'); await ready(); await shoot('server-zero-trust');
+    await theme('light'); await shoot('server-zero-trust-light'); await theme('dark');
   }
   if (want('connections')) { await goto('/servers'); await ready(); await shoot('connections'); }
   if (want('team', 'team-invite')) {

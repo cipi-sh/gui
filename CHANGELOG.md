@@ -19,6 +19,8 @@ The mesh network of Zero Trust — Tailscale or NetBird — **managed from the Z
 - **Connections**: `zt-manage` in the token command.
 - `CipiApiClient`: `ztMeshJoin()`, `ztMeshLeave()`, `ztMeshLock()`, `ztMeshUnlock()`, `ztMeshSsh()`; `ztStatus()` takes the browser's address. `Livewire\Concerns\ManagesMesh`. `Support\Mesh` (the join form's rules, what each button may do, the panel's route in words), `Support\Firewall::mesh()` and `Support\Firewall::zeroTrustLocks()` — all without the framework (`tests/standalone.php`).
 - Demo API: the mesh routes. The first server is on a tailnet next to its tunnel, with SSH closed to the world; the second has neither and offers the join form; the third is an older server.
+- **The open tab is in view.** The server page's tab strip scrolls sideways: a page opened on one of the last tabs (Zero Trust, API access) now shows which tab it is on.
+- **Screenshots without a Mac**: the `screenshots` workflow sets the demo up on a GitHub runner, runs `dev/screenshots.mjs` with the runner's Chrome and commits the changed files to `docs/screenshots` — from the Actions page, or by a push whose message has `[screenshots]` (`[screenshots mesh-join mesh-joined]` for some). `dev/screenshots.mjs` finds Chrome on Linux, takes `CIPI_SHOTS_CHROME_FLAGS`, and can shoot one card (`mesh-join`, `mesh-joined`); new shots: `server-zero-trust`, `server-firewall`. The demo's firewall follows the Zero Trust locks.
 
 ### Security
 
