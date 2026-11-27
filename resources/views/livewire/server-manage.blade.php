@@ -1130,6 +1130,9 @@
                 </div>
             @endif
 
+        @elseif($activeTab === 'sync')
+            @include('cipi-gui::partials.server-sync')
+
         @elseif($activeTab === 'ip')
             @php $entries = is_array($ipWhitelist['entries'] ?? null) ? $ipWhitelist['entries'] : []; @endphp
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">

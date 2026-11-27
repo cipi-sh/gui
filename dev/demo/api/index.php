@@ -329,6 +329,11 @@ function handle(string $method, string $route, array $body, array $query, string
         return ztMeshRoute($method, $p(1), $body, $s);
     }
 
+    // Transfers between servers (`cipi sync`): key, check, trust, push
+    if ($r('/sync/(key|check|trust|push)')) {
+        return syncRoute($method, $p(1), $body, $s, $state, $profile);
+    }
+
     // Disk usage (API 1.33+): `cipi disk --json` and `cipi disk db --json`
     if ($method === 'GET' && $r('/disk/dbs')) {
         return [200, ['data' => $s['disk_dbs'] ?? []]];
@@ -1030,6 +1035,153 @@ function demoFirewallZeroTrust(array &$fw, array $zt): void
     $fw['ufw']['rules'] = array_merge($blocks, $reach, $others);
 }
 
+/**
+ * `GET /sync/key`, `POST /sync/check`, `POST|DELETE /sync/trust`, `POST /sync/push`:
+ * the apps of one server sent to another (`cipi sync`). The demo servers reach
+ * each other on the addresses of their fixtures; any other host does not answer.
+ */
+function syncRoute(string $method, string $action, array $body, array &$s, array &$state, string $profile): array
+{
+    $s['sync'] ??= ['trusted' => []];
+    $hostRe = '/^[A-Za-z0-9]([A-Za-z0-9.:-]{0,252}[A-Za-z0-9])?$/';
+    $target = function () use ($body, $hostRe): array {
+        $host = trim((string) ($body['host'] ?? ''));
+        $port = (int) ($body['port'] ?? 22);
+        if (! preg_match($hostRe, $host)) {
+            throw new DemoHttpError(422, 'host must be an IP address or a hostname');
+        }
+        if ($port < 1 || $port > 65535) {
+            throw new DemoHttpError(422, 'port must be between 1 and 65535');
+        }
+
+        return [$host, $port];
+    };
+    $keyOf = function () use ($body): array {
+        $key = preg_replace('/\s+/', ' ', trim((string) ($body['key'] ?? '')));
+        if (! preg_match('#^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/=]{40,} ?[\w@.:+-]{0,128}$#', $key)) {
+            throw new DemoHttpError(422, 'That is not one SSH public key (type, key, comment — on one line)');
+        }
+        [$type, $blob] = explode(' ', $key);
+
+        return ['key' => $key, 'type' => $type, 'blob' => $blob, 'comment' => explode(' ', $key, 3)[2] ?? '',
+            'fingerprint' => 'SHA256:'.rtrim(base64_encode(hash('sha256', (string) base64_decode($blob), true)), '=')];
+    };
+
+    if ($action === 'key' && $method === 'GET') {
+        return [200, ['data' => syncDemoKey($s, $profile)]];
+    }
+    if ($action === 'check' && $method === 'POST') {
+        [$host, $port] = $target();
+        $base = ['ok' => false, 'host' => $host, 'port' => $port, 'user' => 'cipi', 'cipi' => null, 'auto_passphrase' => false, 'reason' => null, 'message' => ''];
+        $peer = syncDemoPeer($state, $host);
+        if ($peer === $profile) {
+            throw new DemoHttpError(422, 'That address is this server');
+        }
+        if ($peer === null || $port !== 22) {
+            return [200, ['data' => ['reason' => 'unreachable', 'message' => "No SSH answer from {$host}:{$port}"] + $base]];
+        }
+        $mine = explode(' ', syncDemoKey($s, $profile)['key'])[1];
+        $trusted = array_column($state['servers'][$peer]['sync']['trusted'] ?? [], 'blob');
+        if (! in_array($mine, $trusted, true)) {
+            return [200, ['data' => ['reason' => 'not-trusted', 'message' => "{$host} does not accept this server's key"] + $base]];
+        }
+
+        return [200, ['data' => ['ok' => true, 'cipi' => '5.18.0', 'auto_passphrase' => true] + $base]];
+    }
+    if ($action === 'trust' && in_array($method, ['POST', 'DELETE'], true)) {
+        $key = $keyOf();
+        $at = array_search($key['blob'], array_column($s['sync']['trusted'], 'blob'), true);
+        $changed = $method === 'POST' ? $at === false : $at !== false;
+        if ($method === 'POST' && $at === false) {
+            $s['sync']['trusted'][] = $key;
+        } elseif ($method === 'DELETE' && $at !== false) {
+            array_splice($s['sync']['trusted'], (int) $at, 1);
+        }
+        unset($key['blob']);
+
+        return [200, ['data' => $key + ['changed' => $changed],
+            'message' => $method === 'POST' ? 'The key is trusted: its server can push apps here.' : 'The key is no longer trusted here.']];
+    }
+    if ($action === 'push' && $method === 'POST') {
+        [$host, $port] = $target();
+        $apps = array_values(array_map('strval', is_array($body['apps'] ?? null) ? $body['apps'] : []));
+        foreach ($apps as $app) {
+            if (! isset($s['apps'][$app])) {
+                throw new DemoHttpError(422, "App '{$app}' is not on this server");
+            }
+        }
+
+        return [202, dispatchJob($state, $profile, 'sync-push', [
+            'host' => $host, 'port' => $port, 'user' => 'cipi', 'apps' => $apps,
+            'with_db' => ! empty($body['with_db']), 'with_storage' => ! empty($body['with_storage']),
+        ])];
+    }
+
+    throw new DemoHttpError(405, "Method {$method} not allowed on /api/sync/{$action}");
+}
+
+/** A demo server's sync key: the same at every call, different on every server. */
+function syncDemoKey(array $s, string $profile): array
+{
+    $raw = hash('sha256', 'cipi-demo-sync-'.$profile, true);
+    $blob = base64_encode("\0\0\0\x0bssh-ed25519\0\0\0\x20".$raw);
+    $comment = 'cipi@'.($s['status']['system']['hostname'] ?? $profile);
+
+    return ['key' => "ssh-ed25519 {$blob} {$comment}", 'type' => 'ssh-ed25519', 'comment' => $comment,
+        'fingerprint' => 'SHA256:'.rtrim(base64_encode(hash('sha256', (string) base64_decode($blob), true)), '=')];
+}
+
+/** The demo server that answers on this address, if one does. */
+function syncDemoPeer(array $state, string $host): ?string
+{
+    foreach ($state['servers'] as $name => $server) {
+        $system = $server['status']['system'] ?? [];
+        if (in_array($host, array_filter([$system['ip'] ?? null, $system['ipv6'] ?? null, $system['hostname'] ?? null, $server['zt']['mesh_ip'] ?? null]), true)) {
+            return (string) $name;
+        }
+    }
+
+    return null;
+}
+
+/** A finished transfer: the apps of the source are on the target too. [ok, output, result] */
+function syncPushJob(array &$state, string $profile, array $p): array
+{
+    $source = &$state['servers'][$profile];
+    $peer = syncDemoPeer($state, (string) $p['host']);
+    $names = $p['apps'] !== [] ? $p['apps'] : array_keys($source['apps']);
+    $out = ['→ Exporting '.count($names).' app(s)'.($p['with_db'] ? ', with databases' : '').($p['with_storage'] ? ', with storage' : '').'…',
+        '→ Encrypting the archive (AES-256, one-time passphrase)…'];
+    $mine = explode(' ', syncDemoKey($source, $profile)['key'])[1];
+    if ($peer === null || ! in_array($mine, array_column($state['servers'][$peer]['sync']['trusted'] ?? [], 'blob'), true)) {
+        return [false, implode("\n", $out)."\n✗ {$p['host']} does not accept this server's key — nothing was sent", null];
+    }
+
+    $target = &$state['servers'][$peer];
+    $out[] = "→ Sending it to cipi@{$p['host']}:{$p['port']}…";
+    $out[] = '→ Importing on the target…';
+    $created = $updated = [];
+    foreach ($names as $name) {
+        if (! isset($source['apps'][$name])) {
+            continue;
+        }
+        isset($target['apps'][$name]) ? $updated[] = $name : $created[] = $name;
+        $target['apps'][$name] = $source['apps'][$name];
+        if ($p['with_db']) {
+            foreach ($source['dbs'] ?? [] as $db) {
+                if (($db['name'] ?? '') === $name && ! in_array($name, array_column($target['dbs'] ?? [], 'name'), true)) {
+                    $target['dbs'][] = $db;
+                }
+            }
+        }
+        $out[] = '  '.(in_array($name, $created, true) ? 'created' : 'updated')."  {$name}";
+    }
+    $out[] = '→ Archive removed from both servers';
+    $out[] = '✓ '.count($created).' created, '.count($updated).' updated on '.$p['host'];
+
+    return [true, implode("\n", $out), ['host' => $p['host'], 'created' => $created, 'updated' => $updated]];
+}
+
 function firewallRoute(string $method, string $action, array $body, array &$s, array &$state, string $profile): array
 {
     $s['firewall'] ??= demoFirewall();
@@ -1245,7 +1397,9 @@ function jobView(array &$state, string $id): array
         } elseif ($age < JOB_PENDING_SECONDS + JOB_RUNNING_SECONDS + (str_contains($job['type'], 'install') ? 2.5 : 0)) {
             $job['status'] = 'running';
         } else {
-            [$ok, $output, $result] = runJob($state['servers'][$job['profile']], $job['type'], $job['params']);
+            [$ok, $output, $result] = $job['type'] === 'sync-push'
+                ? syncPushJob($state, $job['profile'], $job['params'])
+                : runJob($state['servers'][$job['profile']], $job['type'], $job['params']);
             $job['finished'] = true;
             $job['status'] = $ok ? 'completed' : 'failed';
             $job['exit_code'] = $ok ? 0 : 1;
@@ -1269,6 +1423,7 @@ function jobView(array &$state, string $id): array
 function liveOutput(string $type, float $seconds): string
 {
     $steps = match (true) {
+        $type === 'sync-push' => ['→ Exporting the apps…', '→ Encrypting the archive (AES-256)…', '→ Sending it over SSH…', '→ Importing on the target…'],
         $type === 'app-deploy' => ['→ Deploying…', 'task deploy:info', 'task deploy:lock', 'task deploy:release', 'task deploy:update_code', 'task deploy:vendors', 'task artisan:migrate', 'task deploy:symlink'],
         str_contains($type, 'install') => ['→ Reading package lists…', '→ Downloading…', '→ Unpacking…', '→ Setting up…'],
         default => ['→ Running…'],

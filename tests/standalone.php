@@ -27,6 +27,7 @@ namespace {
     require $root.'/src/Support/Firewall.php';
     require $root.'/src/Support/Mesh.php';
     require $root.'/src/Services/JobOutputParser.php';
+    require $root.'/src/Support/Sync.php';
 
     use CipiGui\Http\Controllers\DbUploadController as Up;
     use CipiGui\Support\DeployLog;
@@ -805,6 +806,62 @@ namespace {
     $check(str_contains($appsView, "@if(\$appKind !== 'laravel')\n                        <div class=\"grid grid-cols-1 sm:grid-cols-2 gap-4\" data-create-db>") && str_contains($appsView, 'wire:model="dbName"')
         && str_contains($appsView, '@if(count($availableEngines) > 1)'), 'the form: the field for custom and Node apps, the engine only where there is a choice');
     $check(substr_count($appsView, '@if(') + substr_count($appsView, '@if (') === substr_count($appsView, '@endif'), 'apps: every @if has its @endif');
+
+    echo "--- Server → Transfer: apps sent to another server, with the key and the passphrase managed\n";
+    $S = \CipiGui\Support\Sync::class;
+    $check($S::sshHost('198.51.100.42', 'https://clients.example.com') === '198.51.100.42' && $S::sshHost(null, 'https://clients.example.com:8443/x') === 'clients.example.com'
+        && $S::sshHost('', 'http://[2001:db8::1]/') === '' && $S::sshHost('1.2.3.4; id', 'not a url') === '', 'the address suggested for a server of the panel: its IP, else the host of its URL, never something that is not a host');
+    $existing = ['shop', 'docs'];
+    $check($S::errors('203.0.113.9', '22', true, [], $existing) === [] && $S::errors('fra1.tail1234.ts.net', '2222', false, ['docs'], $existing) === []
+        && $S::errors('fd7a:115c:a1e0::6f01', '22', true, [], $existing) === [], 'an IPv4, an IPv6 or a hostname and a port are a target');
+    $check(array_keys($S::errors('a b', '22', true, [], $existing)) === ['syncHost'] && array_keys($S::errors('-oProxyCommand=x', '22', true, [], $existing)) === ['syncHost']
+        && array_keys($S::errors('', '22', true, [], $existing)) === ['syncHost'] && array_keys($S::errors('host$(id)', '22', true, [], $existing)) === ['syncHost'], 'a host with a space, a leading dash or shell characters is refused in the page');
+    $check(array_keys($S::errors('h1', '0', true, [], $existing)) === ['syncPort'] && array_keys($S::errors('h1', '65536', true, [], $existing)) === ['syncPort']
+        && array_keys($S::errors('h1', '22x', true, [], $existing)) === ['syncPort'] && array_keys($S::errors('h1', '', true, [], $existing)) === ['syncPort'], 'a port is 1–65535, digits only');
+    $check(array_keys($S::errors('h1', '22', false, [], $existing)) === ['syncApps'] && array_keys($S::errors('h1', '22', false, ['shop', 'ghost'], $existing)) === ['syncApps']
+        && $S::errors('h1', '22', true, ['ghost'], $existing) === [], 'chosen apps: at least one, all of them on the server (ticks do not count when every app is sent)');
+    $ok = ['ok' => true, 'auto_passphrase' => true];
+    $check($S::verdict(null, false) === ['none', ''] && $S::verdict($ok, false)[0] === 'ok' && $S::verdict(['ok' => true, 'auto_passphrase' => false], true)[0] === 'old'
+        && $S::verdict(['ok' => true], true)[0] === 'old', 'a target that answers is ready only when its Cipi takes the passphrase from the source');
+    $check($S::verdict(['ok' => false, 'reason' => 'not-trusted'], false)[0] === 'trust' && str_contains($S::verdict(['ok' => false, 'reason' => 'not-trusted'], false)[1], 'add the key below')
+        && str_contains($S::verdict(['ok' => false, 'reason' => 'not-trusted'], true)[1], 'sync-manage'), 'not trusted: the key to add for a server outside the panel, the token to look at for one inside');
+    $check($S::verdict(['ok' => false, 'reason' => 'unreachable'], false)[0] === 'error' && str_contains($S::verdict(['ok' => false, 'reason' => 'unreachable'], false)[1], 'from this server, not from your browser')
+        && str_contains($S::verdict(['ok' => false, 'reason' => 'host-key-changed'], false)[1], 'ssh-keygen -R') && str_contains($S::verdict(['ok' => false, 'reason' => 'no-cipi'], false)[1], 'Cipi does not')
+        && $S::verdict(['ok' => false, 'reason' => 'else', 'message' => 'Odd.'], false) === ['error', 'Odd.'] && $S::verdict(['ok' => false], false)[1] === 'The target could not be checked.', 'every other answer of the check has its sentence, and an unknown one the server\'s own');
+    $all = $S::summary(true, $existing, 2, true, false, 'clients');
+    $check(str_starts_with($all, 'Send all 2 apps of this server to clients, with their databases?') && str_contains($all, 'their database there is replaced') && str_contains($all, 'Nothing is removed or stopped on this server.'), 'the confirmation says what is sent, where, and what is replaced there');
+    $check(str_starts_with($S::summary(false, ['docs'], 2, false, false, '203.0.113.9'), 'Send the app docs to 203.0.113.9, without databases or uploaded files')
+        && ! str_contains($S::summary(false, ['docs'], 2, false, false, 'x'), 'is replaced') && str_contains($S::summary(false, ['a', 'b'], 5, true, true, 'x'), '2 apps (a, b)')
+        && str_contains($S::summary(false, ['a', 'b'], 5, true, true, 'x'), 'their database and storage there is replaced') && str_starts_with($S::summary(true, ['a'], 1, false, true, 'x'), 'Send the app of this server to x, with their uploaded files?'), 'one app, some apps, with and without data');
+
+    $syncTrait = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesSync.php');
+    $syncView = (string) file_get_contents($root.'/resources/views/partials/server-sync.blade.php');
+    $apiClient = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    $check(str_contains($manageClass, 'use ManagesSync;') && str_contains($manageClass, "'sync' => 'Transfer'") && str_contains($manageClass, "'sync' => fn () => \$this->loadSync()")
+        && str_contains($manageClass, '$this->syncAfterJob($data);'), 'the server page has the tab, loads it on demand and tells it when a job ends');
+    $check(str_contains((string) file_get_contents($root.'/resources/views/livewire/server-manage.blade.php'), "@elseif(\$activeTab === 'sync')\n") && str_contains((string) file_get_contents($root.'/resources/views/livewire/server-manage.blade.php'), "@include('cipi-gui::partials.server-sync')"), 'and shows it');
+    $check(str_contains($apiClient, "\$this->get('/sync/key')") && str_contains($apiClient, "'/sync/check', data: ['host' => \$host, 'port' => \$port]") && str_contains($apiClient, "\$this->request('post', '/sync/trust', data: ['key' => \$key])")
+        && str_contains($apiClient, "\$this->request('delete', '/sync/trust', data: ['key' => \$key])") && str_contains($apiClient, "\$this->request('post', '/sync/push', data: \$payload)"), 'the client: key, check, trust, untrust, push');
+    $check(str_contains((string) file_get_contents($root.'/config/cipi-gui.php'), "'zt-manage', 'sync-manage',"), 'sync-manage is one of the abilities the panel asks a token for');
+    $check(substr_count($syncTrait, '$this->serverAllowed(Access::MANAGE, (int) $this->serverId)') >= 3 && substr_count($syncTrait, 'Access::canManageServer($this->panelUser(), $peer->id)') === 2
+        && str_contains($syncTrait, "return \$this->manageableServers()->where('id', '!=', (int) \$this->serverId)->values();"), 'checking, starting and removing need Manage on this server; a target of the panel is one the user manages too');
+    $check(! preg_match('/passphrase|password/i', str_replace("\$this->syncCheck['auto_passphrase']", '', preg_replace('#/\*.*?\*/|//[^\n]*#s', '', $syncTrait))) && ! str_contains($syncView, 'type="password"') && ! preg_match('/wire:model[.a-z]*="[^"]*pass/i', $syncView)
+        && ! str_contains($apiClient, 'auto_passphrase\' =>') && str_contains($syncView, 'never passes through this panel'), 'no passphrase anywhere in the wizard: no field, no property, nothing sent — and the page says so');
+    $check(str_contains($syncTrait, "empty(\$this->syncCheck['ok']) || empty(\$this->syncCheck['auto_passphrase'])") && str_contains($syncTrait, "(\$this->syncCheck['host'] ?? null) !== trim(\$this->syncHost)")
+        && (bool) preg_match('/public function updatedSyncHost\(\): void\s+\{\s+\$this->syncCheck = null;/', $syncTrait) && (bool) preg_match('/public function updatedSyncPort\(\): void\s+\{\s+\$this->syncCheck = null;/', $syncTrait),
+        'a transfer starts only after a check that said yes for this very address and port');
+    $check((bool) preg_match('/#\[Locked\]\s+public \?array \$syncCheck = null;/', $syncTrait) && (bool) preg_match('/#\[Locked\]\s+public int \$syncTrustedPeerId = 0;/', $syncTrait)
+        && (bool) preg_match('/#\[Locked\]\s+public array \$syncSourceApps = \[\];/', $syncTrait) && (bool) preg_match('/#\[Locked\]\s+public \?array \$syncKey = null;/', $syncTrait), 'what the server said — the check, the key, the apps, where the key was added — cannot be set from the browser');
+    $check(str_contains($syncTrait, "if ((\$data['type'] ?? '') !== 'sync-push') {") && str_contains($syncTrait, 'if ($this->syncTrustedPeerId !== 0 && ! $this->syncKeepTrust) {')
+        && str_contains($syncTrait, "if (! empty(\$trusted['changed'])) {\n                        \$this->syncTrustedPeerId = \$peer->id;"), 'the key the wizard added is taken back when the transfer ends, whatever its end — not one that was trusted before it');
+    $check(str_contains($syncView, 'data-sync-step="what"') && str_contains($syncView, 'data-sync-step="where"') && str_contains($syncView, 'data-sync-step="go"') && str_contains($syncView, 'data-sync-receive')
+        && str_contains($syncView, "['serverId' => \$peer->id, 'tab' => 'sync', 'to' => \$server->id]") && str_contains($syncView, 'data-sync-forget'), 'the view: three steps, and the way in from the server that receives');
+    $check(substr_count($syncView, '@if(') === substr_count($syncView, '@endif') && substr_count($syncView, '<div') === substr_count($syncView, '</div>') && substr_count($syncView, '<section') === substr_count($syncView, '</section>'), 'server-sync: every @if, div and section is closed');
+    preg_match_all('/<x-cipi::icon name="([a-z-]+)"/', $syncView, $syncIcons);
+    $iconsSrc = (string) file_get_contents($root.'/src/Support/Icons.php');
+    $check($syncIcons[1] !== [] && array_filter($syncIcons[1], fn ($n) => ! str_contains($iconsSrc, "'{$n}' =>")) === [], 'every icon of the tab exists');
+    $check(! preg_match('/Cipi \d+\.\d+|API \d+\.\d+/', preg_replace('/\{\{.*?\}\}/s', '', $syncView)), 'no version is named in the tab');
+    $check(str_contains($demoApi, "if (\$r('/sync/(key|check|trust|push)')) {") && str_contains($demoApi, 'function syncPushJob(array &$state, string $profile, array $p): array'), 'the demo API has the four routes and the job');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);

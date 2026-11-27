@@ -6,6 +6,7 @@ use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
 use CipiGui\Livewire\Concerns\ManagesBackups;
 use CipiGui\Livewire\Concerns\ManagesMesh;
+use CipiGui\Livewire\Concerns\ManagesSync;
 use CipiGui\Models\CipiServer;
 use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
@@ -23,6 +24,7 @@ class ServerManage extends Component
     use ManagesAsyncJobs;
     use ManagesBackups;
     use ManagesMesh;
+    use ManagesSync;
 
     public const TABS = [
         'overview' => 'Overview',
@@ -41,6 +43,7 @@ class ServerManage extends Component
         'search' => 'Search',
         'packages' => 'Packages',
         'zt' => 'Zero Trust',
+        'sync' => 'Transfer',
         'ip' => 'API access',
     ];
 
@@ -323,6 +326,7 @@ class ServerManage extends Component
             'search' => fn () => $this->search = $this->client()->searchStatus(),
             'packages' => fn () => $this->packages = $this->client()->listPackages(),
             'zt' => fn () => $this->zt = $this->loadZt(),
+            'sync' => fn () => $this->loadSync(),
             'ip' => fn () => $this->ipWhitelist = $this->client()->getIpWhitelist(),
             default => null,
         };
@@ -824,6 +828,8 @@ class ServerManage extends Component
 
     protected function onJobCompleted(array $data): void
     {
+        // A transfer that ended, well or not: the key the wizard added on the target goes.
+        $this->syncAfterJob($data);
         $this->loaded = [];
         $this->loadTab($this->activeTab);
     }

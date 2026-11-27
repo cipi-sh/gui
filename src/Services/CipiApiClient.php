@@ -891,6 +891,42 @@ class CipiApiClient
         ];
     }
 
+    // ── Moving apps to another server (cipi sync — ability sync-manage) ──
+
+    /** This server's sync key: what a target must trust before this server can push to it. */
+    public function syncKey(): array
+    {
+        return $this->get('/sync/key')['data'] ?? [];
+    }
+
+    /** Does the target accept this server's key, does Cipi answer there. Nothing is sent. */
+    public function syncCheck(string $host, int $port = 22): array
+    {
+        return $this->request('post', '/sync/check', data: ['host' => $host, 'port' => $port], timeout: max(60, (int) config('cipi-gui.http_timeout', 30)))['data'] ?? [];
+    }
+
+    /** On the target: let the server this key belongs to push here. `changed`: false when it was trusted already. */
+    public function syncTrust(string $key): array
+    {
+        return $this->request('post', '/sync/trust', data: ['key' => $key])['data'] ?? [];
+    }
+
+    /** On the target: take that key back out. */
+    public function syncUntrust(string $key): array
+    {
+        return $this->request('delete', '/sync/trust', data: ['key' => $key])['data'] ?? [];
+    }
+
+    /**
+     * The transfer, as a job of the source: export, send, import on the target.
+     *
+     * @param  array{host: string, port?: int, apps?: list<string>, with_db?: bool, with_storage?: bool}  $payload
+     */
+    public function syncPush(array $payload): array
+    {
+        return $this->request('post', '/sync/push', data: $payload);
+    }
+
     // ── Disk usage (read-only — API 1.33+ / Cipi ≥ 5.5.2 for the API sudoers) ──
 
     /**

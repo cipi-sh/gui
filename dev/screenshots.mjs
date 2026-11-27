@@ -192,6 +192,14 @@ try {
     await theme('light'); await shootElement('mesh-joined-light', '[data-zt-mesh]'); await theme('dark');
   }
 
+  // Transfer: production's apps to staging — the target chosen from the panel's servers and the
+  // connection checked, which puts production's key on staging; taken back out after each shot.
+  if (want('server-transfer', 'server-transfer-light')) {
+    const checked = async () => { await goto('/server/1?tab=sync&to=3'); await ready(); await callOn('server-manage', 'checkSync'); await sleep(300); };
+    await checked(); await shoot('server-transfer'); await callOn('server-manage', 'forgetSyncTrust');
+    await theme('light'); await checked(); await shoot('server-transfer-light'); await callOn('server-manage', 'forgetSyncTrust'); await theme('dark');
+  }
+
   // ── jobs last ──
   if (want('create-app', 'job-credentials')) {
     await goto('/apps'); await ready();

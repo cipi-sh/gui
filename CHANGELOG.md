@@ -2,7 +2,7 @@
 
 ## [4.10.0] — 2026-11-27
 
-The mesh network of Zero Trust — Tailscale or NetBird — **managed from the Zero Trust tab**: join a network, close SSH and 80/443 to the world, Tailscale SSH, leave. And the Firewall says who holds a lock. For Cipi 5.18.0 and cipi/api 1.48. One new token ability: `zt-manage`.
+The mesh network of Zero Trust — Tailscale or NetBird — **managed from the Zero Trust tab**: join a network, close SSH and 80/443 to the world, Tailscale SSH, leave. **Apps moved from one server to another from the panel** (Server → Transfer). The time a deploy step may take, a database with a custom or Node app, and a Firewall that says who holds a lock. For Cipi 5.18.0 and cipi/api 1.48. Two new token abilities: `zt-manage` and `sync-manage`.
 
 ### Added
 
@@ -26,6 +26,18 @@ The mesh network of Zero Trust — Tailscale or NetBird — **managed from the Z
 - **Create app → Custom PHP / Node: a database with the app.** *New database (optional)*: a name, and the app is created with a database of that name — a user of the same name, a generated password shown once in the result of the job — linked to it, so it shows as the app's in Databases. With more than one engine on the server, which one. A Laravel app is created with its own, as before, and is not offered the field.
 - **App → Deploy → Deploy pipeline: how long a deploy step may run.** Two numbers, in seconds, with the minutes beside them: the **asset build** (60 to 3600; 1800 unless changed) and **every other step** — the clone, Composer, the migrations (60 to 1800; 300 unless changed). They are what `cipi app deploy-config --build-timeout / --step-timeout` and `deploy.build_timeout` / `deploy.step_timeout` in `cipi.yml` set. Shown, and sent back, only to a server that reports them.
 - **A Node app has a Deploy pipeline card**: the releases kept, the database snapshot before a deploy, and the two numbers — here the first is for installing the packages and for the build, each. Its build command stays on the Node tab.
+- **Server → Transfer: the apps of a server sent to another one** — `cipi sync` as a wizard, for a move to a bigger machine, a copy of production on staging, a second server kept ready.
+  - **What**: every app of the server or the ones ticked, with their **databases** and their **uploaded files** (`shared/storage`) or without. Without both, what travels is the app itself: settings, `.env`, deploy recipe, workers, crons.
+  - **Where**: a server of this panel that you manage, or any other Cipi server by address — the address *the source* reaches it on over SSH (a public IP, or a private or mesh one) and the port. For a server of the panel the address is suggested and stays editable.
+  - **Check the connection** before anything moves: the source is asked whether the target accepts its key and runs a Cipi that can take the transfer, and the answer is said in words — not trusted yet, no SSH answer at that address, a host key that changed, SSH but no Cipi, a Cipi too old. The start button stays off until the check says yes for that very address and port.
+  - **Trust, managed**: a target that is in the panel is handed the source's key by the panel when the connection is checked, and the key is **taken out again when the transfer ends**, whatever its end — unless *Keep this server trusted* is ticked, for transfers that repeat. A key that was trusted before the wizard is left where it was. *Remove the key now* is there at any time. For a server outside the panel the page shows the key, its fingerprint and the command to run there (`cipi sync trust`).
+  - **Encryption, managed**: the archive is encrypted on the source (AES-256) with a passphrase the source makes for that one transfer and hands to the target's import over the same SSH connection. There is no passphrase field: it is never shown, never stored and never passes through the panel or the API. The archive is removed from both servers when the import ends.
+  - **The transfer is a job** with the command's output live, like a deploy: export, send, import. Apps that are not on the target are created there; apps that are, updated. Nothing is removed or stopped on the source, and DNS is yours to move.
+  - **Bring apps here**: on the server that receives, the card lists the other servers of the panel — a click opens *their* Transfer tab with this server chosen as the target.
+  - Needs Manage on the source (and on a target of the panel) and a token with `sync-manage`. Without the ability, or on a server that needs an update, the tab says which of the two it is.
+- **Connections**: `sync-manage` in the token command.
+- `CipiApiClient`: `syncKey()`, `syncCheck()`, `syncTrust()`, `syncUntrust()`, `syncPush()`. `Livewire\Concerns\ManagesSync`. `Support\Sync` (the form's rules, what the check found in words, the sentence of the confirmation).
+- Demo API: `/sync/key`, `/sync/check`, `/sync/trust`, `/sync/push`. The three servers reach each other on their addresses, a transfer copies the apps into the target, and any other address does not answer.
 
 ### Fixed
 
@@ -36,10 +48,16 @@ The mesh network of Zero Trust — Tailscale or NetBird — **managed from the Z
 - **Every action needs Manage on the server**, checked at the moment of the request; the state the card reads is locked (the browser cannot send it back changed).
 - **The key of a join is never kept**: not in the panel's database, not in the session, not in a log; it leaves the form as soon as the server has answered.
 - **`zt-manage` is as strong as `ssh-manage`**: whoever holds a token with it can put the server on a network of their own. A token made with the command on Connections before this version does not have it — make it again (or use `--full-access`, which has every ability).
+- **`sync-manage` is as strong as `ssh-manage`** too: whoever holds a token with it can have the server send its apps — databases included — to a host of their choosing, and can let another server's key sign in as `cipi`. Tokens made before this version do not have it.
+- **A transfer needs Manage on both sides**: on the source for every step, and on the target before the panel adds or removes a key there. A server the user only views is not offered as a target.
+- **No passphrase passes through the panel**: the wizard has no field for one and sends none; the source makes it and the target reads it from the SSH connection, not from a command line.
+- **What the wizard relies on is locked**: the result of the check, the key, the list of apps and the server the key was added to cannot be sent back changed by the browser; the target of a check and of a start are compared again on the server.
 
 ### Notes
 
 - **Tokens**: a connection whose token has no `zt-manage` still shows the mesh; the first change says the ability is missing and where to add it.
+- **Transfer**: the key added on a target of the panel is taken out when the page sees the job end. Close the page while a transfer runs and the key stays — the tab has *Remove the key now* for that, and `cipi sync untrust` on the target does the same.
+- **Transfer**: exports made by hand (`cipi sync export`, `import`, `list`) stay at the server's shell: they ask for a passphrase and leave an archive behind, which is not something a panel should hold.
 - **Cloudflare's side stays read-only**: enabling the tunnel, hostnames, Access and its locks are `cipi zt …` at the server's shell.
 - On a server that says nothing of a mesh (an older Cipi or API) the tab shows Cloudflare's card and a line on what an update brings.
 
