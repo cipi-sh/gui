@@ -796,6 +796,16 @@ namespace {
     $demoApi = (string) file_get_contents($root.'/dev/demo/api/index.php');
     $check(str_contains($demoApi, "'build_timeout' => 1800, 'step_timeout' => 300") && str_contains($demoApi, "['app' => \$name, 'runtime' => 'node'] + \$a['deploy_config']"), 'the demo API answers with the clocks, and for a Node app');
 
+    echo "--- Create app: a database made with a custom or a Node app\n";
+    $appsSrc = (string) file_get_contents($root.'/src/Livewire/Apps.php');
+    $appsView = (string) file_get_contents($root.'/resources/views/livewire/apps.blade.php');
+    $check(str_contains($appsSrc, "\$this->dbName = \$isNode || \$isCustom ? trim(\$this->dbName) : '';") && str_contains($appsSrc, "\$rules['dbName'] = ['regex:/^[a-z][a-z0-9_]{1,63}\$/'];")
+        && str_contains($appsSrc, "\$payload['db'] = \$this->dbName;"), 'the name is checked like the server checks it, sent as db, and never for a Laravel app');
+    $check(str_contains($appsSrc, "'docroot', 'engine', 'dbName',") && str_contains($appsSrc, "'docroot', 'dbName', 'assetBuild'"), 'it is part of the draft: reset with the form, kept while the form has input');
+    $check(str_contains($appsView, "@if(\$appKind !== 'laravel')\n                        <div class=\"grid grid-cols-1 sm:grid-cols-2 gap-4\" data-create-db>") && str_contains($appsView, 'wire:model="dbName"')
+        && str_contains($appsView, '@if(count($availableEngines) > 1)'), 'the form: the field for custom and Node apps, the engine only where there is a choice');
+    $check(substr_count($appsView, '@if(') + substr_count($appsView, '@if (') === substr_count($appsView, '@endif'), 'apps: every @if has its @endif');
+
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);
 }

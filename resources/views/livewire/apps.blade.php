@@ -482,6 +482,32 @@
                             </div>
                         @endif
                     @endif
+                    {{-- A custom or a Node app has no database of its own: one can be made with it. --}}
+                    @if($appKind !== 'laravel')
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" data-create-db>
+                            <div>
+                                <label for="app-db">New database <span class="text-subtle font-normal">(optional)</span></label>
+                                <input id="app-db" type="text" wire:model="dbName" class="font-mono" placeholder="{{ $appKind === 'custom' ? 'wpblog' : 'appdata' }} — empty for none" autocomplete="off" maxlength="64">
+                                @error('dbName') <p class="field-error">{{ $message }}</p> @enderror
+                            </div>
+                            @if(count($availableEngines) > 1)
+                                <div>
+                                    <label for="app-db-engine">Database engine</label>
+                                    <select id="app-db-engine" wire:model="engine">
+                                        @foreach($availableEngines as $item)
+                                            <option value="{{ $item['engine'] }}">{{ $item['label'] ?? $this->engineLabel($item['engine']) }}{{ !empty($item['default']) ? ' · default' : '' }}</option>
+                                        @endforeach
+                                    </select>
+                                    @error('engine') <p class="field-error">{{ $message }}</p> @enderror
+                                </div>
+                            @endif
+                            <p class="field-hint sm:col-span-2">
+                                Created with the app and shown as its own: a user of the same name and a generated password, which the result of the job shows once.
+                                @if($appKind === 'custom') WordPress and the like ask for exactly these: database name, user, password, host <code>127.0.0.1</code>. @endif
+                                A server that does not know the option creates the app without it: the database is then one click away in <strong>Databases</strong>.
+                            </p>
+                        </div>
+                    @endif
                 </div>
                 <div class="modal-footer">
                     <button type="button" wire:click="closeCreate" class="btn btn-secondary">Cancel</button>

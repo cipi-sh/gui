@@ -99,6 +99,9 @@ class Apps extends Component
     public string $php = '8.5';
 
     /** laravel | custom | node */
+    /** Custom and Node apps: the name of a new database to create with the app (empty: none). */
+    public string $dbName = '';
+
     public string $appKind = 'laravel';
 
     public string $docroot = '';
@@ -355,7 +358,7 @@ class Apps extends Component
     protected function resetCreateFields(): void
     {
         $this->reset([
-            'user', 'domain', 'repository', 'branch', 'env', 'docroot', 'engine',
+            'user', 'domain', 'repository', 'branch', 'env', 'docroot', 'engine', 'dbName',
             'nodeMode', 'nodeFramework', 'nodeVersion', 'nodeBuild', 'nodeStart',
             'nodeOutput', 'nodeHealthPath', 'octane', 'assetBuild',
         ]);
@@ -365,7 +368,7 @@ class Apps extends Component
 
     protected function hasCreateInput(): bool
     {
-        foreach (['user', 'domain', 'repository', 'docroot', 'assetBuild', 'nodeFramework', 'nodeBuild', 'nodeStart', 'nodeOutput', 'nodeHealthPath'] as $field) {
+        foreach (['user', 'domain', 'repository', 'docroot', 'dbName', 'assetBuild', 'nodeFramework', 'nodeBuild', 'nodeStart', 'nodeOutput', 'nodeHealthPath'] as $field) {
             if (trim((string) $this->{$field}) !== '') {
                 return true;
             }
@@ -581,11 +584,25 @@ class Apps extends Component
             }
         }
 
+        // A database made with a custom or a Node app: a Laravel app is created with its own.
+        $this->dbName = $isNode || $isCustom ? trim($this->dbName) : '';
+        if ($this->dbName !== '') {
+            $rules['dbName'] = ['regex:/^[a-z][a-z0-9_]{1,63}$/'];
+            // One engine on the server: there is no list to choose from, and nothing to ask.
+            if ($this->engine === '' && $this->availableEngines !== []) {
+                $this->engine = $this->defaultEngine();
+            }
+            if ($this->availableEngines !== []) {
+                $rules['engine'] = ['required', 'in:'.implode(',', array_column($this->availableEngines, 'engine'))];
+            }
+        }
+
         if ($this->createServerId === 0 || ! $this->serverAllowed(Access::MANAGE, $this->createServerId)) {
             return;
         }
 
         $this->validate($rules, [
+            'dbName.regex' => 'A database name: lowercase letters, digits and _, starting with a letter (2 to 64 characters).',
             'user.regex' => 'Use 3–32 lowercase letters or digits, starting with a letter.',
             'user.not_in' => 'This name is reserved on Cipi servers.',
             'domain.regex' => 'Enter a hostname such as app.example.com or *.example.com.',
@@ -630,6 +647,13 @@ class Apps extends Component
             // Only Laravel apps take node_build; the API answers 422 on custom and Node apps.
             if (! $isCustom && $this->assetBuild !== '') {
                 $payload['node_build'] = $this->assetBuild;
+            }
+        }
+
+        if ($this->dbName !== '') {
+            $payload['db'] = $this->dbName;
+            if ($this->engine !== '') {
+                $payload['engine'] = $this->engine;
             }
         }
 
