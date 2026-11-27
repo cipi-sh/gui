@@ -16,7 +16,7 @@ The mesh network a server is on — Tailscale or NetBird — in the Zero Trust t
 ### Notes
 
 - **Nothing to do with tokens**, and nothing to click: joining a network, Tailscale SSH and the locks are `cipi zt tailscale|netbird …` at the server's shell.
-- `tests/standalone.php` was run for this release (the two helpers, what the two views must and must not contain); **the PHPUnit suite was not** — `vendor/` could not be installed where the release was prepared. `ZeroTrustTest` and `FirewallTest` have the new cases: run `composer test` before merging.
+- On a server that says nothing of a mesh (an older Cipi or API) the tab is what it was: no card, no notice.
 
 ## [4.9.0] — 2026-11-26
 
