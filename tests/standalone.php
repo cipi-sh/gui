@@ -860,7 +860,7 @@ namespace {
     preg_match_all('/<x-cipi::icon name="([a-z-]+)"/', $syncView, $syncIcons);
     $iconsSrc = (string) file_get_contents($root.'/src/Support/Icons.php');
     $check($syncIcons[1] !== [] && array_filter($syncIcons[1], fn ($n) => ! str_contains($iconsSrc, "'{$n}' =>")) === [], 'every icon of the tab exists');
-    $check(! preg_match('/Cipi \d+\.\d+|API \d+\.\d+/', preg_replace('/\{\{.*?\}\}/s', '', $syncView)), 'no version is named in the tab');
+    $check(! preg_match('/Cipi \d+\.\d+|API \d+\.\d+/', $syncView) && ! str_contains($syncView, "\$syncCheck['cipi']"), 'no version is named in the tab, not even the target\'s');
     $check(str_contains($demoApi, "if (\$r('/sync/(key|check|trust|push)')) {") && str_contains($demoApi, 'function syncPushJob(array &$state, string $profile, array $p): array'), 'the demo API has the four routes and the job');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";

@@ -102,7 +102,6 @@
                         @if($syncState !== 'none')
                             <x-cipi::alert type="{{ $syncState === 'ok' ? 'success' : ($syncState === 'error' ? 'danger' : 'warn') }}" class="mt-3" data-sync-verdict="{{ $syncState }}">
                                 {{ $syncVerdict }}
-                                @if(!empty($syncCheck['cipi'])) <span class="text-subtle">Cipi {{ $syncCheck['cipi'] }} there.</span> @endif
                             </x-cipi::alert>
                         @endif
                     </section>
