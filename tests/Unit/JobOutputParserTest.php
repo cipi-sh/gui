@@ -157,9 +157,9 @@ class JobOutputParserTest extends TestCase
         $this->assertSame('The step artisan:migrate ran for 5 minutes, the most it is given, and was stopped.', $parser->extractError($migrate));
         $this->assertFalse($parser->deployTimeout($migrate)['build']);
 
-        // A job the API closed after its hour.
-        $api = "task cipi:node_build\n\n[cipi-api] Stopped after 60 minutes: the time the API gives a job of this kind. The command had not ended.";
-        $this->assertStringStartsWith('Stopped after 60 minutes', $parser->extractError($api));
+        // A job the API closed after its two hours.
+        $api = "task cipi:node_build\n\n[cipi-api] Stopped after 120 minutes: the time the API gives a job of this kind. The command had not ended.";
+        $this->assertStringStartsWith('Stopped after 120 minutes', $parser->extractError($api));
         $this->assertStringContainsString('--status', $parser->deployHints($api)[0]);
 
         // Every other failure keeps its error and its hints.

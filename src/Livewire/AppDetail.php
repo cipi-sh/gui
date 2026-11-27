@@ -305,6 +305,15 @@ class AppDetail extends Component
 
     public string $dcExtraArtisan = '';
 
+    /** Seconds the frontend build of a deploy may run, and every other command (the server's numbers). */
+    public string $dcBuildTimeout = '1800';
+
+    public string $dcStepTimeout = '300';
+
+    /** The server answered with the two clocks: only then are they shown, and sent back. */
+    #[Locked]
+    public bool $dcTimeouts = false;
+
     // Deploy audit ledger (API 1.31+ / Cipi ≥ 5.4.0)
     /** @var list<array<string, mixed>> */
     public array $auditRecords = [];
@@ -588,7 +597,8 @@ class AppDetail extends Component
 
     protected function loadDeployTab(): void
     {
-        if ($this->isLaravelApp($this->app ?? [])) {
+        // A Node app has deploy options too: the releases kept, and the two clocks.
+        if ($this->isLaravelApp($this->app ?? []) || $this->isNodeApp($this->app ?? [])) {
             $this->loadDeployConfig();
         }
         if (! $this->auditLoaded) {
@@ -1501,7 +1511,7 @@ class AppDetail extends Component
     {
         $this->deployConfigUnsupported = false;
 
-        if (! $this->isLaravelApp($this->app ?? [])) {
+        if (! $this->isLaravelApp($this->app ?? []) && ! $this->isNodeApp($this->app ?? [])) {
             $this->deployConfigUnsupported = true;
 
             return;
@@ -1534,6 +1544,9 @@ class AppDetail extends Component
         $this->dcNodeBuild = (string) ($data['node_build'] ?? '');
         $extra = is_array($data['extra_artisan'] ?? null) ? $data['extra_artisan'] : [];
         $this->dcExtraArtisan = implode("\n", array_map('strval', $extra));
+        $this->dcTimeouts = is_numeric($data['build_timeout'] ?? null) && is_numeric($data['step_timeout'] ?? null);
+        $this->dcBuildTimeout = (string) (int) ($data['build_timeout'] ?? 1800);
+        $this->dcStepTimeout = (string) (int) ($data['step_timeout'] ?? 300);
     }
 
     public function saveDeployConfig(): void
@@ -1542,24 +1555,36 @@ class AppDetail extends Component
             return;
         }
 
+        $node = $this->isNodeApp($this->app ?? []);
         $this->dcNodeBuild = trim($this->dcNodeBuild);
         $this->validate([
             'dcKeepReleases' => ['required', 'integer', 'min:1', 'max:20'],
             'dcNodeBuild' => ['nullable', 'string', BuildCommand::rule()],
-        ]);
+        ] + ($this->dcTimeouts ? [
+            'dcBuildTimeout' => ['required', 'integer', 'min:60', 'max:3600'],
+            'dcStepTimeout' => ['required', 'integer', 'min:60', 'max:1800'],
+        ] : []), [], ['dcBuildTimeout' => 'build time limit', 'dcStepTimeout' => 'step time limit', 'dcKeepReleases' => 'releases to keep']);
 
-        try {
-            $data = $this->client()->updateDeployConfig($this->appName, [
-                'keep_releases' => (int) $this->dcKeepReleases,
+        // A Node app's recipe has no artisan hooks, and its build command is on the Node tab.
+        $payload = ['keep_releases' => (int) $this->dcKeepReleases, 'predeploy_snapshot' => $this->dcPredeploySnapshot];
+        if (! $node) {
+            $payload += [
                 'migrate' => $this->dcMigrate,
                 'optimize' => $this->dcOptimize,
                 'storage_link' => $this->dcStorageLink,
                 'queue_restart' => $this->dcQueueRestart,
                 'horizon_terminate' => $this->dcHorizonTerminate,
-                'predeploy_snapshot' => $this->dcPredeploySnapshot,
                 'node_build' => $this->dcNodeBuild,
                 'extra_artisan' => array_values(array_filter(array_map('trim', explode("\n", $this->dcExtraArtisan)))),
-            ]);
+            ];
+        }
+        // Only to a server that knows them: an older one would refuse the whole save.
+        if ($this->dcTimeouts) {
+            $payload += ['build_timeout' => (int) $this->dcBuildTimeout, 'step_timeout' => (int) $this->dcStepTimeout];
+        }
+
+        try {
+            $data = $this->client()->updateDeployConfig($this->appName, $payload);
             $this->syncDeployConfig($data);
             $this->dispatch('notify', type: 'success', message: 'Deploy options saved — deploy.php regenerated.');
         } catch (CipiApiException $e) {

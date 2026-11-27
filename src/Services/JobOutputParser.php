@@ -185,7 +185,7 @@ class JobOutputParser
 
         if (str_contains($this->stripAnsi($output), '[cipi-api] Stopped after')) {
             return [
-                'The API follows a deploy for an hour, then closes the job. Whether the deploy is still running on the server: cipi deploy <app> --status',
+                'The API closes a job that runs longer than it lets one run (the line above says after how long). Whether the deploy is still running on the server: cipi deploy <app> --status',
                 'If it left a lock behind: use Unlock deploy, then retry.',
             ];
         }

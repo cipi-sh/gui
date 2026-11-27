@@ -773,13 +773,28 @@ namespace {
     $migrate = "➤ Executing task artisan:migrate\n[localhost] Deployer\\Exception\\TimeoutException in Client.php on line 99:\n\n  The command \"/usr/bin/php8.5 artisan migrate --force\" exceeded the timeout of 300 seconds.\n\n[ERROR] Deploy failed (exit 1)";
     $check($jp->extractError($migrate) === 'The step artisan:migrate ran for 5 minutes, the most it is given, and was stopped.' && str_contains($jp->deployHints($migrate)[0], 'Every step of a deploy has 5 minutes'), 'another step, announced the verbose way: named as a step');
     $check($jp->extractError("The command \"x\" exceeded the timeout of 45 seconds.") === 'A step of the deploy ran for 45 seconds, the most it is given, and was stopped.', 'no step in the output: said without one');
-    $api = "task deploy:vendors\ntask cipi:node_build\n\n[cipi-api] Stopped after 60 minutes: the time the API gives a job of this kind. The command had not ended. On the server, `cipi deploy shop --status` says whether a deploy is still running, and the deploy log how far it went.";
-    $check(str_starts_with($jp->extractError($api), 'Stopped after 60 minutes: the time the API gives a job of this kind.') && count($jp->deployHints($api)) === 2 && str_contains($jp->deployHints($api)[0], '--status') && str_contains($jp->deployHints($api)[1], 'Unlock deploy'),
-        'a deploy job the API closed after its hour: its line is the error, the hints say where to look');
+    $api = "task deploy:vendors\ntask cipi:node_build\n\n[cipi-api] Stopped after 120 minutes: the time the API gives a job of this kind. The command had not ended. On the server, `cipi deploy shop --status` says whether a deploy is still running, and the deploy log how far it went.";
+    $check(str_starts_with($jp->extractError($api), 'Stopped after 120 minutes: the time the API gives a job of this kind.') && count($jp->deployHints($api)) === 2 && str_contains($jp->deployHints($api)[0], '--status') && str_contains($jp->deployHints($api)[1], 'Unlock deploy'),
+        'a deploy job the API closed after its two hours: its line is the error, the hints say where to look');
     $key = "task deploy:update_code\n[ERROR] Permission denied (publickey).";
     $check($jp->deployTimeout($key) === null && $jp->extractError($key) === 'Permission denied (publickey).' && $jp->deployHints($key) === $generic && count($generic) === 5, 'every other failed deploy: the error and the hints it had');
     $trait = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesAsyncJobs.php');
     $check(str_contains($trait, "\$parser->deployHints(\$rawOutput ?? '')"), 'the overlay asks for the hints of this output');
+
+    echo "--- the two clocks of a deploy in the Deploy pipeline card (Laravel and Node apps)\n";
+    $ad = (string) file_get_contents($root.'/src/Livewire/AppDetail.php');
+    $adv = (string) file_get_contents($root.'/resources/views/livewire/app-detail.blade.php');
+    $check(str_contains($ad, "'dcBuildTimeout' => ['required', 'integer', 'min:60', 'max:3600']") && str_contains($ad, "'dcStepTimeout' => ['required', 'integer', 'min:60', 'max:1800']"), 'the bounds of the server: 60-3600 seconds for the build, 60-1800 for every other step');
+    $check(str_contains($ad, "\$this->dcTimeouts = is_numeric(\$data['build_timeout'] ?? null) && is_numeric(\$data['step_timeout'] ?? null);") && (bool) preg_match('/#\[Locked\]\s+public bool \$dcTimeouts = false;/', $ad)
+        && str_contains($ad, "if (\$this->dcTimeouts) {\n            \$payload += ['build_timeout' => (int) \$this->dcBuildTimeout, 'step_timeout' => (int) \$this->dcStepTimeout];"),
+        'they are shown and sent back only to a server that reported them (the browser cannot say it did)');
+    $check(str_contains($ad, "\$payload = ['keep_releases' => (int) \$this->dcKeepReleases, 'predeploy_snapshot' => \$this->dcPredeploySnapshot];\n        if (! \$node) {")
+        && substr_count($ad, "\$this->isLaravelApp(\$this->app ?? []) || \$this->isNodeApp(\$this->app ?? [])") === 1, 'a Node app loads its deploy options and saves the four it takes — no artisan hook, no asset build');
+    $check(str_contains($adv, '@if($isLaravel || $isNode)') && str_contains($adv, 'data-deploy-pipeline-form="node"') && substr_count($adv, 'data-dc-build-timeout') === 2 && substr_count($adv, 'data-dc-step-timeout') === 2
+        && substr_count($adv, '@if($dcTimeouts)') === 2, 'the card: one form for a Laravel app, one for a Node app, the two numbers in each');
+    $check(substr_count($adv, '@if(') + substr_count($adv, '@if (') === substr_count($adv, '@endif'), 'app-detail: every @if has its @endif');
+    $demoApi = (string) file_get_contents($root.'/dev/demo/api/index.php');
+    $check(str_contains($demoApi, "'build_timeout' => 1800, 'step_timeout' => 300") && str_contains($demoApi, "['app' => \$name, 'runtime' => 'node'] + \$a['deploy_config']"), 'the demo API answers with the clocks, and for a Node app');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);

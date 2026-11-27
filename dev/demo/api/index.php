@@ -485,12 +485,25 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
 
         // Deploy config
         case $sub === '/deploy-config' && $method === 'GET':
-            $laravelOnly();
-
-            return [200, ['data' => $a['deploy_config'] + ['app' => $name]]];
         case $sub === '/deploy-config' && $method === 'PUT':
+            // A Node app has deploy options too: the releases kept, the snapshot, the two clocks.
+            if ($isNode) {
+                $nodeKeys = ['keep_releases' => 5, 'predeploy_snapshot' => false, 'build_timeout' => 1800, 'step_timeout' => 300];
+                $a['deploy_config'] = array_intersect_key(($a['deploy_config'] ?? []) + $nodeKeys, $nodeKeys);
+                if ($method === 'PUT') {
+                    if (array_diff_key(array_filter($body, fn ($v) => $v !== null), $nodeKeys) !== []) {
+                        return [422, ['error' => "'{$name}' is a Node app: its recipe has no artisan hooks."]];
+                    }
+                    $a['deploy_config'] = array_merge($a['deploy_config'], array_intersect_key($body, $nodeKeys));
+                }
+
+                return [200, ['data' => ['app' => $name, 'runtime' => 'node'] + $a['deploy_config']]];
+            }
             $laravelOnly();
-            $a['deploy_config'] = array_merge($a['deploy_config'], array_intersect_key($body, $a['deploy_config']));
+            $a['deploy_config'] += ['build_timeout' => 1800, 'step_timeout' => 300];
+            if ($method === 'PUT') {
+                $a['deploy_config'] = array_merge($a['deploy_config'], array_intersect_key($body, $a['deploy_config']));
+            }
 
             return [200, ['data' => $a['deploy_config'] + ['app' => $name]]];
 
