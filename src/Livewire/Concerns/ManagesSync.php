@@ -50,7 +50,7 @@ trait ManagesSync
     /** Leave this server trusted on the target after the transfer (a target of the panel). */
     public bool $syncKeepTrust = false;
 
-    /** @var list<array{app: string, domain: string, kind: string}> the apps of this server */
+    /** @var list<array{app: string, domain: string, kind: string}> the apps of this server (Node apps are listed, not moved) */
     #[Locked]
     public array $syncSourceApps = [];
 
@@ -202,7 +202,7 @@ trait ManagesSync
             'with_db' => $this->syncWithDb,
             'with_storage' => $this->syncWithStorage,
         ];
-        $count = $all ? count($this->syncSourceApps) : count($apps);
+        $count = $all ? count(Sync::movable($this->syncSourceApps)) : count($apps);
         $target = $this->syncPeer()?->name ?? trim($this->syncHost);
 
         $this->startJob("Transfer {$count} ".($count === 1 ? 'app' : 'apps')." to {$target}", fn (CipiApiClient $api) => $api->syncPush($payload));
@@ -262,7 +262,7 @@ trait ManagesSync
         $this->resetErrorBag();
         $this->syncHost = trim($this->syncHost);
         $this->syncPort = trim($this->syncPort) === '' ? '22' : trim($this->syncPort);
-        $errors = Sync::errors($this->syncHost, $this->syncPort, $this->syncScope !== 'chosen', array_values($this->syncApps), array_column($this->syncSourceApps, 'app'));
+        $errors = Sync::errors($this->syncHost, $this->syncPort, $this->syncScope !== 'chosen', array_values($this->syncApps), Sync::movable($this->syncSourceApps));
         foreach ($errors as $field => $message) {
             $this->addError($field, $message);
         }

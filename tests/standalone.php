@@ -812,6 +812,8 @@ namespace {
     $check($S::sshHost('198.51.100.42', 'https://clients.example.com') === '198.51.100.42' && $S::sshHost(null, 'https://clients.example.com:8443/x') === 'clients.example.com'
         && $S::sshHost('', 'http://[2001:db8::1]/') === '' && $S::sshHost('1.2.3.4; id', 'not a url') === '', 'the address suggested for a server of the panel: its IP, else the host of its URL, never something that is not a host');
     $existing = ['shop', 'docs'];
+    $check($S::movable([['app' => 'shop', 'kind' => 'laravel'], ['app' => 'console', 'kind' => 'node'], ['app' => 'docs', 'kind' => 'custom'], ['app' => '', 'kind' => 'laravel']]) === $existing
+        && $S::movable([['app' => 'console', 'kind' => 'node']]) === [] && array_keys($S::errors('h1', '22', true, [], [])) === ['syncApps'], 'Node apps are not moved by a transfer: left out of what is sent, and a server with nothing else has nothing to send');
     $check($S::errors('203.0.113.9', '22', true, [], $existing) === [] && $S::errors('fra1.tail1234.ts.net', '2222', false, ['docs'], $existing) === []
         && $S::errors('fd7a:115c:a1e0::6f01', '22', true, [], $existing) === [], 'an IPv4, an IPv6 or a hostname and a port are a target');
     $check(array_keys($S::errors('a b', '22', true, [], $existing)) === ['syncHost'] && array_keys($S::errors('-oProxyCommand=x', '22', true, [], $existing)) === ['syncHost']
@@ -856,6 +858,8 @@ namespace {
         && str_contains($syncTrait, "if (! empty(\$trusted['changed'])) {\n                        \$this->syncTrustedPeerId = \$peer->id;"), 'the key the wizard added is taken back when the transfer ends, whatever its end — not one that was trusted before it');
     $check(str_contains($syncView, 'data-sync-step="what"') && str_contains($syncView, 'data-sync-step="where"') && str_contains($syncView, 'data-sync-step="go"') && str_contains($syncView, 'data-sync-receive')
         && str_contains($syncView, "['serverId' => \$peer->id, 'tab' => 'sync', 'to' => \$server->id]") && str_contains($syncView, 'data-sync-forget'), 'the view: three steps, and the way in from the server that receives');
+    $check(str_contains($syncView, '$syncMovable = \\CipiGui\\Support\\Sync::movable($syncSourceApps);') && str_contains($syncView, 'data-sync-node') && str_contains($syncView, "@if(\$item['kind'] === 'node')")
+        && str_contains($syncTrait, 'Sync::movable($this->syncSourceApps)'), 'Node apps are shown as not moved, and never counted or sent');
     $check(substr_count($syncView, '@if(') === substr_count($syncView, '@endif') && substr_count($syncView, '<div') === substr_count($syncView, '</div>') && substr_count($syncView, '<section') === substr_count($syncView, '</section>'), 'server-sync: every @if, div and section is closed');
     preg_match_all('/<x-cipi::icon name="([a-z-]+)"/', $syncView, $syncIcons);
     $iconsSrc = (string) file_get_contents($root.'/src/Support/Icons.php');

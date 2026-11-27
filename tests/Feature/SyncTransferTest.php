@@ -50,7 +50,9 @@ class SyncTransferTest extends TestCase
             return match (true) {
                 $path === '/api/apps' => Http::response(['data' => [
                     ['app' => 'shop', 'domain' => 'shop.example.com', 'php' => '8.5', 'node' => false],
-                    ['app' => 'docs', 'domain' => 'docs.example.com', 'node' => true, 'node_mode' => 'static'],
+                    ['app' => 'docs', 'domain' => 'docs.example.com', 'php' => '8.4', 'custom' => true, 'node' => false],
+                    // A Node app: listed, not moved — cipi sync does not recreate those yet.
+                    ['app' => 'console', 'domain' => 'console.example.com', 'node' => true, 'node_mode' => 'ssr'],
                 ]]),
                 $path === '/api/sync/key' => Http::response(['data' => ['key' => self::KEY, 'type' => 'ssh-ed25519', 'comment' => 'cipi@production', 'fingerprint' => 'SHA256:0+Op161dtkuC']]),
                 $path === '/api/sync/check' => Http::response(['data' => $this->check + ['host' => $request['host'], 'port' => $request['port'], 'user' => 'cipi']]),
@@ -91,6 +93,7 @@ class SyncTransferTest extends TestCase
             ->assertSee('Send apps to another server')
             ->assertSeeHtml('data-sync-step="what"')->assertSeeHtml('data-sync-step="where"')->assertSeeHtml('data-sync-step="go"')
             ->assertSee('All 2 of this server')
+            ->assertSeeHtml('data-sync-node')->assertSee('1 Node app of this server is not moved')
             ->assertSeeHtml('data-sync-key')->assertSee(self::KEY)->assertSee('SHA256:0+Op161dtkuC')
             ->assertSeeHtml('data-sync-encryption')->assertSee('never passes through this panel')
             ->assertSeeHtml('data-sync-receive')->assertSee('From clients')
@@ -109,6 +112,8 @@ class SyncTransferTest extends TestCase
             ->assertDontSeeHtml('data-sync-apps')
             ->set('syncScope', 'chosen')
             ->assertSeeHtml('data-sync-apps')->assertSee('shop.example.com')->assertSee('docs.example.com')
+            ->assertSee('console.example.com')->assertSee('Node app: not moved')
+            ->assertDontSeeHtml('wire:model.live="syncApps" value="console"')
             ->set('syncHost', '203.0.113.9')
             ->call('checkSync')
             ->assertHasErrors('syncApps');
@@ -195,6 +200,20 @@ class SyncTransferTest extends TestCase
             ->set('syncPeerId', $this->target->id)
             ->call('checkSync')
             ->set('syncScope', 'chosen')->set('syncApps', ['ghost'])
+            ->call('startSync')
+            ->assertHasErrors('syncApps')
+            ->assertSet('jobRunning', false);
+
+        $this->assertSame([], $this->sent('vps.example.com', 'POST', '/api/sync/push'));
+    }
+
+    #[Test]
+    public function a_node_app_cannot_be_sent_even_when_the_browser_names_it(): void
+    {
+        $this->tab()
+            ->set('syncPeerId', $this->target->id)
+            ->call('checkSync')
+            ->set('syncScope', 'chosen')->set('syncApps', ['shop', 'console'])
             ->call('startSync')
             ->assertHasErrors('syncApps')
             ->assertSet('jobRunning', false);

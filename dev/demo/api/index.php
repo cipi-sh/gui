@@ -1165,6 +1165,11 @@ function syncPushJob(array &$state, string $profile, array $p): array
         if (! isset($source['apps'][$name])) {
             continue;
         }
+        if (! empty($source['apps'][$name]['info']['node'])) {
+            $out[] = "  skipped  {$name} (a Node app: sync does not handle Node apps yet)";
+
+            continue;
+        }
         isset($target['apps'][$name]) ? $updated[] = $name : $created[] = $name;
         $target['apps'][$name] = $source['apps'][$name];
         if ($p['with_db']) {

@@ -29,10 +29,25 @@ final class Sync
     }
 
     /**
+     * The apps a transfer can move, by name: `cipi sync` does not recreate
+     * Node apps yet — those are created on the target and deployed from Git.
+     *
+     * @param  list<array{app: string, kind?: string}>  $apps
+     * @return list<string>
+     */
+    public static function movable(array $apps): array
+    {
+        return array_values(array_map(
+            fn (array $app) => (string) $app['app'],
+            array_filter($apps, fn (array $app) => ($app['kind'] ?? '') !== 'node' && ($app['app'] ?? '') !== ''),
+        ));
+    }
+
+    /**
      * The fields of the form, checked before anything is asked of a server.
      *
      * @param  list<string>  $apps      the ones ticked
-     * @param  list<string>  $existing  the apps of the source
+     * @param  list<string>  $existing  the apps of the source a transfer can move
      * @return array<string, string> field => what is wrong
      */
     public static function errors(string $host, string $port, bool $all, array $apps, array $existing): array
@@ -44,11 +59,13 @@ final class Sync
         if (! ctype_digit(trim($port)) || (int) $port < 1 || (int) $port > 65535) {
             $errors['syncPort'] = 'A port from 1 to 65535.';
         }
-        if (! $all) {
+        if ($existing === []) {
+            $errors['syncApps'] = 'This server has no app a transfer can move.';
+        } elseif (! $all) {
             if ($apps === []) {
                 $errors['syncApps'] = 'Choose at least one app, or send them all.';
             } elseif (array_diff($apps, $existing) !== []) {
-                $errors['syncApps'] = 'One of the apps is not on this server any more: reload the page.';
+                $errors['syncApps'] = 'One of the apps cannot be sent: it is not on this server any more, or it is a Node app. Reload the page.';
             }
         }
 

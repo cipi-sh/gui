@@ -5,7 +5,10 @@
     $syncPeer = $syncPeers->firstWhere('id', $syncPeerId);
     [$syncState, $syncVerdict] = \CipiGui\Support\Sync::verdict($syncCheck, $syncPeer !== null);
     $syncAll = $syncScope !== 'chosen';
-    $syncChosen = $syncAll ? array_column($syncSourceApps, 'app') : array_values($syncApps);
+    // cipi sync does not recreate Node apps yet: listed, not sent.
+    $syncMovable = \CipiGui\Support\Sync::movable($syncSourceApps);
+    $syncNodeApps = count($syncSourceApps) - count($syncMovable);
+    $syncChosen = $syncAll ? $syncMovable : array_values(array_intersect($syncApps, $syncMovable));
     $syncTarget = $syncPeer?->name ?? (trim($syncHost) !== '' ? trim($syncHost) : 'the target');
     $syncChecked = $syncState === 'ok' && ($syncCheck['host'] ?? null) === trim($syncHost) && (int) ($syncCheck['port'] ?? 0) === (int) $syncPort;
     $syncReady = $syncChecked && $syncChosen !== [];
@@ -29,28 +32,38 @@
             </div>
             @if(! $canManage)
                 <p class="text-muted">Moving apps needs Manage access to this server.</p>
-            @elseif($syncSourceApps === [])
-                <p class="text-muted">This server has no apps to send.</p>
+            @elseif($syncMovable === [])
+                <p class="text-muted">This server has no apps to send.@if($syncNodeApps) Its Node apps are not moved by a transfer: create them on the other server — they deploy from Git.@endif</p>
             @else
                 <form wire:submit="checkSync" class="space-y-6">
                     {{-- 1. What --}}
                     <section data-sync-step="what">
                         <h3 class="text-sm font-semibold mb-2">1 · What</h3>
                         <div class="flex flex-wrap gap-2 mb-3">
-                            <label class="check-card"><input type="radio" wire:model.live="syncScope" value="all"><span><span class="check-card-title">Every app</span><span class="check-card-text">All {{ count($syncSourceApps) }} of this server</span></span></label>
+                            <label class="check-card"><input type="radio" wire:model.live="syncScope" value="all"><span><span class="check-card-title">Every app</span><span class="check-card-text">All {{ count($syncMovable) }} of this server</span></span></label>
                             <label class="check-card"><input type="radio" wire:model.live="syncScope" value="chosen"><span><span class="check-card-title">Chosen apps</span><span class="check-card-text">Tick them below</span></span></label>
                         </div>
                         @unless($syncAll)
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2" data-sync-apps>
                                 @foreach($syncSourceApps as $item)
-                                    <label class="check-card">
-                                        <input type="checkbox" wire:model.live="syncApps" value="{{ $item['app'] }}">
-                                        <span><span class="check-card-title font-mono text-xs">{{ $item['app'] }}</span><span class="check-card-text">{{ $item['domain'] }} · {{ $item['kind'] }}</span></span>
-                                    </label>
+                                    @if($item['kind'] === 'node')
+                                        <label class="check-card" style="opacity:.6;cursor:default;">
+                                            <input type="checkbox" disabled>
+                                            <span><span class="check-card-title font-mono text-xs">{{ $item['app'] }}</span><span class="check-card-text">{{ $item['domain'] }} · Node app: not moved</span></span>
+                                        </label>
+                                    @else
+                                        <label class="check-card">
+                                            <input type="checkbox" wire:model.live="syncApps" value="{{ $item['app'] }}">
+                                            <span><span class="check-card-title font-mono text-xs">{{ $item['app'] }}</span><span class="check-card-text">{{ $item['domain'] }} · {{ $item['kind'] }}</span></span>
+                                        </label>
+                                    @endif
                                 @endforeach
                             </div>
                             @error('syncApps') <p class="field-error">{{ $message }}</p> @enderror
                         @endunless
+                        @if($syncNodeApps)
+                            <p class="field-hint" data-sync-node>{{ $syncNodeApps === 1 ? '1 Node app of this server is' : $syncNodeApps.' Node apps of this server are' }} not moved: a transfer does not recreate Node apps yet. Create {{ $syncNodeApps === 1 ? 'it' : 'them' }} on the target — the code comes from Git with the first deploy.</p>
+                        @endif
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
                             <label class="check-card"><input type="checkbox" wire:model.live="syncWithDb"><span><span class="check-card-title">Databases</span><span class="check-card-text">Dumped here, restored there — replacing the database of an app that is already on the target</span></span></label>
                             <label class="check-card"><input type="checkbox" wire:model.live="syncWithStorage"><span><span class="check-card-title">Uploaded files</span><span class="check-card-text"><code>shared/storage</code> of each app: can be large</span></span></label>
@@ -114,7 +127,7 @@
                         </p>
                         <div class="flex justify-end mt-3">
                             <button type="button" wire:click="startSync" class="btn btn-primary" data-sync-start="{{ $syncReady ? 'ready' : 'wait' }}" @disabled(! $syncReady)
-                                    data-confirm="{{ \CipiGui\Support\Sync::summary($syncAll, $syncChosen, count($syncSourceApps), $syncWithDb, $syncWithStorage, $syncTarget) }}"
+                                    data-confirm="{{ \CipiGui\Support\Sync::summary($syncAll, $syncChosen, count($syncMovable), $syncWithDb, $syncWithStorage, $syncTarget) }}"
                                     data-confirm-label="Start the transfer">
                                 <x-cipi::icon name="upload" /> Start the transfer
                             </button>
@@ -149,6 +162,7 @@
                 <div class="card-header"><h2 class="card-title">What a transfer does</h2></div>
                 <ul class="text-sm text-muted space-y-2" style="list-style:disc;padding-left:1.1rem;">
                     <li>Apps that are <strong>not</strong> on the target are created there: user, PHP, Nginx, workers, crons, deploy key.</li>
+                    <li>Laravel and custom apps travel. Node apps do not yet.</li>
                     <li>Apps that <strong>are</strong> there are updated from this server's.</li>
                     <li>Domains keep pointing where DNS says: nothing changes for visitors until you move the records.</li>
                     <li>Certificates are issued on the target once DNS points at it.</li>
