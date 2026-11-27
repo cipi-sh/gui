@@ -535,7 +535,7 @@ namespace {
     $ms = (string) file_get_contents($root.'/resources/views/partials/metrics-settings.blade.php');
     $check(str_contains($ms, '<label class="label" for="m-hb">Heartbeat URL</label>') && str_contains($ms, '<label class="label" for="m-hb-every">Every</label>') && str_contains($ms, '<div class="flex items-start gap-2">') && ! str_contains($ms, 'class="input-group"'), 'Metrics: the heartbeat is a field like the retention\'s — labelled URL and interval on the line of their inputs');
 
-    $check((bool) preg_match("/VERSION = '4\\.(7|8|9)\\.\\d+'/", $theme) && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.7.0]'), 'version 4.7.0 or later, its changelog kept');
+    $check(preg_match("/VERSION = '(\d+\.\d+\.\d+)'/", $theme, $tv47) === 1 && version_compare($tv47[1], '4.7.0', '>=') && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.7.0]'), 'version 4.7.0 or later, its changelog kept');
 
     echo "--- 4.8.0: connectors, passkeys, Zero Trust in full\n";
     $routes = (string) file_get_contents($root.'/routes/web.php');
@@ -564,7 +564,7 @@ namespace {
     $PC = \CipiGui\Support\PageCache::class;
     $theme = (string) file_get_contents($root.'/src/Support/Theme.php');
     $changelog = (string) file_get_contents($root.'/CHANGELOG.md');
-    $check(str_contains($theme, "VERSION = '4.9.0'") && str_contains($theme, "API = '1.47'") && str_contains($changelog, '## [4.9.0]'), 'version 4.9.0 for API 1.47');
+    $check(preg_match("/VERSION = '(\d+\.\d+\.\d+)'/", $theme, $tv49) === 1 && version_compare($tv49[1], '4.9.0', '>=') && preg_match("/API = '(\d+\.\d+)'/", $theme, $ta49) === 1 && version_compare($ta49[1], '1.47', '>=') && str_contains($changelog, '## [4.9.0]'), 'version 4.9.0 or later, for API 1.47 or later');
 
     // The page cache: the values the form takes are the server's own rules.
     $check($PC::ttlValid('30s') && $PC::ttlValid('10m') && $PC::ttlValid('30d') && ! $PC::ttlValid('31d') && ! $PC::ttlValid('0s') && ! $PC::ttlValid('10') && ! $PC::ttlValid('10 m') && ! $PC::ttlValid('1w') && $PC::ttlSeconds('2h') === 7200,
@@ -645,6 +645,38 @@ namespace {
         $visible = (string) preg_replace('/\{\{--.*?--\}\}/s', '', $text);
         $check(! preg_match('/\b(API|Cipi) \d+\.\d+/', $visible), "{$label}: no version of Cipi or of its API in its text");
     }
+
+    echo "--- 4.10.0: the mesh network (Tailscale, NetBird) in the Zero Trust tab, who holds a firewall lock\n";
+    $check(str_contains($theme, "VERSION = '4.10.0'") && str_contains($theme, "API = '1.48'") && str_contains($changelog, '## [4.10.0]'), 'version 4.10.0 for API 1.48');
+    $check($FW::zeroTrustLocks(['lock_http' => false, 'lock_ssh' => false, 'by' => ['http' => [], 'ssh' => []]]) === null && $FW::zeroTrustLocks([]) === null, 'no lock: no notice');
+    $l = $FW::zeroTrustLocks(['lock_http' => true, 'lock_ssh' => true]);
+    $check($l['text'] === 'Zero Trust keeps 80/443 to Cloudflare and SSH closed: opening them to everyone from here is refused.' && $l['commands'] === ['cipi zt unlock http', 'cipi zt ssh unlock'], 'a server that does not say who holds a lock: Cloudflare, as before');
+    $l = $FW::zeroTrustLocks(['lock_http' => false, 'lock_ssh' => true, 'by' => ['http' => [], 'ssh' => ['tailscale']]]);
+    $check($l['text'] === 'Zero Trust keeps SSH to the Tailscale network: opening it to everyone from here is refused.' && $l['commands'] === ['cipi zt tailscale unlock ssh'], "SSH locked by the mesh: its name, and its own unlock command");
+    $l = $FW::zeroTrustLocks(['lock_http' => true, 'lock_ssh' => true, 'by' => ['http' => ['cloudflare', 'netbird'], 'ssh' => ['cloudflare', 'netbird']]]);
+    $check($l['text'] === 'Zero Trust keeps 80/443 to Cloudflare and the NetBird network and SSH closed: opening them to everyone from here is refused.'
+        && $l['commands'] === ['cipi zt unlock http', 'cipi zt netbird unlock http', 'cipi zt ssh unlock', 'cipi zt netbird unlock ssh'], 'both sides hold a lock: both named, a command each');
+    $l = $FW::zeroTrustLocks(['lock_http' => true, 'by' => ['http' => ['tailscale; rm -rf /', ['x'], 'TAILSCALE'], 'ssh' => ['tailscale']]]);
+    $check($l['commands'] === ['cipi zt tailscale unlock http'] && ! str_contains($l['text'], 'rm -rf'), 'a holder is one of three names, whatever the server sends; a lock that is off has none');
+    $check($FW::mesh(null) === null && $FW::mesh('x') === null, 'a server that says nothing of a mesh: no card');
+    $off = $FW::mesh(['enabled' => false, 'provider' => null, 'active' => null]);
+    $check($off['on'] === false && $off['badge'] === 'Off' && $off['tone'] === 'gray', 'no mesh on: Off');
+    $m = $FW::mesh(['enabled' => true, 'provider' => 'tailscale', 'connected' => true, 'key_expiry' => null, 'warnings' => [], 'ssh' => ['provider_ssh' => false]]);
+    $check($m['on'] && $m['badge'] === 'Tailscale connected' && $m['tone'] === 'green' && $m['key'] === 'Does not expire' && $m['ssh'] === "OpenSSH, with the server's keys", 'Tailscale connected, a node key that does not expire, OpenSSH');
+    $m = $FW::mesh(['enabled' => true, 'provider' => 'tailscale', 'connected' => true, 'key_expiry' => '2027-01-06T10:00:00Z', 'key_expires_in_days' => 40, 'warnings' => ['The node key expires in 40 days'], 'ssh' => ['provider_ssh' => true]]);
+    $check($m['tone'] === 'amber' && $m['key'] === 'Expires on 2027-01-06 — in 40 days' && str_starts_with($m['ssh'], 'Tailscale SSH'), 'a node key that expires: the day, the days left, amber; Tailscale SSH said');
+    $m = $FW::mesh(['enabled' => true, 'provider' => 'tailscale', 'connected' => false, 'key_expiry' => '2026-11-20T10:00:00Z', 'key_expires_in_days' => -7]);
+    $check($m['tone'] === 'red' && $m['badge'] === 'Tailscale disconnected' && $m['key'] === 'Expired on 2026-11-20', 'off the network with an expired key: red, and why');
+    $m = $FW::mesh(['enabled' => true, 'provider' => 'netbird', 'connected' => true, 'warnings' => []]);
+    $check($m['badge'] === 'NetBird connected' && $m['key'] === null, 'NetBird: no node key line');
+    $check($FW::mesh(['enabled' => true, 'provider' => ''])['on'] === false, 'a mesh with no provider is off');
+    $ztTab = (string) (preg_match("/@elseif\(\\\$activeTab === 'zt'\)(.*?)@elseif\(\\\$activeTab === 'ip'\)/s", $smv, $zm) ? $zm[1] : '');
+    $check($ztTab !== '' && str_contains($ztTab, 'data-zt-mesh') && str_contains($ztTab, "\\CipiGui\\Support\\Firewall::mesh(\$mesh)") && str_contains($ztTab, 'cipi zt tailscale enable --auth-key=') && str_contains($ztTab, 'cipi zt netbird enable --setup-key=')
+        && strpos($ztTab, 'data-zt-mesh') > strpos($ztTab, 'data-zt-details'), 'Zero Trust tab: the mesh card, in the detailed view, with how to turn it on');
+    $check(! str_contains($ztTab, 'wire:click') && ! str_contains($ztTab, 'wire:submit'), 'Zero Trust tab: still status only — nothing to click that changes the server');
+    $check(! preg_match('/\b(API|Cipi) \d+\.\d+/', (string) preg_replace('/{{--(.*?)--}}/s', '', $ztTab)), 'Zero Trust tab: no version of Cipi or of its API in its text');
+    $fwv = $views[$root.'/resources/views/livewire/firewall.blade.php'] ?? '';
+    $check(str_contains($fwv, 'F::zeroTrustLocks($zt)') && str_contains($fwv, 'data-firewall-zt') && ! str_contains($fwv, "'80/443 to Cloudflare'"), 'Firewall tab: the lock notice comes from who holds it');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);

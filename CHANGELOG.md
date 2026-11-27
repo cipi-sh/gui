@@ -1,5 +1,23 @@
 # Changelog
 
+## [4.10.0] — 2026-11-27
+
+The mesh network a server is on — Tailscale or NetBird — in the Zero Trust tab, and who holds a firewall lock. For Cipi 5.18.0 and cipi/api 1.48. Read-only, like the rest of Zero Trust: nothing here changes a server, and no token ability is new.
+
+### Added
+
+- **Server → Zero Trust → Mesh network**: the private side of Zero Trust, under Cloudflare's card. Cloudflare Tunnel publishes the sites; a mesh is how the people who run the server reach it. The card says which network (**Tailscale** or **NetBird**, and its own coordination server when it is not the vendor's: Headscale, a self-hosted NetBird), **connected or not** and the client's own word for why, the server's **address and name** on the network, **peers online**, the **node key** (Tailscale: *Does not expire*, or the day and the days left), how to **SSH over it** — the command, and whether OpenSSH or Tailscale SSH answers — and whether **port 22** and **80/443** are closed to the world. The server's own warnings (a key about to expire, SSH locked to a mesh that is down) are shown as it says them.
+  - Green when connected, amber with a warning, red when off the network; **Off** with the two commands that turn it on where the server has no mesh.
+  - Shown with or without a tunnel: a server may have either side, both or none. A server that says nothing of a mesh has no card.
+- **Firewall: a Zero Trust lock is named by who holds it.** "80/443 to Cloudflare", "SSH to the Tailscale network", or both — each with **its own unlock command** (`cipi zt unlock http`, `cipi zt tailscale unlock ssh`). The notice used to say Cloudflare whatever held the port.
+- `Support\Firewall::mesh()` and `Support\Firewall::zeroTrustLocks()`: both in words, without the framework (`tests/standalone.php`).
+- Demo API: the first server is on a tailnet next to its tunnel, with SSH locked to it.
+
+### Notes
+
+- **Nothing to do with tokens**, and nothing to click: joining a network, Tailscale SSH and the locks are `cipi zt tailscale|netbird …` at the server's shell.
+- `tests/standalone.php` was run for this release (the two helpers, what the two views must and must not contain); **the PHPUnit suite was not** — `vendor/` could not be installed where the release was prepared. `ZeroTrustTest` and `FirewallTest` have the new cases: run `composer test` before merging.
+
 ## [4.9.0] — 2026-11-26
 
 The page cache and Octane of an app, Valkey per app, the server's own name wherever servers are listed, and how notifications are written. For Cipi 5.17.0 and cipi/api 1.47. No new token ability: what the panel's token has covers it.

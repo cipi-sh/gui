@@ -890,6 +890,42 @@
                         @endif
                     </div>
 
+                    @php
+                        $mesh = is_array($ztd['mesh'] ?? null) ? $ztd['mesh'] : null;
+                        $meshView = \CipiGui\Support\Firewall::mesh($mesh);
+                    @endphp
+                    @if($meshView !== null)
+                        @php
+                            $meshLock = is_array($mesh['lock'] ?? null) ? $mesh['lock'] : [];
+                            $meshPeers = is_array($mesh['peers'] ?? null) ? $mesh['peers'] : [];
+                            $meshCommand = is_array($mesh['ssh'] ?? null) ? ($mesh['ssh']['command'] ?? null) : null;
+                        @endphp
+                        <div class="card" data-zt-mesh>
+                            <div class="card-header">
+                                <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="share" /> Mesh network</h2><p class="card-subtitle">Tailscale or NetBird: how the people who run the server reach it — SSH, the panel, the API and the sites, on a private address only the devices of the network can route to. Status only — <code>cipi zt tailscale</code> or <code>cipi zt netbird</code> on the server.</p></div>
+                                <span class="badge badge-{{ $meshView['tone'] }}" data-zt-mesh-state>{{ $meshView['badge'] }}</span>
+                            </div>
+                            @if($meshView['on'])
+                                @foreach((array) ($mesh['warnings'] ?? []) as $meshWarning)
+                                    <x-cipi::alert type="warning" class="mb-3">{{ $meshWarning }}</x-cipi::alert>
+                                @endforeach
+                                <dl class="kv">
+                                    <dt>Network</dt><dd>{{ $meshView['label'] }}{{ ! empty($mesh['network']) ? ' · '.$mesh['network'] : '' }} @if(! empty($mesh['control_url']))<span class="badge badge-blue">{{ $mesh['control_url'] }}</span>@endif</dd>
+                                    <dt>Address</dt><dd class="font-mono text-xs">{{ $mesh['ip'] ?? '—' }}{{ ! empty($mesh['fqdn']) ? ' · '.$mesh['fqdn'] : '' }}</dd>
+                                    <dt>State</dt><dd>{{ $mesh['state'] ?? '—' }} · {{ (int) ($meshPeers['online'] ?? 0) }} of {{ (int) ($meshPeers['total'] ?? 0) }} peers online</dd>
+                                    @if($meshView['key'] !== null)
+                                        <dt>Node key</dt><dd>{{ $meshView['key'] }}</dd>
+                                    @endif
+                                    <dt>SSH over the mesh</dt><dd>@if($meshCommand)<code>{{ $meshCommand }}</code> · @endif {{ $meshView['ssh'] }}</dd>
+                                    <dt>SSH 22</dt><dd>{{ ! empty($meshLock['ssh']) ? 'Closed to the world — from the network only' : 'Open' }}</dd>
+                                    <dt>HTTP 80/443</dt><dd>{{ ! empty($meshLock['http']) ? 'Closed to the world — the sites, the panel and the API answer on the network only' : 'Open' }}</dd>
+                                </dl>
+                            @else
+                                <p class="text-sm text-soft">Off on this server. <code>cipi zt tailscale enable --auth-key=…</code> or <code>cipi zt netbird enable --setup-key=…</code>, then <code>lock ssh</code> from a session that came over the network.</p>
+                            @endif
+                        </div>
+                    @endif
+
                     @if(! empty($ztd['enabled']))
                         <div class="card card-flush">
                             <div class="card-header p-5 mb-0"><div><h2 class="card-title">Hostnames</h2><p class="card-subtitle">What the tunnel serves and who may open it.</p></div></div>

@@ -71,10 +71,13 @@
                 </div>
             </div>
 
-            @if(! empty($zt['lock_http']) || ! empty($zt['lock_ssh']))
+            @php $ztLocks = F::zeroTrustLocks($zt); @endphp
+            @if($ztLocks !== null)
                 <x-cipi::alert type="info" data-firewall-zt>
-                    Zero Trust keeps {{ ! empty($zt['lock_http']) ? '80/443 to Cloudflare' : '' }}{{ ! empty($zt['lock_http']) && ! empty($zt['lock_ssh']) ? ' and ' : '' }}{{ ! empty($zt['lock_ssh']) ? 'SSH closed' : '' }}:
-                    opening {{ ! empty($zt['lock_http']) ? 'them' : 'it' }} to everyone from here is refused. Unlock on the server with <code>cipi zt unlock http</code> / <code>cipi zt ssh unlock</code>.
+                    {{ $ztLocks['text'] }} Unlock on the server with
+                    @foreach($ztLocks['commands'] as $ztCommand)
+                        <code>{{ $ztCommand }}</code>{{ $loop->last ? '.' : ' /' }}
+                    @endforeach
                 </x-cipi::alert>
             @endif
             @if(! empty($ufw['installed']) && empty($ufw['active']))

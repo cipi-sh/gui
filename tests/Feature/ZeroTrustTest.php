@@ -17,6 +17,9 @@ use PHPUnit\Framework\Attributes\Test;
  * whole of `cipi zt status --json` — tunnel, connectors, hostnames with their
  * Access paths and people, TCP services, SSH certificates — and a server's
  * API behind Cloudflare Access is reached with a service token.
+ *
+ * 4.10.0: the mesh network the server is on (Tailscale, NetBird) has a card
+ * of its own under Cloudflare's — where a server says something of a mesh.
  */
 class ZeroTrustTest extends TestCase
 {
@@ -84,6 +87,91 @@ class ZeroTrustTest extends TestCase
             ->assertSee('db.example.com')->assertSee('127.0.0.1:3306')
             ->assertSee('short-lived certificates')
             ->assertSee('Not on the tunnel: blog');
+    }
+
+    /** `cipi zt status --json` of a server with no tunnel: Cloudflare off, and whatever mesh is given. */
+    private function withoutTunnel(?array $mesh): array
+    {
+        $details = ['enabled' => false, 'token' => false, 'tunnel' => null, 'real_ip' => false, 'lock' => ['http' => false, 'http_mode' => null, 'ssh' => false],
+            'hostnames' => [], 'gui' => null, 'api' => null, 'ssh' => null, 'tcp' => [], 'service_tokens' => [], 'previews' => [], 'missing' => []];
+
+        return $mesh === null ? $details : $details + ['mesh' => $mesh];
+    }
+
+    private function tailscale(array $over = []): array
+    {
+        return $over + ['enabled' => true, 'provider' => 'tailscale', 'label' => 'Tailscale', 'installed' => true, 'running' => true, 'connected' => true, 'state' => 'Running',
+            'interface' => 'tailscale0', 'ip' => '100.101.102.103', 'fqdn' => 'web1.tail1234.ts.net', 'network' => 'example.com', 'control_url' => null,
+            'tags' => ['tag:cipi'], 'key_expiry' => null, 'key_expires_in_days' => null, 'peers' => ['total' => 6, 'online' => 4],
+            'ssh' => ['provider_ssh' => false, 'ports' => [22], 'command' => 'ssh cipi@100.101.102.103'],
+            'lock' => ['ssh' => true, 'http' => false], 'direct' => ['port' => 41641, 'open' => false], 'warnings' => []];
+    }
+
+    #[Test]
+    public function the_mesh_network_has_its_own_card_with_or_without_a_tunnel(): void
+    {
+        $this->details = $this->withoutTunnel($this->tailscale());
+
+        $this->tab()
+            ->assertSee('data-zt-mesh', false)
+            ->assertSee('Tailscale connected')
+            ->assertSee('100.101.102.103')->assertSee('web1.tail1234.ts.net')->assertSee('example.com')
+            ->assertSee('4 of 6 peers online')
+            ->assertSee('Does not expire')
+            ->assertSee('ssh cipi@100.101.102.103')->assertSee('OpenSSH, with the server')
+            ->assertSee('Closed to the world — from the network only')
+            // Cloudflare's card says its own: off.
+            ->assertSee('cipi zt token set')
+            ->assertDontSee('data-zt-hostnames', false);
+    }
+
+    #[Test]
+    public function a_node_key_that_expires_and_the_servers_warnings_are_said(): void
+    {
+        $this->details = $this->withoutTunnel($this->tailscale([
+            'key_expiry' => '2027-01-06T10:00:00Z', 'key_expires_in_days' => 40,
+            'warnings' => ['The node key expires in 40 days: disable key expiry for this machine, or join with a tagged key'],
+            'lock' => ['ssh' => false, 'http' => true],
+        ]));
+
+        $this->tab()
+            ->assertSee('Expires on 2027-01-06 — in 40 days')
+            ->assertSee('disable key expiry for this machine')
+            ->assertSee('the sites, the panel and the API answer on the network only')
+            ->assertDontSee('Closed to the world — from the network only');
+    }
+
+    #[Test]
+    public function a_mesh_that_is_down_is_red_and_netbird_has_no_node_key_line(): void
+    {
+        $this->details = $this->withoutTunnel(['enabled' => true, 'provider' => 'netbird', 'label' => 'NetBird', 'connected' => false, 'state' => 'NeedsLogin',
+            'ip' => null, 'fqdn' => null, 'network' => null, 'control_url' => 'https://nb.example.com:443', 'peers' => ['total' => 0, 'online' => 0],
+            'ssh' => ['provider_ssh' => false, 'ports' => [22], 'command' => null], 'lock' => ['ssh' => false, 'http' => false],
+            'warnings' => ['NetBird is not connected (NeedsLogin)']]);
+
+        $this->tab()
+            ->assertSee('NetBird disconnected')->assertSee('badge-red', false)
+            ->assertSee('NeedsLogin')->assertSee('https://nb.example.com:443')
+            ->assertDontSee('Node key');
+    }
+
+    #[Test]
+    public function a_server_with_no_mesh_says_how_to_join_one_and_an_older_server_has_no_card(): void
+    {
+        $this->details = $this->withoutTunnel(['enabled' => false, 'provider' => null, 'active' => null]);
+        $this->tab()->assertSee('data-zt-mesh', false)->assertSee('cipi zt tailscale enable --auth-key=')->assertSee('cipi zt netbird enable --setup-key=');
+
+        $this->details = $this->withoutTunnel(null);
+        $this->tab()->assertSee('data-zt-details', false)->assertDontSee('data-zt-mesh', false);
+    }
+
+    #[Test]
+    public function the_tab_changes_nothing_on_the_server(): void
+    {
+        $this->details = $this->withoutTunnel($this->tailscale());
+        $this->tab();
+
+        Http::assertNotSent(fn (Request $r) => $r->method() !== 'GET');
     }
 
     #[Test]

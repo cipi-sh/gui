@@ -830,7 +830,7 @@ function demoFirewall(): array
             $rule('allow', '5432', 'tcp', '10.10.0.0/16', 'v4', 'port'),
         ]],
         'protected_ports' => [22, 80, 443],
-        'zero_trust' => ['lock_http' => false, 'lock_ssh' => false],
+        'zero_trust' => ['lock_http' => false, 'lock_ssh' => false, 'by' => ['http' => [], 'ssh' => []]],
         'fail2ban' => ['installed' => true, 'running' => true, 'attempts' => 3, 'attempts_default' => 3, 'attempts_custom' => null, 'attempts_pending' => false,
             'findtime' => 3600, 'bantime' => 86400, 'jails' => [
                 ['jail' => 'recidive', 'banned' => [], 'count' => 0, 'total' => 2, 'failed' => 0],
