@@ -324,6 +324,10 @@ function handle(string $method, string $route, array $body, array $query, string
     if ($method === 'GET' && $r('/zt')) {
         return [200, ['data' => $s['zt']]];
     }
+    // The mesh network of Zero Trust (Cipi 5.18): join, leave, locks, Tailscale SSH
+    if ($r('/zt/mesh(/lock|/ssh)?')) {
+        return ztMeshRoute($method, $p(1), $body, $s);
+    }
 
     // Disk usage (API 1.33+): `cipi disk --json` and `cipi disk db --json`
     if ($method === 'GET' && $r('/disk/dbs')) {
@@ -841,6 +845,130 @@ function demoFirewall(): array
         'real_ip' => ['enabled' => false, 'provider' => null, 'header' => null, 'kept_by' => null, 'ranges' => 0,
             'refreshed_at' => null, 'nightly_refresh' => false, 'can_disable' => false, 'bans_active' => true],
     ];
+}
+
+/**
+ * `POST|DELETE /zt/mesh`, `POST|DELETE /zt/mesh/lock`, `PUT /zt/mesh/ssh`: the
+ * mesh network as the server would change it. The demo panel reaches its
+ * servers on their public address, so closing 80/443 is refused the way the
+ * CLI refuses it (fra1's API is on the tunnel: there it goes); SSH is closed
+ * once somebody has signed in over the mesh — which, on a server that has
+ * just joined, nobody has.
+ */
+function ztMeshRoute(string $method, string $action, array $body, array &$s): array
+{
+    $zt = &$s['zt'];
+    if (! is_array($zt['details'] ?? null)) {
+        throw new DemoHttpError(503, 'The mesh network from the panel needs Cipi 5.18.0+ — this server runs Cipi 5.15.2');
+    }
+    $mesh = is_array($zt['details']['mesh'] ?? null) ? $zt['details']['mesh'] : ['enabled' => false, 'provider' => null];
+    $on = ! empty($mesh['enabled']);
+    $labels = ['tailscale' => 'Tailscale', 'netbird' => 'NetBird'];
+    $save = function (array $mesh, string $message) use (&$zt): array {
+        if (! empty($mesh['enabled'])) {
+            $label = $mesh['label'];
+            $seen = $mesh['ssh']['seen'] ?? null;
+            $via = $mesh['panel']['via'] ?? 'public';
+            $mesh['panel'] = ['via' => $via, 'from' => '203.0.113.10', 'client' => null, 'blocked' => [
+                'lock_ssh' => ! empty($mesh['ssh']['provider_ssh'])
+                    ? "{$label} SSH answers on the mesh address and its sessions are not in sshd's log: lock from a session over the network, at the server's shell (cipi zt {$mesh['provider']} lock ssh)."
+                    : ($seen === null ? "Nobody has signed in over SSH through {$label} yet. Do it once from a device of the network (ssh cipi@{$mesh['ip']}): that login is the proof that it works, and then the port can be closed." : null),
+                'lock_http' => in_array($via, ['mesh', 'local', 'tunnel'], true) ? null
+                    : "The panel reaches this server's API on its public address (from 203.0.113.10): with 80/443 closed it could not reach it any more, not even to unlock. Have the panel call the API over {$label} (the API's DNS record on {$mesh['ip']}) or through the Cloudflare tunnel, or lock at the server's shell (cipi zt {$mesh['provider']} lock http).",
+                'disable' => $via === 'mesh' ? "The panel reaches this server over {$label}: leaving the network would cut it off. Do it at the server's shell (cipi zt {$mesh['provider']} disable)." : null,
+            ]];
+        }
+        $zt['details']['mesh'] = $mesh;
+        $zt['mesh'] = ! empty($mesh['enabled']) ? $mesh['provider'] : null;
+        $zt['mesh_state'] = ! empty($mesh['enabled']) ? 'connected' : null;
+        $zt['mesh_ip'] = ! empty($mesh['enabled']) ? $mesh['ip'] : null;
+
+        return [200, ['data' => $zt, 'message' => $message]];
+    };
+
+    if ($action === '' && $method === 'POST') {
+        $provider = (string) ($body['provider'] ?? '');
+        if (! isset($labels[$provider])) {
+            throw new DemoHttpError(422, "'provider' is tailscale or netbird");
+        }
+        if ($on) {
+            throw new DemoHttpError(422, "This server is on {$mesh['label']} already: one mesh network at a time (cipi zt {$mesh['provider']} disable first)");
+        }
+        $key = (string) ($body['key'] ?? '');
+        if ($key === '') {
+            throw new DemoHttpError(422, "{$labels[$provider]} is not installed on this server: give a key to join with");
+        }
+        if (! preg_match('/^[A-Za-z0-9._~:?&=%+\/-]{8,512}$/', $key)) {
+            throw new DemoHttpError(422, 'That does not look like a key (8 to 512 characters, no spaces, no quotes)');
+        }
+        $name = (string) ($body['hostname'] ?? '') ?: (string) ($s['status']['system']['hostname'] ?? 'server');
+        $tags = array_values(array_filter((array) ($body['tags'] ?? [])));
+        $tailscale = $provider === 'tailscale';
+        $ip = $tailscale ? '100.90.14.22' : '100.76.3.41';
+
+        return $save([
+            'enabled' => true, 'provider' => $provider, 'label' => $labels[$provider], 'installed' => true, 'installed_by_cipi' => true,
+            'running' => true, 'connected' => true, 'state' => $tailscale ? 'Running' : 'Connected', 'online' => true,
+            'interface' => $tailscale ? 'tailscale0' : 'wt0', 'interface_up' => true, 'ip' => $ip, 'ip6' => null, 'name' => $name,
+            'fqdn' => $tailscale ? $name.'.tail1234.ts.net' : $name.'.netbird.cloud', 'network' => $tailscale ? 'example.org' : null,
+            'control_url' => ($body['control_url'] ?? '') ?: null, 'version' => $tailscale ? '1.80.2' : '0.36.5', 'tags' => $tailscale ? $tags : [],
+            // An untagged Tailscale machine has a node key that expires: lock ssh will ask for that to be settled.
+            'key_expiry' => $tailscale && $tags === [] ? gmdate('Y-m-d\TH:i:s\Z', time() + 180 * 86400) : null,
+            'key_expires_in_days' => $tailscale && $tags === [] ? 180 : null,
+            'peers' => ['total' => 4, 'online' => 3],
+            'ssh' => ['provider_ssh' => $tailscale && ! empty($body['ssh']), 'ports' => [22], 'command' => 'ssh cipi@'.$ip, 'seen' => null],
+            'lock' => ['ssh' => false, 'http' => false], 'direct' => ['port' => $tailscale ? 41641 : 51820, 'open' => ! empty($body['direct'])],
+            'accept_dns' => ! empty($body['accept_dns']), 'accept_routes' => ! empty($body['accept_routes']),
+            'firewall_active' => true, 'http01_apps' => [], 'enabled_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'warnings' => $tailscale && $tags === [] ? ['The node key expires in 180 days: disable key expiry for this machine, or join with a tagged key'] : [],
+        ], "Installing {$labels[$provider]}...\n{$labels[$provider]}: {$name} is on the network as {$ip}\nNothing was closed: SSH and 80/443 answer as before.");
+    }
+
+    if (! $on) {
+        throw new DemoHttpError(422, 'This server is on no mesh network');
+    }
+    $label = (string) $mesh['label'];
+    $blocked = (array) ($mesh['panel']['blocked'] ?? []);
+
+    if ($action === '' && $method === 'DELETE') {
+        if (! empty($blocked['disable'])) {
+            throw new DemoHttpError(422, (string) $blocked['disable']);
+        }
+
+        return $save(['enabled' => false, 'provider' => null, 'active' => null], "Reopening what the locks closed...\n{$label} removed: this server left the network.");
+    }
+    if ($action === '/lock') {
+        $port = (string) ($body['port'] ?? '');
+        if (! in_array($port, ['ssh', 'http'], true)) {
+            throw new DemoHttpError(422, "'port' is ssh or http");
+        }
+        if ($method === 'POST') {
+            if (! empty($blocked['lock_'.$port])) {
+                throw new DemoHttpError(422, (string) $blocked['lock_'.$port]);
+            }
+            if ($port === 'ssh' && ! empty($mesh['key_expiry'])) {
+                throw new DemoHttpError(422, 'The node key of this machine expires on '.substr((string) $mesh['key_expiry'], 0, 10).": that day the server leaves the network, and with port 22 closed the provider's console is the only way in. Disable key expiry for the machine, or join again with a tagged key.");
+            }
+            $mesh['lock'][$port] = true;
+
+            return $save($mesh, $port === 'ssh' ? "SSH is closed to the world: port 22 answers on {$label} only." : "80/443 are closed to the world: they answer on {$label} only.");
+        }
+        if ($method === 'DELETE') {
+            $mesh['lock'][$port] = false;
+
+            return $save($mesh, $port === 'ssh' ? 'SSH is open to the world again.' : '80/443 are open to the world again.');
+        }
+    }
+    if ($action === '/ssh' && $method === 'PUT') {
+        if ($mesh['provider'] !== 'tailscale') {
+            throw new DemoHttpError(422, "NetBird's own SSH server is not turned on by Cipi: SSH over NetBird is OpenSSH, with the server's keys");
+        }
+        $mesh['ssh']['provider_ssh'] = ! empty($body['enabled']);
+
+        return $save($mesh, 'Tailscale SSH is '.($mesh['ssh']['provider_ssh'] ? 'on' : 'off').'.');
+    }
+
+    throw new DemoHttpError(405, 'Method not allowed');
 }
 
 function firewallRoute(string $method, string $action, array $body, array &$s, array &$state, string $profile): array

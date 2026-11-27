@@ -5,11 +5,13 @@ namespace CipiGui\Livewire;
 use CipiGui\Livewire\Concerns\InteractsWithCipiServer;
 use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
 use CipiGui\Livewire\Concerns\ManagesBackups;
+use CipiGui\Livewire\Concerns\ManagesMesh;
 use CipiGui\Models\CipiServer;
 use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use CipiGui\Support\Panel;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -20,6 +22,7 @@ class ServerManage extends Component
     use InteractsWithCipiServer;
     use ManagesAsyncJobs;
     use ManagesBackups;
+    use ManagesMesh;
 
     public const TABS = [
         'overview' => 'Overview',
@@ -129,6 +132,8 @@ class ServerManage extends Component
 
     public array $monitor = [];
 
+    /** `GET /api/zt`, as the server last answered: what the mesh card offers comes from it. */
+    #[Locked]
     public array $zt = [];
 
     public array $ipWhitelist = [];
@@ -317,7 +322,7 @@ class ServerManage extends Component
             'ssh' => fn () => $this->sshKeys = $this->client()->listSshKeys(),
             'search' => fn () => $this->search = $this->client()->searchStatus(),
             'packages' => fn () => $this->packages = $this->client()->listPackages(),
-            'zt' => fn () => $this->zt = $this->client()->ztStatus(),
+            'zt' => fn () => $this->zt = $this->loadZt(),
             'ip' => fn () => $this->ipWhitelist = $this->client()->getIpWhitelist(),
             default => null,
         };

@@ -866,7 +866,7 @@
                 <div class="space-y-4" data-zt-details>
                     <div class="card">
                         <div class="card-header">
-                            <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="cloud" /> Cloudflare Zero Trust</h2><p class="card-subtitle">Status only — every change stays with the operator on the CLI (<code>cipi zt</code>). Cloudflare's DNS and zones are in Infrastructure → Cloudflare.</p></div>
+                            <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="cloud" /> Cloudflare Zero Trust</h2><p class="card-subtitle">The tunnel that publishes the sites. Status only — it is changed at the server's shell (<code>cipi zt</code>). Cloudflare's DNS and zones are in Infrastructure → Cloudflare.</p></div>
                             <span class="badge {{ empty($ztd['enabled']) ? 'badge-gray' : (in_array($cfStatus, ['healthy', ''], true) && ! empty($tun['running']) ? 'badge-green' : ($cfStatus === 'degraded' ? 'badge-amber' : 'badge-red')) }}" data-zt-state>
                                 {{ empty($ztd['enabled']) ? 'Disabled' : (empty($tun['running']) ? 'cloudflared stopped' : ($cfStatus !== '' ? 'Tunnel '.$cfStatus : 'Running')) }}
                             </span>
@@ -894,35 +894,185 @@
                         $mesh = is_array($ztd['mesh'] ?? null) ? $ztd['mesh'] : null;
                         $meshView = \CipiGui\Support\Firewall::mesh($mesh);
                     @endphp
-                    @if($meshView !== null)
+                    @if($meshView === null)
+                        <x-cipi::alert type="info" data-zt-mesh-update>
+                            A mesh network — Tailscale or NetBird — reaches the server on a private address, so SSH and the panel need not be open to the Internet. Joining one from here needs an up-to-date Cipi on this server: <code>cipi self-update &amp;&amp; cipi api update</code>.
+                        </x-cipi::alert>
+                    @else
                         @php
                             $meshLock = is_array($mesh['lock'] ?? null) ? $mesh['lock'] : [];
                             $meshPeers = is_array($mesh['peers'] ?? null) ? $mesh['peers'] : [];
-                            $meshCommand = is_array($mesh['ssh'] ?? null) ? ($mesh['ssh']['command'] ?? null) : null;
+                            $meshSshInfo = is_array($mesh['ssh'] ?? null) ? $mesh['ssh'] : [];
+                            $meshCommand = $meshSshInfo['command'] ?? null;
+                            $meshBlocked = \CipiGui\Support\Mesh::blocked($mesh);
+                            $meshRoute = \CipiGui\Support\Mesh::route($mesh);
+                            $meshSeen = \CipiGui\Support\Mesh::seen($mesh);
+                            $meshIsTailscale = ($mesh['provider'] ?? null) === 'tailscale';
+                            $meshCfLock = is_array($ztd['lock'] ?? null) ? $ztd['lock'] : [];
                         @endphp
-                        <div class="card" data-zt-mesh>
-                            <div class="card-header">
-                                <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="share" /> Mesh network</h2><p class="card-subtitle">Tailscale or NetBird: how the people who run the server reach it — SSH, the panel, the API and the sites, on a private address only the devices of the network can route to. Status only — <code>cipi zt tailscale</code> or <code>cipi zt netbird</code> on the server.</p></div>
-                                <span class="badge badge-{{ $meshView['tone'] }}" data-zt-mesh-state>{{ $meshView['badge'] }}</span>
+                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4" data-zt-mesh>
+                            <div class="card lg:col-span-2">
+                                <div class="card-header">
+                                    <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="share" /> Mesh network</h2><p class="card-subtitle">Tailscale or NetBird: how the people who run the server reach it — SSH, the panel, the API and the sites, on a private address only the devices of the network can route to. Cloudflare publishes the sites; the mesh is the way in for you.</p></div>
+                                    <span class="badge badge-{{ $meshView['tone'] }}" data-zt-mesh-state>{{ $meshView['badge'] }}</span>
+                                </div>
+                                @if($meshMessage !== null)
+                                    <x-cipi::alert type="success" class="mb-3" data-zt-mesh-message><span class="whitespace-pre-line">{{ $meshMessage }}</span></x-cipi::alert>
+                                @endif
+                                @if($meshView['on'])
+                                    @foreach((array) ($mesh['warnings'] ?? []) as $meshWarning)
+                                        <x-cipi::alert type="warning" class="mb-3">{{ $meshWarning }}</x-cipi::alert>
+                                    @endforeach
+                                    <dl class="kv">
+                                        <dt>Network</dt><dd>{{ $meshView['label'] }}{{ ! empty($mesh['network']) ? ' · '.$mesh['network'] : '' }} @if(! empty($mesh['control_url']))<span class="badge badge-blue">{{ $mesh['control_url'] }}</span>@endif</dd>
+                                        <dt>Address</dt><dd class="font-mono text-xs">{{ $mesh['ip'] ?? '—' }}{{ ! empty($mesh['fqdn']) ? ' · '.$mesh['fqdn'] : '' }}</dd>
+                                        <dt>State</dt><dd>{{ $mesh['state'] ?? '—' }} · {{ (int) ($meshPeers['online'] ?? 0) }} of {{ (int) ($meshPeers['total'] ?? 0) }} peers online</dd>
+                                        @if($meshView['key'] !== null)
+                                            <dt>Node key</dt><dd>{{ $meshView['key'] }}</dd>
+                                        @endif
+                                        <dt>SSH over the mesh</dt><dd>@if($meshCommand)<code>{{ $meshCommand }}</code> · @endif {{ $meshView['ssh'] }}@if($meshSeen !== null)<span class="block text-xs text-muted" data-zt-mesh-seen>{{ $meshSeen }}</span>@endif</dd>
+                                        <dt>SSH 22</dt><dd>{{ ! empty($meshLock['ssh']) ? 'Closed to the world — from the network only' : 'Open' }}</dd>
+                                        <dt>HTTP 80/443</dt><dd>{{ ! empty($meshLock['http']) ? 'Closed to the world — the sites, the panel and the API answer on the network only' : 'Open' }}</dd>
+                                        @if($meshRoute !== null)
+                                            <dt>This panel</dt><dd class="text-xs" data-zt-mesh-route>{{ $meshRoute }}</dd>
+                                        @endif
+                                    </dl>
+                                @elseif($canManage)
+                                    <form wire:submit="joinMesh" class="space-y-3" data-zt-mesh-join>
+                                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                            <div>
+                                                <label for="mesh-provider">Network</label>
+                                                <select id="mesh-provider" wire:model.live="meshProvider">
+                                                    @foreach(\CipiGui\Support\Mesh::PROVIDERS as $meshId => $meshName)
+                                                        <option value="{{ $meshId }}">{{ $meshName }}</option>
+                                                    @endforeach
+                                                </select>
+                                                @error('meshProvider') <p class="field-error">{{ $message }}</p> @enderror
+                                            </div>
+                                            <div class="md:col-span-2">
+                                                <label for="mesh-key">{{ \CipiGui\Support\Mesh::keyName($meshProvider) }}</label>
+                                                <input id="mesh-key" type="password" wire:model="meshKey" class="font-mono" autocomplete="off" spellcheck="false" placeholder="{{ $meshProvider === 'netbird' ? 'XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX' : 'tskey-auth-…' }}">
+                                                @error('meshKey') <p class="field-error">{{ $message }}</p> @enderror
+                                            </div>
+                                        </div>
+                                        <p class="field-hint">
+                                            @if($meshProvider === 'netbird')
+                                                Made in NetBird under <strong>Setup Keys</strong>: one-off is enough, and its groups decide what the server may reach.
+                                            @else
+                                                Made in the Tailscale admin console under <strong>Settings → Keys</strong>: one-off is enough. Give the key a <strong>tag</strong> — a tagged machine has a key that never expires, which closing SSH asks for.
+                                            @endif
+                                            The key is sent to the server once and kept nowhere in the panel. Left empty, a client that is already installed and connected on the server is taken as it is.
+                                        </p>
+                                        <details class="rounded-lg" @if($meshHostname !== '' || $meshControlUrl !== '' || $meshTags !== '' || $meshDirect || $meshAcceptDns || $meshAcceptRoutes || $meshSsh || $errors->hasAny(['meshHostname', 'meshControlUrl', 'meshTags'])) open @endif data-zt-mesh-options>
+                                            <summary class="text-sm cursor-pointer">More options</summary>
+                                            <div class="space-y-3 mt-3">
+                                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    <div>
+                                                        <label for="mesh-hostname">Name on the network <span class="text-subtle font-normal">(optional)</span></label>
+                                                        <input id="mesh-hostname" type="text" wire:model="meshHostname" class="font-mono" autocomplete="off" placeholder="The server's hostname">
+                                                        @error('meshHostname') <p class="field-error">{{ $message }}</p> @enderror
+                                                    </div>
+                                                    @if($meshProvider === 'tailscale')
+                                                        <div>
+                                                            <label for="mesh-tags">Tags <span class="text-subtle font-normal">(optional)</span></label>
+                                                            <input id="mesh-tags" type="text" wire:model="meshTags" class="font-mono" autocomplete="off" placeholder="cipi, prod">
+                                                            @error('meshTags') <p class="field-error">{{ $message }}</p> @enderror
+                                                        </div>
+                                                    @endif
+                                                </div>
+                                                <div>
+                                                    <label for="mesh-control">Coordination server <span class="text-subtle font-normal">(optional)</span></label>
+                                                    <input id="mesh-control" type="url" wire:model="meshControlUrl" class="font-mono" autocomplete="off" placeholder="{{ $meshProvider === 'netbird' ? 'https://netbird.example.com — a self-hosted NetBird' : 'https://headscale.example.com — a Headscale' }}">
+                                                    @error('meshControlUrl') <p class="field-error">{{ $message }}</p> @enderror
+                                                </div>
+                                                <label class="check"><input type="checkbox" wire:model="meshDirect"> Direct connections — also open the client's UDP port, so devices connect straight to the server instead of through a relay</label>
+                                                <label class="check"><input type="checkbox" wire:model="meshAcceptDns"> Let the network set the server's DNS</label>
+                                                <label class="check"><input type="checkbox" wire:model="meshAcceptRoutes"> Accept the routes other machines of the network advertise</label>
+                                                @if($meshProvider === 'tailscale')
+                                                    <label class="check"><input type="checkbox" wire:model="meshSsh"> Tailscale SSH — the tailnet's policy says who signs in, without the server's keys</label>
+                                                @endif
+                                            </div>
+                                        </details>
+                                        <div class="flex items-center gap-3">
+                                            <button type="submit" class="btn btn-primary" wire:loading.attr="disabled" wire:target="joinMesh"><x-cipi::icon name="link" /> Join the network</button>
+                                            <span class="text-xs text-muted" wire:loading wire:target="joinMesh">Installing the client and signing in — a minute or two…</span>
+                                        </div>
+                                    </form>
+                                @else
+                                    <p class="text-sm text-soft">Off on this server. Joining a network needs Manage access to this server.</p>
+                                @endif
                             </div>
-                            @if($meshView['on'])
-                                @foreach((array) ($mesh['warnings'] ?? []) as $meshWarning)
-                                    <x-cipi::alert type="warning" class="mb-3">{{ $meshWarning }}</x-cipi::alert>
-                                @endforeach
-                                <dl class="kv">
-                                    <dt>Network</dt><dd>{{ $meshView['label'] }}{{ ! empty($mesh['network']) ? ' · '.$mesh['network'] : '' }} @if(! empty($mesh['control_url']))<span class="badge badge-blue">{{ $mesh['control_url'] }}</span>@endif</dd>
-                                    <dt>Address</dt><dd class="font-mono text-xs">{{ $mesh['ip'] ?? '—' }}{{ ! empty($mesh['fqdn']) ? ' · '.$mesh['fqdn'] : '' }}</dd>
-                                    <dt>State</dt><dd>{{ $mesh['state'] ?? '—' }} · {{ (int) ($meshPeers['online'] ?? 0) }} of {{ (int) ($meshPeers['total'] ?? 0) }} peers online</dd>
-                                    @if($meshView['key'] !== null)
-                                        <dt>Node key</dt><dd>{{ $meshView['key'] }}</dd>
+
+                            <div class="card" data-zt-mesh-actions>
+                                @if($meshView['on'])
+                                    <div class="card-header"><div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="lock" /> Close the server to the world</h2><p class="card-subtitle">Each port stays open on the network. Nothing is closed by joining.</p></div></div>
+                                    @if(! $canManage)
+                                        <p class="text-muted">Changing this needs Manage access to this server.</p>
+                                    @elseif(! $meshBlocked['managed'])
+                                        <p class="text-sm text-soft" data-zt-mesh-shell>This server does not say what the panel may do with its mesh: update Cipi on it (<code>cipi self-update &amp;&amp; cipi api update</code>), or use <code>cipi zt {{ $mesh['provider'] ?? 'tailscale' }}</code> at its shell.</p>
+                                    @else
+                                        <ul class="space-y-4">
+                                            <li data-zt-mesh-ssh>
+                                                <div class="flex items-center justify-between gap-3">
+                                                    <span class="text-strong text-sm">SSH</span>
+                                                    @if(! empty($meshLock['ssh']))
+                                                        <button type="button" wire:click="unlockMesh('ssh')" data-confirm="Reopen SSH to the world? Port 22 answers every address again; fail2ban keeps watching it." data-confirm-label="Reopen SSH" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="unlockMesh, lockMesh"><x-cipi::icon name="unlock" /> Reopen</button>
+                                                    @else
+                                                        <button type="button" wire:click="lockMesh('ssh')" data-confirm="Close SSH to the world? Port 22 will answer on the {{ $meshView['label'] }} network only: from then on a device outside it cannot sign in, and if the server leaves the network the provider's console is the way back." data-confirm-label="Close SSH" data-confirm-danger class="btn btn-danger btn-sm" @disabled($meshBlocked['lock_ssh'] !== null) wire:loading.attr="disabled" wire:target="unlockMesh, lockMesh"><x-cipi::icon name="lock" /> Close</button>
+                                                    @endif
+                                                </div>
+                                                @if(empty($meshLock['ssh']) && $meshBlocked['lock_ssh'] !== null)
+                                                    <p class="field-hint" data-zt-mesh-why="ssh">{{ $meshBlocked['lock_ssh'] }}</p>
+                                                @elseif(! empty($meshLock['ssh']) && ! empty($meshCfLock['ssh']))
+                                                    <p class="field-hint">Cloudflare's own lock holds SSH too: reopening here leaves it closed until <code>cipi zt ssh unlock</code> at the server.</p>
+                                                @endif
+                                            </li>
+                                            <li data-zt-mesh-http>
+                                                <div class="flex items-center justify-between gap-3">
+                                                    <span class="text-strong text-sm">HTTP 80/443</span>
+                                                    @if(! empty($meshLock['http']))
+                                                        <button type="button" wire:click="unlockMesh('http')" data-confirm="Reopen 80/443 to the world? The sites, the panel and the API answer every address again." data-confirm-label="Reopen 80/443" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="unlockMesh, lockMesh"><x-cipi::icon name="unlock" /> Reopen</button>
+                                                    @else
+                                                        <button type="button" wire:click="lockMesh('http')" data-confirm="Close 80/443 to the world? Every site of this server, its panel and its API will answer on the {{ $meshView['label'] }} network only — visitors from the Internet get nothing, unless the sites are published through the Cloudflare tunnel." data-confirm-label="Close 80/443" data-confirm-danger class="btn btn-danger btn-sm" @disabled($meshBlocked['lock_http'] !== null) wire:loading.attr="disabled" wire:target="unlockMesh, lockMesh"><x-cipi::icon name="lock" /> Close</button>
+                                                    @endif
+                                                </div>
+                                                @if(empty($meshLock['http']) && $meshBlocked['lock_http'] !== null)
+                                                    <p class="field-hint" data-zt-mesh-why="http">{{ $meshBlocked['lock_http'] }}</p>
+                                                @elseif(! empty($meshLock['http']) && ! empty($meshCfLock['http']))
+                                                    <p class="field-hint">Cloudflare's own lock holds 80/443 too: reopening here leaves them closed until <code>cipi zt unlock http</code> at the server.</p>
+                                                @endif
+                                            </li>
+                                            @if($meshIsTailscale)
+                                                <li data-zt-mesh-tailscale-ssh>
+                                                    <div class="flex items-center justify-between gap-3">
+                                                        <span class="text-strong text-sm">Tailscale SSH</span>
+                                                        @if(! empty($meshSshInfo['provider_ssh']))
+                                                            <button type="button" wire:click="setMeshSsh(false)" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="setMeshSsh">Turn off</button>
+                                                        @else
+                                                            <button type="button" wire:click="setMeshSsh(true)" data-confirm="Turn Tailscale SSH on? On the tailnet address, port 22 is then answered by Tailscale: who signs in, and as which user, is decided by the tailnet's policy — not by the keys on this server." data-confirm-label="Turn on" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="setMeshSsh">Turn on</button>
+                                                        @endif
+                                                    </div>
+                                                    <p class="field-hint">{{ ! empty($meshSshInfo['provider_ssh']) ? 'On: the tailnet\'s policy says who signs in. With it on, SSH is closed to the world at the server\'s shell, not from here.' : 'Off: SSH over the network is OpenSSH, with the server\'s keys.' }}</p>
+                                                </li>
+                                            @endif
+                                        </ul>
+                                        <div class="mt-5 pt-4" style="border-top: 1px solid var(--border)" data-zt-mesh-leave>
+                                            <button type="button" wire:click="leaveMesh" data-confirm="Leave the {{ $meshView['label'] }} network? What its locks closed is reopened to the world first, then the client is removed from the server. The machine stays listed in the provider's console until it is deleted there." data-confirm-label="Leave the network" data-confirm-danger class="btn btn-ghost btn-sm danger" @disabled($meshBlocked['leave'] !== null) wire:loading.attr="disabled" wire:target="leaveMesh"><x-cipi::icon name="link-slash" /> Leave the network</button>
+                                            @if($meshBlocked['leave'] !== null)
+                                                <p class="field-hint" data-zt-mesh-why="leave">{{ $meshBlocked['leave'] }}</p>
+                                            @endif
+                                        </div>
                                     @endif
-                                    <dt>SSH over the mesh</dt><dd>@if($meshCommand)<code>{{ $meshCommand }}</code> · @endif {{ $meshView['ssh'] }}</dd>
-                                    <dt>SSH 22</dt><dd>{{ ! empty($meshLock['ssh']) ? 'Closed to the world — from the network only' : 'Open' }}</dd>
-                                    <dt>HTTP 80/443</dt><dd>{{ ! empty($meshLock['http']) ? 'Closed to the world — the sites, the panel and the API answer on the network only' : 'Open' }}</dd>
-                                </dl>
-                            @else
-                                <p class="text-sm text-soft">Off on this server. <code>cipi zt tailscale enable --auth-key=…</code> or <code>cipi zt netbird enable --setup-key=…</code>, then <code>lock ssh</code> from a session that came over the network.</p>
-                            @endif
+                                @else
+                                    <div class="card-header"><div><h2 class="card-title">In three steps</h2></div></div>
+                                    <ol class="space-y-3 text-sm text-soft list-decimal pl-5">
+                                        <li><span class="text-strong">Join.</span> The server installs the client, signs in with the key and lets the network through its firewall. Nothing is closed.</li>
+                                        <li><span class="text-strong">Sign in once over it.</span> From a device of the network, <code>ssh cipi@&lt;the server's address on it&gt;</code>: that login is the proof the way in works.</li>
+                                        <li><span class="text-strong">Close what you want.</span> SSH, then 80/443 if the sites are private or come through Cloudflare — each with its own button, each reopened the same way.</li>
+                                    </ol>
+                                    <p class="field-hint mt-4">One mesh per server; Cloudflare Tunnel may be on beside it. The same at the server's shell: <code>cipi zt tailscale</code>, <code>cipi zt netbird</code>.</p>
+                                @endif
+                            </div>
                         </div>
                     @endif
 

@@ -105,9 +105,11 @@ final class Firewall
      * closed, by whom, and the commands that reopen it on the server. A lock
      * is Cloudflare's (`cipi zt lock`) or the mesh network's (`cipi zt
      * tailscale|netbird lock`); a server that does not say who holds a lock
-     * has Cloudflare's. Null when nothing is locked.
+     * has Cloudflare's. `mesh` says whether a mesh network holds one of them:
+     * those are also reopened from the Zero Trust tab. Null when nothing is
+     * locked.
      *
-     * @return array{text: string, commands: list<string>}|null
+     * @return array{text: string, commands: list<string>, mesh: bool}|null
      */
     public static function zeroTrustLocks(array $zeroTrust): ?array
     {
@@ -154,6 +156,7 @@ final class Firewall
         return [
             'text' => 'Zero Trust keeps '.implode(' and ', $parts).': opening '.($http !== [] ? 'them' : 'it').' to everyone from here is refused.',
             'commands' => $commands,
+            'mesh' => array_diff(array_merge($http, $ssh), ['cloudflare']) !== [],
         ];
     }
 

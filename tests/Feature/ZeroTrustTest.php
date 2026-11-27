@@ -20,6 +20,7 @@ use PHPUnit\Framework\Attributes\Test;
  *
  * 4.10.0: the mesh network the server is on (Tailscale, NetBird) has a card
  * of its own under Cloudflare's — where a server says something of a mesh.
+ * What the card does (join, leave, locks) is in MeshTest.
  */
 class ZeroTrustTest extends TestCase
 {
@@ -156,13 +157,15 @@ class ZeroTrustTest extends TestCase
     }
 
     #[Test]
-    public function a_server_with_no_mesh_says_how_to_join_one_and_an_older_server_has_no_card(): void
+    public function a_server_with_no_mesh_offers_to_join_one_and_an_older_server_says_to_update(): void
     {
         $this->details = $this->withoutTunnel(['enabled' => false, 'provider' => null, 'active' => null]);
-        $this->tab()->assertSee('data-zt-mesh', false)->assertSee('cipi zt tailscale enable --auth-key=')->assertSee('cipi zt netbird enable --setup-key=');
+        $this->tab()->assertSee('data-zt-mesh-join', false)->assertSee('Join the network')->assertSee('Auth key')->assertSee('In three steps')
+            ->assertDontSee('data-zt-mesh-update', false);
 
         $this->details = $this->withoutTunnel(null);
-        $this->tab()->assertSee('data-zt-details', false)->assertDontSee('data-zt-mesh', false);
+        $this->tab()->assertSee('data-zt-details', false)->assertSee('data-zt-mesh-update', false)->assertSee('cipi self-update')
+            ->assertDontSee('data-zt-mesh-join', false)->assertDontSee('data-zt-mesh-actions', false);
     }
 
     #[Test]

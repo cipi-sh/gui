@@ -327,9 +327,13 @@ return [
                     'ip' => '100.101.102.103', 'ip6' => 'fd7a:115c:a1e0::6f01', 'name' => 'fra1-prod', 'fqdn' => 'fra1-prod.tail1234.ts.net', 'network' => 'example.com',
                     'control_url' => null, 'version' => '1.80.2', 'tags' => ['tag:cipi'], 'key_expiry' => null, 'key_expires_in_days' => null,
                     'peers' => ['total' => 6, 'online' => 4],
-                    'ssh' => ['provider_ssh' => false, 'ports' => [22], 'command' => 'ssh cipi@100.101.102.103'],
+                    'ssh' => ['provider_ssh' => false, 'ports' => [22], 'command' => 'ssh cipi@100.101.102.103',
+                        'seen' => ['at' => '2026-11-27T09:14:02', 'from' => '100.88.12.7']],
                     'lock' => ['ssh' => true, 'http' => false], 'direct' => ['port' => 41641, 'open' => false],
-                    'accept_dns' => false, 'accept_routes' => false, 'enabled_at' => '2026-11-27T09:00:00Z', 'warnings' => [],
+                    'accept_dns' => false, 'accept_routes' => false, 'firewall_active' => true, 'http01_apps' => [],
+                    'enabled_at' => '2026-11-27T09:00:00Z', 'warnings' => [],
+                    // The API of this server is on the tunnel: closing 80/443 would not cut the panel off.
+                    'panel' => ['via' => 'tunnel', 'from' => '203.0.113.10', 'client' => null, 'blocked' => ['lock_ssh' => null, 'lock_http' => null, 'disable' => null]],
                 ],
             ],
         ],
@@ -561,9 +565,17 @@ return [
                 ['check' => 'load', 'config' => ['enabled' => true, 'factor' => 4, 'runs' => 2], 'state' => 'ok', 'last_alert' => null],
             ],
         ],
+        // No tunnel, no mesh: the Zero Trust tab offers to join a network.
         'zt' => [
             'enabled' => false, 'cloudflared' => 'not installed', 'tunnel' => null, 'real_ip' => null,
-            'lock_http' => 'false', 'lock_ssh' => 'false', 'ssh_hostname' => null, 'raw' => "Zero Trust: disabled\ncloudflared: not installed",
+            'lock_http' => 'false', 'lock_ssh' => 'false', 'ssh_hostname' => null,
+            'mesh' => null, 'mesh_state' => null, 'mesh_ip' => null, 'raw' => '',
+            'details' => [
+                'enabled' => false, 'token' => false, 'tunnel' => null, 'real_ip' => false,
+                'lock' => ['http' => false, 'http_mode' => null, 'ssh' => false],
+                'hostnames' => [], 'gui' => null, 'api' => null, 'ssh' => null, 'tcp' => [], 'service_tokens' => [], 'previews' => [], 'missing' => [],
+                'mesh' => ['enabled' => false, 'provider' => null, 'active' => null],
+            ],
         ],
         'disk' => $diskReport('/', 76.0, 23.4, [
             $diskApp('crm', 4.6, 1.12, 10),

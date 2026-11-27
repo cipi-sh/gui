@@ -824,9 +824,71 @@ class CipiApiClient
         return $this->post('/metrics/heartbeat/test')['data'] ?? [];
     }
 
-    public function ztStatus(): array
+    /**
+     * Zero Trust: Cloudflare Tunnel and the mesh network, with what this
+     * panel may do from where it calls. $client is the address of the person
+     * at the panel: when the panel runs on the server it manages, the server
+     * then also says whether closing 80/443 would close their page.
+     */
+    public function ztStatus(?string $client = null): array
     {
-        return $this->get('/zt')['data'] ?? [];
+        return $this->get('/zt', $client !== null && $client !== '' ? ['client' => $client] : [])['data'] ?? [];
+    }
+
+    // ── Zero Trust: the mesh network — Tailscale, NetBird (ability zt-manage) ──
+    // Synchronous on the server; each answers with Zero Trust after the change.
+    // $client is the address of the person at the panel (see ztStatus): the
+    // answer is then read for them too, and `lock http` is refused when it
+    // would close the page they are on.
+
+    /**
+     * Join a network. The server installs the client and signs in: it can
+     * take a minute or two, so the call gets a long timeout.
+     *
+     * @param  array<string, mixed>  $options  provider, key, hostname, control_url, tags, direct, accept_dns, accept_routes, ssh
+     * @return array{data: ?array, message: string}
+     */
+    public function ztMeshJoin(array $options, ?string $client = null): array
+    {
+        return $this->ztMeshChange('post', '/zt/mesh', $options, $client, max(240, (int) config('cipi-gui.http_timeout', 30)));
+    }
+
+    /** Leave the network: what its locks closed is reopened first. */
+    public function ztMeshLeave(?string $client = null): array
+    {
+        return $this->ztMeshChange('delete', '/zt/mesh', [], $client, max(120, (int) config('cipi-gui.http_timeout', 30)));
+    }
+
+    /** Close the SSH port (`ssh`) or 80/443 (`http`) to the world: open on the mesh only. */
+    public function ztMeshLock(string $port, ?string $client = null): array
+    {
+        return $this->ztMeshChange('post', '/zt/mesh/lock', ['port' => $port], $client);
+    }
+
+    /** Reopen it to the world. */
+    public function ztMeshUnlock(string $port, ?string $client = null): array
+    {
+        return $this->ztMeshChange('delete', '/zt/mesh/lock', ['port' => $port], $client);
+    }
+
+    /** Tailscale SSH on or off. */
+    public function ztMeshSsh(bool $enabled, ?string $client = null): array
+    {
+        return $this->ztMeshChange('put', '/zt/mesh/ssh', ['enabled' => $enabled], $client);
+    }
+
+    /** @return array{data: ?array, message: string} */
+    protected function ztMeshChange(string $method, string $path, array $data, ?string $client = null, ?int $timeout = null): array
+    {
+        if ($client !== null && $client !== '') {
+            $data['client'] = $client;
+        }
+        $response = $this->request($method, $path, data: $data, timeout: $timeout);
+
+        return [
+            'data' => is_array($response['data'] ?? null) ? $response['data'] : null,
+            'message' => (string) ($response['message'] ?? ''),
+        ];
     }
 
     // ── Disk usage (read-only — API 1.33+ / Cipi ≥ 5.5.2 for the API sudoers) ──

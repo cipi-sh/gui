@@ -25,6 +25,7 @@ namespace {
     require $root.'/src/Services/CipiApiException.php';
     require $root.'/src/Livewire/Concerns/ManagesBackups.php';
     require $root.'/src/Support/Firewall.php';
+    require $root.'/src/Support/Mesh.php';
 
     use CipiGui\Http\Controllers\DbUploadController as Up;
     use CipiGui\Support\DeployLog;
@@ -671,12 +672,82 @@ namespace {
     $check($m['badge'] === 'NetBird connected' && $m['key'] === null, 'NetBird: no node key line');
     $check($FW::mesh(['enabled' => true, 'provider' => ''])['on'] === false, 'a mesh with no provider is off');
     $ztTab = (string) (preg_match("/@elseif\(\\\$activeTab === 'zt'\)(.*?)@elseif\(\\\$activeTab === 'ip'\)/s", $smv, $zm) ? $zm[1] : '');
-    $check($ztTab !== '' && str_contains($ztTab, 'data-zt-mesh') && str_contains($ztTab, "\\CipiGui\\Support\\Firewall::mesh(\$mesh)") && str_contains($ztTab, 'cipi zt tailscale enable --auth-key=') && str_contains($ztTab, 'cipi zt netbird enable --setup-key=')
-        && strpos($ztTab, 'data-zt-mesh') > strpos($ztTab, 'data-zt-details'), 'Zero Trust tab: the mesh card, in the detailed view, with how to turn it on');
-    $check(! str_contains($ztTab, 'wire:click') && ! str_contains($ztTab, 'wire:submit'), 'Zero Trust tab: still status only — nothing to click that changes the server');
+    $check($ztTab !== '' && str_contains($ztTab, 'data-zt-mesh') && str_contains($ztTab, "\\CipiGui\\Support\\Firewall::mesh(\$mesh)")
+        && strpos($ztTab, 'data-zt-mesh') > strpos($ztTab, 'data-zt-details'), 'Zero Trust tab: the mesh card, in the detailed view');
     $check(! preg_match('/\b(API|Cipi) \d+\.\d+/', (string) preg_replace('/{{--(.*?)--}}/s', '', $ztTab)), 'Zero Trust tab: no version of Cipi or of its API in its text');
     $fwv = $views[$root.'/resources/views/livewire/firewall.blade.php'] ?? '';
     $check(str_contains($fwv, 'F::zeroTrustLocks($zt)') && str_contains($fwv, 'data-firewall-zt') && ! str_contains($fwv, "'80/443 to Cloudflare'"), 'Firewall tab: the lock notice comes from who holds it');
+
+    echo "--- the mesh network managed from the Zero Trust tab: join, leave, locks, Tailscale SSH\n";
+    $MS = 'CipiGui\Support\Mesh';
+    $check($MS::joinErrors(['provider' => 'tailscale', 'key' => 'tskey-auth-kABC-0123456789']) === [] && $MS::joinErrors(['provider' => 'netbird', 'key' => 'A1B2C3D4-E5F6-7890-ABCD-EF1234567890']) === [], 'join: an auth key, a setup key');
+    $check($MS::joinErrors(['provider' => 'tailscale', 'key' => '']) === [] && $MS::joinErrors(['provider' => 'netbird']) === [], 'join without a key: the server takes a client that is already connected');
+    $check(array_keys($MS::joinErrors(['provider' => 'zerotier'])) === ['provider'] && array_keys($MS::joinErrors([])) === ['provider'], 'join: Tailscale or NetBird');
+    foreach (["tskey'; id", 'short', 'has space key', 'tskey$(id)xx', "tskey\nabcdefg"] as $bad) {
+        $check(isset($MS::joinErrors(['provider' => 'tailscale', 'key' => $bad])['key']), 'join: not a key '.json_encode($bad));
+    }
+    $e = $MS::joinErrors(['provider' => 'tailscale', 'key' => 'tskey-abcdef', 'hostname' => 'web_1', 'control_url' => 'ftp://x', 'tags' => 'ok, no way']);
+    $check(array_keys($e) === ['hostname', 'control_url', 'tags'], 'join: a hostname, a control URL and a tag that are not ones, each on its field');
+    $check($MS::joinErrors(['provider' => 'netbird', 'key' => 'abcdefgh', 'tags' => 'no way']) === [], 'join NetBird: tags are not its own — not read, not an error');
+    $check($MS::tags('cipi, tag:prod ,cipi,') === ['tag:cipi', 'tag:prod'] && $MS::tags('') === [] && $MS::tags(null) === [] && $MS::tags("a';id") === null, 'tags: tag: added, doubles dropped; a bad one refused');
+    $check($MS::joinPayload(['provider' => 'tailscale', 'key' => ' tskey-auth-k1 ', 'hostname' => 'web1', 'control_url' => '', 'tags' => 'cipi', 'direct' => true, 'accept_dns' => false, 'accept_routes' => false, 'ssh' => true])
+        === ['provider' => 'tailscale', 'key' => 'tskey-auth-k1', 'hostname' => 'web1', 'direct' => true, 'tags' => ['tag:cipi'], 'ssh' => true], 'join Tailscale: only what was filled in');
+    $check($MS::joinPayload(['provider' => 'netbird', 'key' => 'A1B2C3D4', 'control_url' => 'https://nb.example.com', 'tags' => 'cipi', 'ssh' => true, 'accept_routes' => true])
+        === ['provider' => 'netbird', 'key' => 'A1B2C3D4', 'control_url' => 'https://nb.example.com', 'accept_routes' => true], 'join NetBird: nothing of Tailscale\'s goes');
+    $check($MS::keyName('tailscale') === 'Auth key' && $MS::keyName('netbird') === 'Setup key' && $MS::label('netbird') === 'NetBird' && $MS::label(['x']) === 'Mesh', 'each provider calls its key by its own name');
+    $b = $MS::blocked(['enabled' => true, 'provider' => 'tailscale']);
+    $check($b === ['managed' => false, 'lock_ssh' => null, 'lock_http' => null, 'leave' => null], 'a server that does not say what the panel may do: not managed from here');
+    $b = $MS::blocked(['panel' => ['via' => 'public', 'blocked' => ['lock_ssh' => ' Nobody has signed in over SSH through Tailscale yet. ', 'lock_http' => 'The panel reaches this server on its public address', 'disable' => null]]]);
+    $check($b['managed'] && $b['lock_ssh'] === 'Nobody has signed in over SSH through Tailscale yet.' && str_starts_with($b['lock_http'], 'The panel reaches') && $b['leave'] === null, 'what the server would refuse, with its reason; the rest goes');
+    $check($MS::blocked(['panel' => ['blocked' => ['lock_ssh' => ['x'], 'lock_http' => '', 'disable' => 5]]]) === ['managed' => true, 'lock_ssh' => null, 'lock_http' => null, 'leave' => null], 'a reason is text or nothing');
+    $r = fn (array $panel, string $p = 'tailscale') => $MS::route(['provider' => $p, 'panel' => $panel]);
+    $check($MS::route(['provider' => 'tailscale']) === null && $MS::route(null) === null, 'no route said: no line');
+    $check(str_contains($r(['via' => 'mesh', 'from' => '100.64.0.2']), 'over Tailscale (from 100.64.0.2)') && str_contains($r(['via' => 'mesh'], 'netbird'), 'over NetBird:'), 'the panel over the mesh');
+    $check(str_contains($r(['via' => 'public', 'from' => '203.0.113.9']), 'on its public address (from 203.0.113.9)') && str_contains($r(['via' => 'public', 'from' => '<b>x']), 'public address:'), 'the panel on the public address; an address that is not one is not shown');
+    $check(str_contains($r(['via' => 'tunnel']), 'Cloudflare tunnel') && str_contains($r(['via' => 'unknown']), 'could not tell') && str_contains($r(['via' => 'whatever']), 'could not tell'), 'through the tunnel; unknown');
+    $check(str_contains($r(['via' => 'local', 'client' => ['via' => 'public', 'from' => '198.51.100.7']]), 'You are looking at it on its public address (from 198.51.100.7)')
+        && str_contains($r(['via' => 'local', 'client' => ['via' => 'public', 'from' => '198.51.100.7']]), 'on its Tailscale address first'), 'a panel on the server, looked at on the public address: said, with what to do');
+    $check(str_contains($r(['via' => 'local', 'client' => ['via' => 'mesh', 'from' => '100.64.0.9']]), 'over Tailscale (from 100.64.0.9): closing 80/443 to the world keeps this page')
+        && str_contains($r(['via' => 'local', 'client' => ['via' => 'tunnel']]), 'through the Cloudflare tunnel') && str_contains($r(['via' => 'local', 'client' => null]), 'runs on the server itself'), 'a panel on the server, looked at over the mesh or through the tunnel');
+    $check($MS::seen(['ssh' => ['seen' => ['at' => '2026-11-27T12:00:01', 'from' => '100.99.1.2']]]) === 'Last login over the network from 100.99.1.2 · 2026-11-27T12:00:01'
+        && $MS::seen(['ssh' => ['seen' => null]]) === null && $MS::seen([]) === null && $MS::seen(['ssh' => ['seen' => ['at' => 'Nov 27 12:00:01', 'from' => 'x; id']]]) === 'Last login over the network · Nov 27 12:00:01', 'the last login over the mesh; nobody yet is nothing');
+
+    $trait = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesMesh.php');
+    $actions = ['joinMesh', 'leaveMesh', 'lockMesh', 'unlockMesh', 'setMeshSsh'];
+    $guarded = true;
+    foreach ($actions as $a) {
+        $guarded = $guarded && (bool) preg_match('/public function '.$a.'\([^)]*\): void\s*\{\s*if \(! \$this->serverAllowed\(Access::MANAGE, \(int\) \$this->serverId\)/', $trait);
+    }
+    $check($guarded, 'every action of the mesh needs Manage on the server, before anything else');
+    $check(str_contains($trait, "finally {") && str_contains($trait, "\$this->meshKey = '';") && ! str_contains($trait, 'Log::') && ! str_contains($trait, 'session('), 'the key is cleared once sent, whatever the server answered; never logged, never in the session');
+    $check(str_contains($trait, "in_array(\$port, ['ssh', 'http'], true)") && str_contains($trait, 'zt-manage') && str_contains($trait, 'cipi self-update && cipi api update'), 'a port is ssh or http; a token without zt-manage and an older server are said in words');
+    $check(substr_count($trait, '$this->meshBrowserIp()') >= 6 && str_contains($trait, 'request()->ip()'), 'the browser\'s address goes with every call: the server refuses to close 80/443 under the page being looked at');
+    $smc = (string) file_get_contents($root.'/src/Livewire/ServerManage.php');
+    $check(str_contains($smc, 'use ManagesMesh;') && str_contains($smc, "'zt' => fn () => \$this->zt = \$this->loadZt(),"), 'the server page has the mesh actions and reads Zero Trust for this browser');
+    $client = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    foreach (["'post', '/zt/mesh'," => 'join', "'delete', '/zt/mesh'," => 'leave', "'post', '/zt/mesh/lock'," => 'lock', "'delete', '/zt/mesh/lock'," => 'unlock', "'put', '/zt/mesh/ssh'," => 'Tailscale SSH'] as $needle => $what) {
+        $check(str_contains($client, $needle), "client: {$what}");
+    }
+    $check(str_contains($client, "max(240, (int) config('cipi-gui.http_timeout', 30))") && str_contains($client, "\$data['client'] = \$client;"), 'client: a join gets minutes, not seconds; the browser\'s address goes in the body');
+    $check(str_contains($cfg, "'zt-view', 'zt-manage'"), 'the token command on Connections asks for zt-manage');
+    foreach (['data-zt-mesh-join' => 'the join form', 'wire:submit="joinMesh"' => 'join', "wire:click=\"lockMesh('ssh')\"" => 'close SSH', "wire:click=\"lockMesh('http')\"" => 'close 80/443', "wire:click=\"unlockMesh('ssh')\"" => 'reopen SSH',
+        "wire:click=\"unlockMesh('http')\"" => 'reopen 80/443', 'wire:click="setMeshSsh(true)"' => 'Tailscale SSH on', 'wire:click="setMeshSsh(false)"' => 'Tailscale SSH off', 'wire:click="leaveMesh"' => 'leave',
+        'data-zt-mesh-why="ssh"' => 'why SSH is not closed', 'data-zt-mesh-why="http"' => 'why 80/443 are not closed', 'data-zt-mesh-why="leave"' => 'why the network is not left', 'data-zt-mesh-route' => 'how the panel reaches the server',
+        'data-zt-mesh-seen' => 'the last login over the mesh', 'data-zt-mesh-update' => 'a server that needs an update', 'data-zt-mesh-shell' => 'a mesh the panel is not told about'] as $needle => $what) {
+        $check(str_contains($ztTab, $needle), "Zero Trust tab: {$what}");
+    }
+    preg_match_all('/<button[^>]*wire:click="(lockMesh|unlockMesh|leaveMesh|setMeshSsh\(true\))[^>]*>/', $ztTab, $bm);
+    $check(count($bm[0]) === 6 && ! array_filter($bm[0], fn ($b) => ! str_contains($b, 'data-confirm="')), 'closing, reopening, leaving and Tailscale SSH on all ask first');
+    $check(substr_count($ztTab, '@disabled($meshBlocked[') === 3 && str_contains($ztTab, 'type="password" wire:model="meshKey"') && str_contains($ztTab, 'autocomplete="off"'), 'a button the server would refuse is greyed out; the key is typed as a secret');
+    $check(str_contains($ztTab, '@elseif($canManage)') && str_contains($ztTab, '@if(! $canManage)') && str_contains($ztTab, 'needs Manage access to this server'), 'without Manage access: the status, and no form or button');
+    $cfCard = (string) (preg_match('/data-zt-details>(.*?)\$mesh = is_array/s', $ztTab, $cm) ? $cm[1] : 'wire:click');
+    $check(! str_contains($cfCard, 'wire:click') && ! str_contains($cfCard, 'wire:submit') && str_contains($cfCard, 'Status only'), 'Cloudflare\'s card is still status only');
+    $check(! preg_match('/\b(API|Cipi) \d+\.\d+/', (string) preg_replace('/{{--(.*?)--}}/s', '', $ztTab)) && ! preg_match('/\b(API|Cipi) \d+\.\d+/', (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', (string) file_get_contents($root.'/src/Support/Mesh.php'))), 'the mesh in the panel: no version of Cipi or of its API in what it says');
+    $l = $FW::zeroTrustLocks(['lock_http' => false, 'lock_ssh' => true, 'by' => ['http' => [], 'ssh' => ['tailscale']]]);
+    $l2 = $FW::zeroTrustLocks(['lock_http' => true, 'lock_ssh' => false]);
+    $check($l['mesh'] === true && $l2['mesh'] === false && str_contains($fwv, 'data-firewall-zt-tab') && str_contains($fwv, 'href="?tab=zt"'), 'Firewall tab: a lock of the mesh is reopened in the Zero Trust tab, and the notice links there');
+    $demo = (string) file_get_contents($root.'/dev/demo/api/index.php');
+    $check(str_contains($demo, "\$r('/zt/mesh(/lock|/ssh)?')") && str_contains($demo, 'function ztMeshRoute('), 'the demo API joins, leaves and locks too');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);

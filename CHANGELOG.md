@@ -2,21 +2,35 @@
 
 ## [4.10.0] — 2026-11-27
 
-The mesh network a server is on — Tailscale or NetBird — in the Zero Trust tab, and who holds a firewall lock. For Cipi 5.18.0 and cipi/api 1.48. Read-only, like the rest of Zero Trust: nothing here changes a server, and no token ability is new.
+The mesh network of Zero Trust — Tailscale or NetBird — **managed from the Zero Trust tab**: join a network, close SSH and 80/443 to the world, Tailscale SSH, leave. And the Firewall says who holds a lock. For Cipi 5.18.0 and cipi/api 1.48. One new token ability: `zt-manage`.
 
 ### Added
 
-- **Server → Zero Trust → Mesh network**: the private side of Zero Trust, under Cloudflare's card. Cloudflare Tunnel publishes the sites; a mesh is how the people who run the server reach it. The card says which network (**Tailscale** or **NetBird**, and its own coordination server when it is not the vendor's: Headscale, a self-hosted NetBird), **connected or not** and the client's own word for why, the server's **address and name** on the network, **peers online**, the **node key** (Tailscale: *Does not expire*, or the day and the days left), how to **SSH over it** — the command, and whether OpenSSH or Tailscale SSH answers — and whether **port 22** and **80/443** are closed to the world. The server's own warnings (a key about to expire, SSH locked to a mesh that is down) are shown as it says them.
-  - Green when connected, amber with a warning, red when off the network; **Off** with the two commands that turn it on where the server has no mesh.
-  - Shown with or without a tunnel: a server may have either side, both or none. A server that says nothing of a mesh has no card.
-- **Firewall: a Zero Trust lock is named by who holds it.** "80/443 to Cloudflare", "SSH to the Tailscale network", or both — each with **its own unlock command** (`cipi zt unlock http`, `cipi zt tailscale unlock ssh`). The notice used to say Cloudflare whatever held the port.
-- `Support\Firewall::mesh()` and `Support\Firewall::zeroTrustLocks()`: both in words, without the framework (`tests/standalone.php`).
-- Demo API: the first server is on a tailnet next to its tunnel, with SSH locked to it.
+- **Server → Zero Trust → Mesh network**: the private side of Zero Trust, under Cloudflare's card. Cloudflare Tunnel publishes the sites; a mesh is how the people who run the server reach it — SSH, the panel, the API — on an address only the devices of the network can route to.
+  - **Join a network** (Manage access): **Tailscale** or **NetBird**, the auth key or setup key — typed as a secret, sent to the server once and cleared from the form whatever the answer — and, under *More options*, the machine's name on the network, **tags** (Tailscale: a tagged machine has a key that never expires), the **coordination server** when it is not the vendor's (a Headscale, a self-hosted NetBird), **direct connections**, the network's DNS and routes, **Tailscale SSH**. The form says where each key is made. The server installs the client and signs in; the page waits and says so. Joining closes nothing.
+  - **What it is now**: which network, **connected or not** with the client's own word for it, the server's **address and name** on the network, peers online, the **node key's expiry** (Tailscale: *does not expire*, or the day and the days left — amber, then red once expired), how to SSH in over it, the **last SSH login the server saw come over the mesh**, the two locks, the server's warnings, and **how this panel reaches the server** — over the mesh, through the Cloudflare tunnel, on the public address, or from the server itself.
+  - **Close the server to the world**: **SSH**, and **HTTP 80/443**, each with its own button and each reopened the same way. Every change asks first, in words: what stops answering, and for whom.
+  - **Tailscale SSH** on and off (Tailscale only).
+  - **Leave the network**: what its locks closed is reopened first.
+  - **A button the server would refuse is greyed out, with the server's reason beside it**: nobody has signed in over the mesh yet (do it once: `ssh cipi@<address>`), the node key can expire, UFW is off, an app renews its certificate over HTTP-01, the panel reaches the server on the public address the lock would close, the panel comes over the very network it would leave. The server decides — the page only shows it before the click — and an action sent anyway gets the same refusal back.
+  - **A panel on the server it manages** (`cipi gui`): the page sends the browser's address along, and the server refuses to close 80/443 while you are looking at the panel on its public address — the page would close itself. Open the panel over the mesh, or through the tunnel, and the button is there.
+  - Without Manage access: the status, and neither form nor buttons. A server that says nothing of a mesh says it needs an update.
+- **Firewall: a Zero Trust lock is named by who holds it.** "80/443 to Cloudflare", "SSH to the Tailscale network", or both — each with its own unlock command, and for the mesh network's locks **a link to the Zero Trust tab**, where they are reopened. The notice used to say Cloudflare whatever held the port.
+- **Connections**: `zt-manage` in the token command.
+- `CipiApiClient`: `ztMeshJoin()`, `ztMeshLeave()`, `ztMeshLock()`, `ztMeshUnlock()`, `ztMeshSsh()`; `ztStatus()` takes the browser's address. `Livewire\Concerns\ManagesMesh`. `Support\Mesh` (the join form's rules, what each button may do, the panel's route in words), `Support\Firewall::mesh()` and `Support\Firewall::zeroTrustLocks()` — all without the framework (`tests/standalone.php`).
+- Demo API: the mesh routes. The first server is on a tailnet next to its tunnel, with SSH closed to the world; the second has neither and offers the join form; the third is an older server.
+
+### Security
+
+- **Every action needs Manage on the server**, checked at the moment of the request; the state the card reads is locked (the browser cannot send it back changed).
+- **The key of a join is never kept**: not in the panel's database, not in the session, not in a log; it leaves the form as soon as the server has answered.
+- **`zt-manage` is as strong as `ssh-manage`**: whoever holds a token with it can put the server on a network of their own. A token made with the command on Connections before this version does not have it — make it again (or use `--full-access`, which has every ability).
 
 ### Notes
 
-- **Nothing to do with tokens**, and nothing to click: joining a network, Tailscale SSH and the locks are `cipi zt tailscale|netbird …` at the server's shell.
-- On a server that says nothing of a mesh (an older Cipi or API) the tab is what it was: no card, no notice.
+- **Tokens**: a connection whose token has no `zt-manage` still shows the mesh; the first change says the ability is missing and where to add it.
+- **Cloudflare's side stays read-only**: enabling the tunnel, hostnames, Access and its locks are `cipi zt …` at the server's shell.
+- On a server that says nothing of a mesh (an older Cipi or API) the tab shows Cloudflare's card and a line on what an update brings.
 
 ## [4.9.0] — 2026-11-26
 
