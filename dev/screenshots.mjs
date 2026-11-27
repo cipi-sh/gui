@@ -8,13 +8,18 @@
 // rendered at 1440×900 (2×) and captured full height; the phone shots at 390×844 (3×).
 // The last shots create an app and deploy one, so reset the demo afterwards.
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const CHROME = process.env.CIPI_SHOTS_CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// Google Chrome: CIPI_SHOTS_CHROME, or where macOS and Linux keep it. CIPI_SHOTS_CHROME_FLAGS adds flags
+// (a CI runner may need --no-sandbox).
+const CHROME = process.env.CIPI_SHOTS_CHROME
+  || ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find((p) => existsSync(p))
+  || 'google-chrome';
+const CHROME_FLAGS = (process.env.CIPI_SHOTS_CHROME_FLAGS || '').split(/\s+/).filter(Boolean);
 const BASE = (process.env.CIPI_SHOTS_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
 const OUT = process.env.CIPI_SHOTS_OUT || path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'screenshots');
 const PROFILE = mkdtempSync(path.join(os.tmpdir(), 'cipi-shots-'));
@@ -22,7 +27,7 @@ const ONLY = process.argv.slice(2);
 const PORT = 9333;
 mkdirSync(OUT, { recursive: true });
 
-const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${PROFILE}`, '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--window-size=1440,900', 'about:blank'], { stdio: 'ignore' });
+const chrome = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${PROFILE}`, '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--disable-gpu', '--window-size=1440,900', ...CHROME_FLAGS, 'about:blank'], { stdio: 'ignore' });
 const bye = () => { try { chrome.kill(); } catch {} try { rmSync(PROFILE, { recursive: true, force: true }); } catch {} };
 process.on('exit', bye);
 
@@ -81,6 +86,21 @@ async function shoot(name, { full = true, height } = {}) {
 }
 const want = (...names) => !ONLY.length || names.some((n) => ONLY.includes(n));
 
+// One part of the page, with some air around it: a card, a form.
+async function shootElement(name, selector, pad = 20) {
+  if (ONLY.length && !ONLY.includes(name)) return;
+  const box = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) throw new Error('no ' + ${JSON.stringify(selector)}); el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return { x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height }; })()`);
+  await sleep(200);
+  const clip = { x: Math.max(0, Math.floor(box.x - pad)), y: Math.max(0, Math.floor(box.y - pad)), width: Math.ceil(box.width + 2 * pad), height: Math.ceil(box.height + 2 * pad), scale: 1 };
+  const r = await send('Page.captureScreenshot', { format: 'webp', quality: 88, captureBeyondViewport: true, clip });
+  writeFileSync(`${OUT}/${name}.webp`, Buffer.from(r.data, 'base64'));
+  console.log('shot', name, `${clip.width}x${clip.height} @${vp.scale}x`);
+}
+// A page's own component, by the end of its name ('server-manage'), whatever else the layout mounts.
+const wireOf = (name) => `window.Livewire.all().find((c) => c.name.endsWith(${JSON.stringify(name)})).$wire`;
+async function callOn(name, method, ...args) { await evaluate(`${wireOf(name)}.call(${JSON.stringify(method)}${args.map((a) => ',' + JSON.stringify(a)).join('')})`); await ready(); }
+async function setOn(name, prop, value) { await evaluate(`${wireOf(name)}.set(${JSON.stringify(prop)}, ${JSON.stringify(value)})`); await ready(); }
+
 try {
   await viewport({});
   // ── sign in, make production the current server ──
@@ -125,6 +145,12 @@ try {
   if (want('server-overview', 'server-overview-light')) { await goto('/server/1'); await ready(); await shoot('server-overview'); await theme('light'); await shoot('server-overview-light'); await theme('dark'); }
   if (want('server-monitor')) { await goto('/server/1?tab=monitor'); await ready(); await shoot('server-monitor'); }
   if (want('server-api-access')) { await goto('/server/1?tab=ip'); await ready(); await shoot('server-api-access'); }
+  if (want('server-firewall', 'server-firewall-light')) { await goto('/server/1?tab=firewall'); await ready(); await shoot('server-firewall'); await theme('light'); await shoot('server-firewall-light'); await theme('dark'); }
+  // Zero Trust: production has a tunnel and a tailnet side by side.
+  if (want('server-zero-trust', 'server-zero-trust-light', 'mesh-card', 'mesh-card-light')) {
+    await goto('/server/1?tab=zt'); await ready(); await shoot('server-zero-trust'); await shootElement('mesh-card', '[data-zt-mesh]');
+    await theme('light'); await shoot('server-zero-trust-light'); await shootElement('mesh-card-light', '[data-zt-mesh]'); await theme('dark');
+  }
   if (want('connections')) { await goto('/servers'); await ready(); await shoot('connections'); }
   if (want('team', 'team-invite')) {
     // A pending invite for the Team shot, then the invite dialog itself. The demo host has the admin (and any invited users).
@@ -147,7 +173,25 @@ try {
   }
   if (want('settings-2fa')) { await goto('/settings'); await ready(); await call('startTwoFactorSetup'); await waitFor(`!!document.querySelector('.qr-box')`); await sleep(300); await shoot('settings-2fa'); }
 
-  // ── jobs last: they change the demo state ──
+  // ── from here on the demo state changes ──
+  // The mesh network: clients (server 2) has none — the join form, then the server right after joining,
+  // where nobody has signed in over the mesh yet and the panel comes from the public address.
+  if (want('mesh-join', 'mesh-join-light', 'mesh-joined', 'mesh-joined-light')) {
+    const fill = async () => {
+      await setOn('server-manage', 'meshProvider', 'tailscale');
+      await setOn('server-manage', 'meshKey', 'tskey-auth-kDEMO11CNTRL-0123456789abcdef');
+      await setOn('server-manage', 'meshHostname', 'nyc1-clients');
+      await setOn('server-manage', 'meshTags', 'cipi, prod');
+      await sleep(300);
+    };
+    await goto('/server/2?tab=zt'); await ready(); await fill(); await shootElement('mesh-join', '[data-zt-mesh]');
+    await theme('light'); await fill(); await shootElement('mesh-join-light', '[data-zt-mesh]'); await theme('dark');
+    await fill(); await callOn('server-manage', 'joinMesh');
+    await shootElement('mesh-joined', '[data-zt-mesh]');
+    await theme('light'); await shootElement('mesh-joined-light', '[data-zt-mesh]'); await theme('dark');
+  }
+
+  // ── jobs last ──
   if (want('create-app', 'job-credentials')) {
     await goto('/apps'); await ready();
     await call('openCreate'); await call('setAppKind', 'node');

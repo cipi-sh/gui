@@ -58,7 +58,9 @@ node dev/screenshots.mjs              # every screenshot, into docs/screenshots
 node dev/screenshots.mjs apps apps-light app-deploy   # only these
 ```
 
-It signs in as the demo admin, makes `production` the current server, and renders each page at 1440×900 (2×), full height, dark and light, plus three phone shots at 390×844 (3×). The last shots create an app and deploy one, so the demo state changes: `./dev/demo.sh --reset` afterwards. `CIPI_SHOTS_CHROME` points at another Chrome binary, `CIPI_SHOTS_URL` at a panel other than `http://127.0.0.1:8000`. Copy the files you want on the website to `website/img/gui` by hand.
+It signs in as the demo admin, makes `production` the current server, and renders each page at 1440×900 (2×), full height, dark and light, plus three phone shots at 390×844 (3×); a few shots are one card only (`mesh-card`, `mesh-join`, `mesh-joined`). The last shots join a mesh network, create an app and deploy one, so the demo state changes: `./dev/demo.sh --reset` afterwards. `CIPI_SHOTS_CHROME` points at another Chrome binary (the one macOS or Linux has is found by itself), `CIPI_SHOTS_CHROME_FLAGS` adds flags to it, `CIPI_SHOTS_URL` points at a panel other than `http://127.0.0.1:8000`. Copy the files you want on the website to `website/img/gui` by hand.
+
+Without a Chrome at hand, GitHub does it: the **screenshots** workflow (Actions → screenshots → Run workflow, on any branch; an empty list is every shot) sets the demo up on a runner, takes the shots and commits the changed files to `docs/screenshots` on that branch. A push whose commit message has `[screenshots]` — or `[screenshots mesh-join mesh-joined]` for some of them — runs it too.
 
 ## Against a real server
 

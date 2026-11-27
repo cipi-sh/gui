@@ -1,0 +1,100 @@
+name: screenshots
+
+# The panel's documentation screenshots (docs/screenshots), taken on the demo
+# by dev/screenshots.mjs with the runner's Chrome — for when no machine with a
+# Chrome is at hand. The changed files are committed to the branch it ran on.
+#
+#   Actions → screenshots → Run workflow        (an empty list: every shot)
+#   a push with [screenshots] in its message    ([screenshots a b]: only a and b)
+
+on:
+  workflow_dispatch:
+    inputs:
+      shots:
+        description: 'Shots to take, separated by spaces (empty: all of them)'
+        required: false
+        default: ''
+  push:
+    branches: ['version-*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screenshots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  take:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[screenshots')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_sqlite, sqlite3, mbstring, iconv, intl
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Which shots
+        id: which
+        env:
+          INPUT_SHOTS: ${{ github.event.inputs.shots }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          shots="${INPUT_SHOTS:-}"
+          if [[ -z "$shots" && "$MESSAGE" =~ \[screenshots([^]]*)\] ]]; then
+            shots="${BASH_REMATCH[1]}"
+          fi
+          # Names only: letters, digits and dashes.
+          shots="$(tr -cs 'a-z0-9-' ' ' <<< "$shots" | xargs)"
+          echo "shots=${shots}" >> "$GITHUB_OUTPUT"
+          echo "Shots: ${shots:-all}"
+
+      - name: Set up the demo host
+        run: ./dev/setup.sh
+
+      - name: Start the demo
+        run: |
+          ./dev/demo.sh --reset > /tmp/demo.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS -o /dev/null http://127.0.0.1:8000/login && exit 0
+            sleep 2
+          done
+          cat /tmp/demo.log
+          exit 1
+
+      - name: Take the screenshots
+        env:
+          CIPI_SHOTS_CHROME_FLAGS: --no-sandbox
+        run: node dev/screenshots.mjs ${{ steps.which.outputs.shots }}
+
+      - name: Demo log
+        if: failure()
+        run: cat /tmp/demo.log || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: docs/screenshots
+          if-no-files-found: ignore
+
+      - name: Commit what changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots
+          if git diff --cached --quiet; then
+            echo "Nothing changed."
+            exit 0
+          fi
+          git commit -m "Screenshots: ${{ steps.which.outputs.shots || 'all' }}, from the demo"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
