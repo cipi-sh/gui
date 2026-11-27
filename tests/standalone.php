@@ -26,6 +26,7 @@ namespace {
     require $root.'/src/Livewire/Concerns/ManagesBackups.php';
     require $root.'/src/Support/Firewall.php';
     require $root.'/src/Support/Mesh.php';
+    require $root.'/src/Services/JobOutputParser.php';
 
     use CipiGui\Http\Controllers\DbUploadController as Up;
     use CipiGui\Support\DeployLog;
@@ -751,6 +752,34 @@ namespace {
 
     $appsView = (string) file_get_contents($root.'/resources/views/livewire/apps.blade.php');
     $check(str_contains($appsView, 'data-create-coming-soon') && str_contains($appsView, "@if(\$appKind === 'custom')") && str_contains($appsView, 'Coming soon</em> page'), 'Create app, custom: the form says what the domain shows while there is no repository');
+
+    echo "--- a deploy stopped on the clock: said as that, with hints of its own\n";
+    $jp = new CipiGui\Services\JobOutputParser;
+    $generic = $jp->deployHints();
+    // What the job of the report carried: the build at Deployer's 300 seconds.
+    $old = "[INFO] Deploying 'iceberg'...\n\ntask deploy:vendors\ntask cipi:node_build\n[localhost] Deployer\\Exception\\TimeoutException in deploy.php on line 52:\n\n"
+        ."  The command \"test ! -x /home/iceberg/.deployer/node-build.sh || /home/iceberg/.deployer/node-build.sh /home/iceberg/releases/71\" exceeded the timeout of 300 seconds.\n\n"
+        ."task deploy:failed\ntask deploy:unlock\n\n\e[0;31m[ERROR]\e[0m Deploy failed (exit 1)\n\e[0;33m[WARN]\e[0m Log: /var/log/cipi-apps/iceberg/deploy.log";
+    $check($jp->deployTimeout($old) === ['step' => 'cipi:node_build', 'seconds' => 300, 'build' => true], 'the step and its seconds are read from the output — the step before the error, not deploy:failed after it');
+    $check($jp->extractError($old) === 'The build (cipi:node_build) ran for 5 minutes, the most it is given, and was stopped.', 'the error is that sentence, not "Deploy failed (exit 1)"');
+    $hints = $jp->deployHints($old);
+    $check($hints !== $generic && str_contains($hints[0], 'cipi self-update') && str_contains($hints[0], '30 minutes') && ! str_contains(implode(' ', $hints), 'deploy key'), 'a build stopped at 5 minutes: update the server — not the hints about the Git repository');
+    $check(preg_match('/\d+\.\d+/', implode(' ', $hints).$jp->extractError($old)) === 0, '…and no version number in any of it');
+    $new = str_replace('of 300 seconds', 'of 1800 seconds', $old);
+    $check($jp->extractError($new) === 'The build (cipi:node_build) ran for 30 minutes, the most it is given, and was stopped.' && str_contains($jp->deployHints($new)[0], 'short of memory') && ! str_contains(implode(' ', $jp->deployHints($new)), 'self-update'),
+        'a build that used its 30 minutes: where to look, and no "update the server"');
+    $node = "task node:install\n[localhost] Deployer\\Exception\\TimeoutException in deploy.php on line 80:\n\n  The command \"export PATH=/opt/cipi/node/22/bin && cd /home/web/releases/3 && npm ci --no-audit --no-fund\" exceeded the timeout of 300 seconds.\n\n[ERROR] Deploy failed (exit 1)";
+    $check($jp->deployTimeout($node)['build'] === true && $jp->extractError($node) === 'The build (node:install) ran for 5 minutes, the most it is given, and was stopped.', 'a Node app: its install and its build are build steps too');
+    $migrate = "➤ Executing task artisan:migrate\n[localhost] Deployer\\Exception\\TimeoutException in Client.php on line 99:\n\n  The command \"/usr/bin/php8.5 artisan migrate --force\" exceeded the timeout of 300 seconds.\n\n[ERROR] Deploy failed (exit 1)";
+    $check($jp->extractError($migrate) === 'The step artisan:migrate ran for 5 minutes, the most it is given, and was stopped.' && str_contains($jp->deployHints($migrate)[0], 'Every step of a deploy has 5 minutes'), 'another step, announced the verbose way: named as a step');
+    $check($jp->extractError("The command \"x\" exceeded the timeout of 45 seconds.") === 'A step of the deploy ran for 45 seconds, the most it is given, and was stopped.', 'no step in the output: said without one');
+    $api = "task deploy:vendors\ntask cipi:node_build\n\n[cipi-api] Stopped after 60 minutes: the time the API gives a job of this kind. The command had not ended. On the server, `cipi deploy shop --status` says whether a deploy is still running, and the deploy log how far it went.";
+    $check(str_starts_with($jp->extractError($api), 'Stopped after 60 minutes: the time the API gives a job of this kind.') && count($jp->deployHints($api)) === 2 && str_contains($jp->deployHints($api)[0], '--status') && str_contains($jp->deployHints($api)[1], 'Unlock deploy'),
+        'a deploy job the API closed after its hour: its line is the error, the hints say where to look');
+    $key = "task deploy:update_code\n[ERROR] Permission denied (publickey).";
+    $check($jp->deployTimeout($key) === null && $jp->extractError($key) === 'Permission denied (publickey).' && $jp->deployHints($key) === $generic && count($generic) === 5, 'every other failed deploy: the error and the hints it had');
+    $trait = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesAsyncJobs.php');
+    $check(str_contains($trait, "\$parser->deployHints(\$rawOutput ?? '')"), 'the overlay asks for the hints of this output');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);

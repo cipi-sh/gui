@@ -23,6 +23,10 @@ The mesh network of Zero Trust — Tailscale or NetBird — **managed from the Z
 - **The open tab is in view.** The server page's tab strip scrolls sideways: a page opened on one of the last tabs (Zero Trust, API access) now shows which tab it is on.
 - **Screenshots without a Mac**: the `screenshots` workflow sets the demo up on a GitHub runner, runs `dev/screenshots.mjs` with the runner's Chrome and commits the changed files to `docs/screenshots` — from the Actions page, or by a push whose message has `[screenshots]` (`[screenshots mesh-join mesh-joined]` for some). `dev/screenshots.mjs` finds Chrome on Linux, takes `CIPI_SHOTS_CHROME_FLAGS`, and can shoot one card (`mesh-join`, `mesh-joined`); new shots: `server-zero-trust`, `server-firewall`. The demo's firewall follows the Zero Trust locks.
 
+### Fixed
+
+- **A deploy stopped on the clock is said as that.** When a step ran out of time — the frontend build, most of the time: `The command "… node-build.sh …" exceeded the timeout of 300 seconds` — the overlay said *Deploy failed (exit 1)* and listed what to check on the Git repository: the deploy key, the trusted host. It now names the step and how long it ran (*The build (cipi:node_build) ran for 5 minutes, the most it is given, and was stopped*), and the hints are the ones for that case: update the server, where the build has 30 minutes of its own; or, for a build that used its 30 minutes, where to look. A deploy job the API closed after its hour shows the line the API left, and how to ask the server whether the deploy is still running. Every other failed deploy keeps its error and its hints. `JobOutputParser::deployTimeout()`, `deployTimeoutError()`, `deployHints($output)`.
+
 ### Security
 
 - **Every action needs Manage on the server**, checked at the moment of the request; the state the card reads is locked (the browser cannot send it back changed).
