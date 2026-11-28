@@ -630,6 +630,17 @@ class CipiApiClient
         return $this->post("/apps/{$app}/cache/clear")['data'] ?? [];
     }
 
+    /**
+     * Some pages: paths (/blog/post/), prefixes (/blog/*) or URLs of the app.
+     * `purged` is the cached files deleted.
+     *
+     * @param  list<string>  $pages
+     */
+    public function purgePageCache(string $app, array $pages): array
+    {
+        return $this->post("/apps/{$app}/cache/purge", ['paths' => array_values($pages)])['data'] ?? [];
+    }
+
     // The PHP of an Octane app (API 1.47+ / Cipi ≥ 5.17.0): what answers
     // requests (inside its FrankenPHP build), what runs the rest.
 

@@ -136,6 +136,58 @@ final class PageCache
      *
      * @param  array<string, mixed>|null  $cache
      */
+    /** Pages to purge at once, as the server takes them. */
+    public const PURGE_MAX = 500;
+
+    public const WP_PLUGIN_REPO = 'https://github.com/cipi-sh/cache-wp';
+
+    public const WP_PLUGIN_ZIP = 'https://github.com/cipi-sh/cache-wp/releases/latest/download/cipi-cache.zip';
+
+    public const PHP_PACKAGE_REPO = 'https://github.com/cipi-sh/cache-php';
+
+    /**
+     * The pages written in the form — one per line, or separated by spaces
+     * or commas — as the server takes them: a path (/blog/post/), a prefix
+     * (/blog/*), a URL of the app. A query string or a fragment goes. Once each.
+     *
+     * @return list<string>
+     */
+    public static function purgeParse(string $text): array
+    {
+        $out = [];
+        foreach (preg_split('/[\s,]+/', $text, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $page) {
+            $prefix = str_ends_with($page, '*');
+            $page = (string) preg_replace('/[?#].*$/s', '', rtrim($page, '*'));
+            if (! preg_match('#^https?://#i', $page) && ! str_starts_with($page, '/')) {
+                $page = '/'.$page;
+            }
+            $page .= $prefix ? '*' : '';
+            if (! in_array($page, $out, true)) {
+                $out[] = $page;
+            }
+        }
+
+        return $out;
+    }
+
+    /** @param  list<string>  $pages */
+    public static function purgeError(array $pages): ?string
+    {
+        if ($pages === []) {
+            return 'Write at least one page: /blog/hello-world/, or /blog/* for every page under it.';
+        }
+        if (count($pages) > self::PURGE_MAX) {
+            return 'Up to '.self::PURGE_MAX.' pages at once — one with a * covers many: /blog/*';
+        }
+        foreach ($pages as $page) {
+            if (preg_match('#^(https?://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?)?/[A-Za-z0-9._~%:@!,;=+/-]{0,2047}\*?$#', $page) !== 1) {
+                return '"'.mb_substr($page, 0, 60).'" is not a page: a path (/blog/post/), every page under one (/blog/*), or a URL of this app — a * at the end only.';
+            }
+        }
+
+        return null;
+    }
+
     public static function clearCommand(?array $cache, string $app): string
     {
         $command = $cache['clear_command'] ?? null;

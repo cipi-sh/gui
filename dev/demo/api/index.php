@@ -652,6 +652,25 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
             }
 
             return [200, ['data' => pageCacheView($name, $info) + ['cleared' => $cleared]]];
+        case $sub === '/cache/purge' && $method === 'POST':
+            $paths = is_array($body['paths'] ?? null) ? array_values($body['paths']) : [];
+            if ($paths === [] || count($paths) > 500) {
+                throw new DemoHttpError(422, 'paths: from 1 to 500 pages');
+            }
+            foreach ($paths as $p) {
+                if (! is_string($p) || ! preg_match('#^(https?://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?)?/[A-Za-z0-9._~%:@!,;=+/-]{0,2047}\*?$#', $p)) {
+                    throw new DemoHttpError(422, 'paths: a page is a path (/blog/post/), a prefix (/blog/*) or a URL on a domain of the app');
+                }
+            }
+            $view = pageCacheView($name, $info);
+            $on = (bool) ($view['enabled'] ?? false);
+            // About two files a page (http and https, a ?utm variant), never more than there are.
+            $purged = $on ? min((int) ($view['files'] ?? 0), 2 * count($paths)) : 0;
+            if ($on && isset($info['page_cache'])) {
+                $info['page_cache']['files'] = max(0, (int) ($view['files'] ?? 0) - $purged);
+            }
+
+            return [200, ['data' => ['app' => $name, 'enabled' => $on, 'purged' => $purged, 'targets' => $paths]]];
 
         // The PHP of an Octane app (cipi/api 1.47, Cipi 5.17.0).
         case $sub === '/octane' && $method === 'GET':

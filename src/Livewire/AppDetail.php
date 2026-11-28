@@ -181,6 +181,11 @@ class AppDetail extends Component
     /** Why the last list of paths was refused (the server's words); nothing changed. */
     public ?string $cacheExcludeRefused = null;
 
+    /** Pages to purge, as typed: one per line. */
+    public string $cachePurge = '';
+
+    public ?string $cachePurgeRefused = null;
+
     // ── the PHP of an Octane app (Cipi 5.17.0) ──
 
     /** php, octane_php, build, frankenphp, state, restart_pending, available_php, fix. */
@@ -1270,6 +1275,49 @@ class AppDetail extends Component
             $this->syncPageCache($data);
             $this->dispatch('notify', type: 'success', message: $cleared === 1 ? 'Page cache emptied — 1 page.' : "Page cache emptied — {$cleared} pages.");
         } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    /**
+     * Purge some pages, not all: those typed, on every domain of the app.
+     * Whoever may empty the cache may purge some of it.
+     */
+    public function purgePageCache(): void
+    {
+        if (! $this->allowed(($this->can['deploy'] ?? false) ? 'deploy' : 'edit')) {
+            return;
+        }
+        $this->resetErrorBag('cachePurge');
+        $this->cachePurgeRefused = null;
+        $pages = PageCache::purgeParse($this->cachePurge);
+        if ($error = PageCache::purgeError($pages)) {
+            $this->addError('cachePurge', $error);
+
+            return;
+        }
+
+        try {
+            $data = $this->client()->purgePageCache($this->appName, $pages);
+            $files = (int) ($data['purged'] ?? 0);
+            $this->cachePurge = '';
+            $this->dispatch('notify', type: 'success', message: match (true) {
+                ! ($data['enabled'] ?? true) => 'The page cache is off — nothing to purge.',
+                $files === 0 => count($pages) === 1 ? 'That page was not in the cache — nothing to purge.' : 'None of those pages was in the cache — nothing to purge.',
+                default => sprintf('Purged %d cached file%s for %d page%s — the rest of the cache stays.', $files, $files === 1 ? '' : 's', count($pages), count($pages) === 1 ? '' : 's'),
+            });
+            $this->loadPageCache();
+        } catch (CipiApiException $e) {
+            if ($e->getStatusCode() === 422) {
+                $this->cachePurgeRefused = self::plainCliText($e->getMessage());
+
+                return;
+            }
+            if (in_array($e->getStatusCode(), [404, 405], true) || str_contains($e->getMessage(), '5.18')) {
+                $this->cachePurgeRefused = 'Purging some pages needs an up-to-date Cipi on this server (cipi self-update && cipi api update). Empty the cache now still works.';
+
+                return;
+            }
             $this->handleApiError($e);
         }
     }
