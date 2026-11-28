@@ -403,7 +403,7 @@ class Release420Test extends TestCase
     public function a_backup_profile_is_created_from_the_form(): void
     {
         $page = Livewire::withQueryParams(['tab' => 'backups'])->test(ServerManage::class, ['serverId' => $this->server->id])->call('init')
-            ->call('openBackupForm', '')->assertSet('showBackupForm', true)->assertSet('bpDestinations', ['s3']);
+            ->call('openBackupForm', '')->assertSet('showBackupForm', true)->assertSet('bpDestinations', ['local', 's3']);   // 4.11: this server and every destination
 
         $page->set('bpName', 'default')->call('saveBackupProfile')->assertHasErrors('bpName');                      // the name is taken
         $page->set('bpName', 'weekly')->set('bpKeepDays', '0')->call('saveBackupProfile')->assertHasErrors('bpKeepDays');   // keeps nothing
@@ -415,7 +415,7 @@ class Release420Test extends TestCase
 
         Http::assertSent(fn (Request $r) => $r->method() === 'POST' && str_ends_with((string) parse_url($r->url(), PHP_URL_PATH), '/api/backups/profiles')
             && $r['name'] === 'weekly' && $r['scope'] === 'files' && $r['apps'] === ['shop', 'blog'] && ! isset($r['databases'])
-            && $r['every'] === '6h' && $r['destinations'] === ['s3'] && $r['keep'] === 8 && $r['keep_days'] === 0);
+            && $r['every'] === '6h' && $r['destinations'] === ['local', 's3'] && $r['keep'] === 8 && $r['keep_days'] === 0);
     }
 
     #[Test]

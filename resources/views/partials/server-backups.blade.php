@@ -4,6 +4,7 @@
 @php
     $profiles = $backup['profiles'] ?? [];
     $destinations = $backup['destinations'] ?? [];
+    $onlyLocal = collect($destinations)->every(fn ($d) => ($d['type'] ?? '') === 'local');
     $uncoveredApps = $backup['uncovered']['apps'] ?? [];
     $uncoveredDbs = array_map(fn ($d) => ($d['engine'] ?? '').'/'.($d['name'] ?? ''), $backup['uncovered']['databases'] ?? []);
     $covers = [];
@@ -26,14 +27,17 @@
     @endphp
     <div class="card" data-backup-unconfigured>
         <x-cipi::empty icon="cloud" title="Backups are not configured on this server">
-            Run <code>cipi backup configure</code> on the server once: it asks where the archives go — a directory on the server, an S3 bucket, or both. Profiles are then managed here.
+            They start here: a nightly profile takes every app and every database and keeps them on this server. Then add an <strong>S3 bucket</strong> and/or an <strong>SFTP server</strong> — a copy only on this server is lost with it.
             <x-slot:actions>
-                <button type="button" wire:click="refresh" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="refresh"><x-cipi::icon name="refresh" /> Check again</button>
+                @if($canManage)
+                    <button type="button" wire:click="setUpBackups" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="setUpBackups" data-backup-setup><x-cipi::icon name="cloud" /> Set up backups</button>
+                @endif
+                <button type="button" wire:click="refresh" class="btn btn-ghost btn-sm" wire:loading.attr="disabled" wire:target="refresh"><x-cipi::icon name="refresh" /> Check again</button>
             </x-slot:actions>
         </x-cipi::empty>
         <div class="field-hint mt-4 text-center">
             <p>
-                This is the answer of <code>cipi backup status --json</code>@if($bkHost) on <code>{{ $bkHost }}</code>@endif: it found no <code>{{ $bkFile ?: '/etc/cipi/backup.json' }}</code>, the file <code>cipi backup configure</code> writes.
+                This is the answer of <code>cipi backup status --json</code>@if($bkHost) on <code>{{ $bkHost }}</code>@endif: it found no <code>{{ $bkFile ?: '/etc/cipi/backup.json' }}</code>, the file the setup writes — here or with <code>cipi backup configure</code> on the server.
             </p>
             <p class="mt-1">
                 Already configured? Check that this is the server you configured, then compare there:
@@ -57,17 +61,21 @@
             <div class="card-header">
                 <div>
                     <h2 class="card-title">Destinations</h2>
-                    <p class="card-subtitle">Where archives go. An <strong>SFTP</strong> server — a VPS with a backup user, a Hetzner Storage Box — is added here: Cipi makes a key for it, nothing secret passes through the panel. An S3 bucket is added on the server (<code>cipi backup destination add</code>): it takes a secret key, which the panel never handles.</p>
+                    <p class="card-subtitle">Where archives go: this server, and as many <strong>S3 buckets</strong> (AWS, Hetzner, R2, any S3-compatible service) and <strong>SFTP servers</strong> (a VPS with a backup user, a Hetzner Storage Box) as you want, each with a name. A bucket's secret key is sent to the server once, on its standard input, and never kept by the panel; an SFTP server lets Cipi in with a key Cipi makes for it — no password.</p>
                 </div>
                 <div class="flex flex-wrap gap-2">
                     @if($canManage && count($destinations) > 1)
                         <button type="button" wire:click="testBackupDestinations" class="btn btn-secondary btn-sm"><x-cipi::icon name="signal" /> Test all</button>
                     @endif
                     @if($canManage)
+                        <button type="button" wire:click="openS3Form" class="btn btn-secondary btn-sm" data-backup-s3-add><x-cipi::icon name="cloud" /> Add an S3 bucket</button>
                         <button type="button" wire:click="openSftpForm" class="btn btn-secondary btn-sm" data-backup-sftp-add><x-cipi::icon name="server-stack" /> Add an SFTP server</button>
                     @endif
                 </div>
             </div>
+            @if($onlyLocal)
+                <x-cipi::alert type="warn" class="mb-3" data-backup-only-local>Backups are only on this server: a copy here is lost with it. Add an S3 bucket or an SFTP server, and send the profiles there too.</x-cipi::alert>
+            @endif
             <div class="flex flex-wrap gap-2">
                 @foreach($destinations as $dest)
                     @php
@@ -79,9 +87,18 @@
                         };
                     @endphp
                     <div class="backup-dest" wire:key="backup-dest-{{ $dest['name'] }}" data-backup-dest="{{ $dType }}">
-                        <p class="font-semibold text-strong flex items-center gap-1.5"><x-cipi::icon :name="match ($dType) { 'local' => 'server', 'sftp' => 'server-stack', default => 'cloud' }" class="h-3.5 w-3.5 text-muted" /> {{ $dest['name'] }}@if(!empty($dest['default'])) <span class="badge badge-mono">default bucket</span>@endif @if($dType === 'sftp')<span class="badge badge-mono">SFTP</span>@endif</p>
+                        <p class="font-semibold text-strong flex items-center gap-1.5"><x-cipi::icon :name="match ($dType) { 'local' => 'server', 'sftp' => 'server-stack', default => 'cloud' }" class="h-3.5 w-3.5 text-muted" /> {{ $dest['name'] }} @if($dType === 'sftp')<span class="badge badge-mono">SFTP</span>@elseif($dType === 's3')<span class="badge badge-mono">S3</span>@endif</p>
                         <p class="text-xs text-muted font-mono truncate" title="{{ $dWhere }}{{ $dType === 's3' && !empty($dest['endpoint']) ? ' · '.$dest['endpoint'] : '' }}">{{ $dWhere }}</p>
                         <p class="text-2xs text-subtle mt-1">{{ ($n = count((array) ($dest['profiles'] ?? []))) === 0 ? 'not used by a profile' : 'used by '.$n.' '.($n === 1 ? 'profile' : 'profiles') }}</p>
+                        @if($dType === 's3' && $canManage)
+                            <div class="flex flex-wrap gap-1 mt-2">
+                                <button type="button" wire:click="testBackupDestination(@js($dest['name']))" class="btn btn-ghost btn-xs" data-backup-s3-test><x-cipi::icon name="signal" /> Test</button>
+                                <button type="button" wire:click="openS3Form(@js($dest['name']))" class="btn btn-ghost btn-xs" data-backup-s3-edit><x-cipi::icon name="pencil" /> Edit</button>
+                                @if(count((array) ($dest['profiles'] ?? [])) === 0)
+                                    <button type="button" wire:click="deleteBackupDestination(@js($dest['name']))" data-confirm="Remove the destination {{ $dest['name'] }}? The archives in the bucket stay there; Cipi stops pruning them, and its keys are deleted on this server." class="btn btn-ghost btn-xs danger" data-backup-s3-remove><x-cipi::icon name="trash" /></button>
+                                @endif
+                            </div>
+                        @endif
                         @if($dType === 'sftp')
                             <div class="flex flex-wrap gap-1 mt-2">
                                 <button type="button" wire:click="showSftpKey(@js($dest['name']))" class="btn btn-ghost btn-xs" data-backup-sftp-key><x-cipi::icon name="key" /> Key</button>
@@ -99,49 +116,11 @@
             </div>
 
             @if($showSftpForm && $canManage)
-                <form wire:submit="saveSftpDestination" class="mt-4 p-4 rounded-lg bg-raised space-y-3" data-backup-sftp-form>
-                    <div class="flex items-center justify-between gap-2">
-                        <p class="font-semibold text-strong">{{ $sftpEditing ? 'SFTP destination '.$sftpEditing : 'A new SFTP destination' }}</p>
-                        @unless($sftpEditing)
-                            <button type="button" wire:click="sftpPresetStorageBox" class="btn btn-ghost btn-xs" data-backup-sftp-storagebox>Hetzner Storage Box</button>
-                        @endunless
-                    </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                        <div>
-                            <label for="sftp-name">Name</label>
-                            <input id="sftp-name" type="text" wire:model="sftpName" placeholder="box" @disabled($sftpEditing) autocomplete="off" spellcheck="false">
-                            @error('sftpName') <p class="field-error">{{ $message }}</p> @enderror
-                        </div>
-                        <div class="sm:col-span-2">
-                            <label for="sftp-host">Host</label>
-                            <input id="sftp-host" type="text" wire:model="sftpHost" placeholder="u1234.your-storagebox.de" autocomplete="off" spellcheck="false">
-                            @error('sftpHost') <p class="field-error">{{ $message }}</p> @enderror
-                        </div>
-                        <div>
-                            <label for="sftp-port">Port</label>
-                            <input id="sftp-port" type="text" inputmode="numeric" wire:model="sftpPort" placeholder="22">
-                            @error('sftpPort') <p class="field-error">{{ $message }}</p> @enderror
-                        </div>
-                        <div>
-                            <label for="sftp-user">User</label>
-                            <input id="sftp-user" type="text" wire:model="sftpUser" placeholder="u1234" autocomplete="off" spellcheck="false">
-                            @error('sftpUser') <p class="field-error">{{ $message }}</p> @enderror
-                        </div>
-                        <div class="sm:col-span-3">
-                            <label for="sftp-path">Folder on the remote</label>
-                            <input id="sftp-path" type="text" wire:model="sftpPath" placeholder="cipi (empty: the login's home)" autocomplete="off" spellcheck="false">
-                            @error('sftpPath') <p class="field-error">{{ $message }}</p> @enderror
-                        </div>
-                    </div>
-                    <p class="field-hint">Cipi signs in with a key it makes for this destination — never with a password. Only SFTP is asked of the remote: a chrooted <code>internal-sftp</code> account works. Runs go to <code>&lt;folder&gt;/cipi/&lt;profile&gt;/&lt;run&gt;/</code>.</p>
-                    <div class="flex flex-wrap gap-2">
-                        <button type="submit" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="saveSftpDestination" data-backup-sftp-save><x-cipi::icon name="check" /> {{ $sftpEditing ? 'Save' : 'Add it' }}</button>
-                        @if($sftpEditing)
-                            <button type="button" wire:click="saveSftpDestination(true)" data-confirm="Make a new key for {{ $sftpEditing }}? The old one stops working here: install the new one on the remote." class="btn btn-secondary btn-sm"><x-cipi::icon name="key" /> Save with a new key</button>
-                        @endif
-                        <button type="button" wire:click="closeSftpForm" class="btn btn-ghost btn-sm">Cancel</button>
-                    </div>
-                </form>
+                @include('cipi-gui::partials.server-backups-sftp-form')
+            @endif
+
+            @if($showS3Form && $canManage)
+                @include('cipi-gui::partials.server-backups-s3-form')
             @endif
 
             @if($sftpAdded && !empty($sftpAdded['public_key']))
@@ -281,9 +260,15 @@
                 <div class="card-header">
                     <div>
                         <h2 class="card-title">Stored runs</h2>
-                        <p class="card-subtitle">What each destination holds right now. Downloading or restoring one is done on the server: <code>cipi backup fetch &lt;profile&gt; &lt;run&gt;</code>.</p>
+                        <p class="card-subtitle">What each destination holds right now. Each profile's retention is applied after its runs; <strong>Apply the retention</strong> does it now, for every profile — <strong>Preview</strong> first lists what it would delete. Downloading or restoring a run is done on the server: <code>cipi backup fetch &lt;profile&gt; &lt;run&gt;</code>.</p>
                     </div>
-                    <button type="button" wire:click="loadBackupRuns" class="btn btn-secondary btn-sm"><x-cipi::icon name="refresh" /> {{ $backupRuns === null ? 'List stored runs' : 'List again' }}</button>
+                    <div class="btn-actions">
+                        @if($canManage)
+                            <button type="button" wire:click="pruneBackups(true)" class="btn btn-ghost btn-sm" @disabled($this->backupRunning()) data-backup-prune-preview><x-cipi::icon name="eye" /> Preview the retention</button>
+                            <button type="button" wire:click="pruneBackups(false)" data-confirm="Apply every profile's retention now? The runs it no longer wants are deleted from every destination." data-confirm-label="Apply the retention" data-confirm-danger class="btn btn-secondary btn-sm" @disabled($this->backupRunning()) data-backup-prune><x-cipi::icon name="trash" /> Apply the retention</button>
+                        @endif
+                        <button type="button" wire:click="loadBackupRuns" class="btn btn-secondary btn-sm"><x-cipi::icon name="refresh" /> {{ $backupRuns === null ? 'List stored runs' : 'List again' }}</button>
+                    </div>
                 </div>
                 @if($backupRuns === null)
                     <p class="text-sm text-muted">Not listed yet: it asks every bucket, which takes a few seconds.</p>
@@ -312,6 +297,36 @@
                 @endif
             </div>
         @endif
+
+        {{-- The encryption key --}}
+        <div class="card mt-4" data-backup-key>
+            <div class="card-header">
+                <div>
+                    <h2 class="card-title">Encryption key</h2>
+                    <p class="card-subtitle">The archives of a profile with <em>Encrypt</em> are encrypted on this server (AES-256) before they leave it, so a bucket or a remote never holds readable data. The key lives only here: <strong>keep a copy off the server</strong> — without it nobody can read those archives, not Cipi, not you.</p>
+                </div>
+                @if($canManage)
+                    <div class="btn-actions">
+                        @if($backupKeyShown === null)
+                            <button type="button" wire:click="showBackupKey" data-confirm="Show the backup encryption key? The server logs it and notifies its owner." data-confirm-label="Show the key" class="btn btn-secondary btn-sm" data-backup-key-show><x-cipi::icon name="key" /> Show the key</button>
+                        @else
+                            <button type="button" wire:click="hideBackupKey" class="btn btn-secondary btn-sm" data-backup-key-hide><x-cipi::icon name="eye-off" /> Hide</button>
+                        @endif
+                        @if(!empty($backup['encryption_key']))
+                            <button type="button" wire:click="rotateBackupKey" data-confirm="Make a new encryption key? The runs to come use it. The archives already made are not encrypted again: they need the old key, which stays on the server — keep both." data-confirm-label="Make a new key" data-confirm-danger class="btn btn-ghost btn-sm" data-backup-key-rotate><x-cipi::icon name="refresh" /> Rotate</button>
+                        @endif
+                    </div>
+                @endif
+            </div>
+            @if($backupKeyShown !== null)
+                <x-cipi::secret label="Backup encryption key" :value="$backupKeyShown" />
+                <p class="field-hint mt-2">Save it in a password manager, then Hide. To read an archive elsewhere: <code>openssl enc -d -aes-256-cbc -pbkdf2 -pass file:key.txt -in archive.enc -out archive</code>.</p>
+            @elseif(!empty($backup['encryption_key']))
+                <p class="text-sm text-soft">A key is on this server. After a rotation the old keys stay next to it (<code>.backup_key.&lt;date&gt;</code>), for the runs made with them.</p>
+            @else
+                <p class="text-sm text-muted">No key yet: it is made on the first encrypted run — or now, with <strong>Show the key</strong>.</p>
+            @endif
+        </div>
     </div>
 @endif
 
@@ -397,7 +412,7 @@
                     <span class="label">Where it goes</span>
                     <div class="flex flex-wrap gap-2">
                         @foreach($backup['destinations'] ?? [] as $dest)
-                            <label class="check-card" wire:key="bp-dest-{{ $dest['name'] }}"><input type="checkbox" wire:model="bpDestinations" value="{{ $dest['name'] }}"><span><span class="check-card-title">{{ $dest['name'] }}</span><span class="check-card-text">{{ ($dest['type'] ?? '') === 'local' ? 'On this server' : 's3://'.($dest['bucket'] ?? '') }}</span></span></label>
+                            <label class="check-card" wire:key="bp-dest-{{ $dest['name'] }}"><input type="checkbox" wire:model="bpDestinations" value="{{ $dest['name'] }}"><span><span class="check-card-title">{{ $dest['name'] }}</span><span class="check-card-text">{{ match ($dest['type'] ?? '') { 'local' => 'On this server', 'sftp' => 'sftp://'.($dest['host'] ?? ''), default => 's3://'.($dest['bucket'] ?? '') } }}</span></span></label>
                         @endforeach
                     </div>
                     <p class="field-hint">A copy on the server alone is lost with the server: add a bucket for anything you cannot afford to lose.</p>
@@ -417,7 +432,7 @@
                 </div>
                 <label class="flex items-start gap-2">
                     <input type="checkbox" wire:model="bpEncrypt" class="mt-1">
-                    <span><span class="font-medium text-strong">Encrypt the archives</span><span class="block text-xs text-muted">AES-256 before they leave the server. The key is created on the server on first use: save it elsewhere (<code>cipi backup key show</code>) — without it the archives cannot be read.</span></span>
+                    <span><span class="font-medium text-strong">Encrypt the archives</span><span class="block text-xs text-muted">AES-256 before they leave the server. The key is created on the server on first use: save it elsewhere (<em>Encryption key</em> on this tab, or <code>cipi backup key show</code>) — without it the archives cannot be read.</span></span>
                 </label>
             </div>
             <div class="modal-footer">

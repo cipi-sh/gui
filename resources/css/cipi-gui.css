@@ -964,6 +964,7 @@ svg.spark:not([class*="h-"]):not([class*="w-"]) { width: 96px; height: 24px; }
     .sm\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .sm\:grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .sm\:col-span-2 { grid-column: span 2 / span 2; }
+    .sm\:col-span-4 { grid-column: span 4 / span 4; }
     .server-card-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 

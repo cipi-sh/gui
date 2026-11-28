@@ -226,6 +226,25 @@ try {
     await theme('light'); await added(); await shootElement('server-backups-sftp-light', '[data-backup-destinations]'); await callOn('server-manage', 'deleteBackupDestination', 'box'); await theme('dark');
   }
 
+  // Backups set up from the panel: staging (server 3) has none — set up on the server first,
+  // then an S3 bucket (named s3, on a par with the SFTP servers) with the nightly profile sent there too.
+  if (want('server-backups-setup', 'server-backups-setup-light', 'server-backups-s3', 'server-backups-s3-light')) {
+    await goto('/server/3?tab=backups'); await ready(); await shootElement('server-backups-setup', '[data-backup-unconfigured]');
+    await theme('light'); await goto('/server/3?tab=backups'); await ready(); await shootElement('server-backups-setup-light', '[data-backup-unconfigured]'); await theme('dark');
+    const typed = async () => {
+      await goto('/server/3?tab=backups'); await ready();
+      if (await evaluate(`!!document.querySelector('[data-backup-unconfigured]')`)) await callOn('server-manage', 'setUpBackups');
+      await callOn('server-manage', 'openS3Form');
+      await setOn('server-manage', 's3Provider', 'hetzner');
+      await setOn('server-manage', 's3Bucket', 'acme-staging-backups'); await setOn('server-manage', 's3Key', 'K7Q2X9M4N1EXAMPLE');
+      await setOn('server-manage', 's3Secret', 'demo-secret-not-sent');
+      await sleep(300);
+    };
+    await typed(); await shootElement('server-backups-s3', '[data-backup-destinations]');
+    await theme('light'); await typed(); await shootElement('server-backups-s3-light', '[data-backup-destinations]'); await theme('dark');
+    await callOn('server-manage', 'closeS3Form');
+  }
+
   // Updates: a 12-hour delay, with a release waiting for it. Back to no delay afterwards.
   if (want('server-updates', 'server-updates-light')) {
     const delayed = async () => { await goto('/server/1?tab=updates'); await ready(); await setOn('server-manage', 'upDelay', '12'); await callOn('server-manage', 'saveUpdatePolicy'); await sleep(300); };

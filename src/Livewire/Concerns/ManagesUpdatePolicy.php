@@ -67,6 +67,15 @@ trait ManagesUpdatePolicy
 
             return;
         }
+        $signed = array_key_exists('signed_releases', (array) $this->updatePolicy)
+            ? (bool) $this->updatePolicy['signed_releases']
+            : ((array) ($this->updatePolicy['shipped_signers'] ?? []) !== [] || (array) ($this->updatePolicy['signers'] ?? []) !== []);
+        if ($this->upVerify && ! $signed && empty($this->updatePolicy['verify'])) {
+            $this->upVerify = false;
+            $this->upRefused = 'Signed releases are not available at the moment: Cipi releases are not signed yet. Use the delay instead.';
+
+            return;
+        }
         $payload = ['verify' => $this->upVerify, 'delay_hours' => (int) $this->upDelay];
         $firstTrust = $this->upVerify && empty($this->updatePolicy['signers_ready']);
         if ($firstTrust) {
