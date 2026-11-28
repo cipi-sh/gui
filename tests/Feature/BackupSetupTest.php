@@ -12,10 +12,11 @@ use Livewire\Livewire;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
- * Server → Backups, set up and managed from the panel: the first setup (this
- * server only, or a default bucket), S3 buckets (the secret sent once, never
- * kept), the encryption key, the retention now. Server → Updates: signed
- * releases cannot be required while no release is signed.
+ * Server → Backups, set up and managed from the panel: the first setup (on
+ * the server), then S3 buckets and SFTP servers on a par — the profiles sent
+ * there chosen when one is added; the secret sent once, never kept — the
+ * encryption key, the retention now. Server → Updates: signed releases cannot
+ * be required while no release is signed.
  */
 class BackupSetupTest extends TestCase
 {
@@ -28,8 +29,14 @@ class BackupSetupTest extends TestCase
 
     /** @var list<array<string, mixed>> */
     private array $destinations = [
-        ['name' => 'local', 'type' => 'local', 'path' => '/var/backups/cipi', 'default' => false, 'profiles' => []],
-        ['name' => 's3', 'type' => 's3', 'bucket' => 'acme-backups', 'region' => 'fsn1', 'endpoint' => 'https://fsn1.your-objectstorage.com', 'default' => true, 'profiles' => ['default']],
+        ['name' => 'local', 'type' => 'local', 'path' => '/var/backups/cipi', 'default' => false, 'profiles' => ['default', 'nightly-db']],
+        ['name' => 's3', 'type' => 's3', 'bucket' => 'acme-backups', 'region' => 'fsn1', 'endpoint' => 'https://fsn1.your-objectstorage.com', 'default' => false, 'profiles' => ['default']],
+    ];
+
+    /** @var list<array<string, mixed>> */
+    private array $profiles = [
+        ['name' => 'default', 'enabled' => true, 'destinations' => ['local', 's3']],
+        ['name' => 'nightly-db', 'enabled' => true, 'destinations' => ['local']],
     ];
 
     private array $policy = ['verify' => false, 'delay_hours' => 0, 'delay_default_hours' => 12, 'signers' => [], 'signers_ready' => false,
@@ -52,10 +59,12 @@ class BackupSetupTest extends TestCase
             return match (true) {
                 $path === '/api/backups' => Http::response(['data' => $this->configured
                     ? ['configured' => true, 'local_dir' => '/var/backups/cipi', 'encryption_key' => true,
-                        'destinations' => $this->destinations, 'profiles' => [], 'apps' => [], 'databases' => [], 'uncovered' => ['apps' => [], 'databases' => []]]
+                        'destinations' => $this->destinations, 'profiles' => $this->profiles, 'apps' => [], 'databases' => [], 'uncovered' => ['apps' => [], 'databases' => []]]
                     : ['configured' => false, 'host' => 'web1', 'config_file' => '/etc/cipi/backup.json']]),
                 $path === '/api/backups/config' && $method === 'PUT' => $this->configure($request),
-                $path === '/api/backups/destinations' && $method === 'POST' => Http::response(['data' => ['name' => $request->data()['name'] ?? '', 'type' => 's3', 'bucket' => $request->data()['bucket'] ?? '']], 201),
+                $path === '/api/backups/destinations' && $method === 'POST' => Http::response(['data' => ['name' => $request->data()['name'] ?? '', 'type' => $request->data()['type'] ?? 's3', 'bucket' => $request->data()['bucket'] ?? '', 'host' => $request->data()['host'] ?? '', 'port' => $request->data()['port'] ?? 22, 'user' => $request->data()['user'] ?? '', 'path' => $request->data()['path'] ?? '', 'public_key' => 'ssh-ed25519 AAAANewKey cipi-backup-box@web1']], 201),
+                $path === '/api/backups/destinations/s3' && $method === 'PUT' => Http::response(['data' => ['name' => 's3', 'type' => 's3']]),
+                $path === '/api/backups/destinations/s3' && $method === 'DELETE' => Http::response(['data' => ['name' => 's3', 'removed' => true]]),
                 $path === '/api/backups/destinations/offsite' && $method === 'PUT' => Http::response(['data' => ['name' => 'offsite', 'type' => 's3']]),
                 $path === '/api/backups/destinations/offsite' && $method === 'DELETE' => Http::response(['data' => ['name' => 'offsite', 'removed' => true]]),
                 $path === '/api/backups/destinations/test' => Http::response(['data' => ['ok' => true, 'output' => '  offsite  s3://acme-offsite  OK']]),
@@ -75,19 +84,10 @@ class BackupSetupTest extends TestCase
     private function configure(Request $request): mixed
     {
         $this->configured = true;
-        $d = $request->data();
-        $this->destinations = [$this->destinations[0]];
-        if (($d['type'] ?? '') === 'sftp') {
-            $dest = ['name' => $d['name'], 'type' => 'sftp', 'host' => $d['host'], 'port' => $d['port'], 'user' => $d['user'], 'path' => $d['path'], 'default' => false];
-            $this->destinations[] = $dest + ['profiles' => ['default']];
+        $this->destinations = [['name' => 'local', 'type' => 'local', 'path' => '/var/backups/cipi', 'default' => false, 'profiles' => ['default']]];
+        $this->profiles = [['name' => 'default', 'enabled' => true, 'destinations' => ['local']]];
 
-            return Http::response(['data' => ['configured' => true], 'type' => 'sftp', 'destination' => $dest + ['public_key' => 'ssh-ed25519 AAAASetupKey cipi-backup-sftp@web1']]);
-        }
-        if (($d['type'] ?? '') !== 'local') {
-            $this->destinations[] = ['name' => 's3', 'type' => 's3', 'bucket' => $d['bucket'] ?? 'acme-backups', 'region' => $d['region'] ?? 'eu-central-1', 'endpoint' => null, 'default' => true, 'profiles' => []];
-        }
-
-        return Http::response(['data' => ['configured' => true], 'type' => $d['type'] ?? 's3', 'destination' => null]);
+        return Http::response(['data' => ['configured' => true]]);
     }
 
     private function tab(string $tab)
@@ -101,71 +101,89 @@ class BackupSetupTest extends TestCase
     }
 
     #[Test]
-    public function a_server_without_backups_is_set_up_from_the_panel_on_this_server_only(): void
+    public function a_server_without_backups_is_set_up_on_the_server_first(): void
     {
         $this->configured = false;
 
         $this->tab('backups')
             ->assertSeeHtml('data-backup-unconfigured')
-            ->assertSeeHtml('data-backup-setup-local')
-            ->assertSeeHtml('data-backup-setup-s3')
-            ->call('configureLocalBackups')
+            ->assertSeeHtml('data-backup-setup')
+            ->assertDontSeeHtml('data-backup-s3-form')
+            ->call('setUpBackups')
             ->assertDispatched('notify')
-            ->assertDontSeeHtml('data-backup-unconfigured');
-
-        $this->assertSame(['type' => 'local'], $this->sent('PUT', '/api/backups/config')->data());
-    }
-
-    #[Test]
-    public function a_server_without_backups_is_set_up_to_an_sftp_server_and_its_key_shown(): void
-    {
-        $this->configured = false;
-
-        $this->tab('backups')
-            ->assertSeeHtml('data-backup-setup-sftp')
-            ->call('openSftpSetup')
-            ->assertSet('sftpSetup', true)
-            ->assertSet('sftpName', 'sftp')
-            ->assertSeeHtml('data-backup-sftp-form="setup"')
-            ->set('sftpUser', 'u1234')
-            ->call('sftpPresetStorageBox')
-            ->set('sftpPath', 'cipi')
-            ->call('saveSftpDestination')
-            ->assertHasNoErrors()
-            ->assertSet('sftpSetup', false)
-            ->assertSet('showSftpForm', false)
             ->assertDontSeeHtml('data-backup-unconfigured')
-            ->assertSeeHtml('data-backup-sftp-install')
-            ->assertSee('ssh-ed25519 AAAASetupKey cipi-backup-sftp@web1')
-            ->assertSee('ssh-copy-id -p 23 -s -f -i cipi-backup-sftp.pub u1234@u1234.your-storagebox.de');
+            // Only on this server: said, with the two ways to add a copy elsewhere.
+            ->assertSeeHtml('data-backup-only-local')
+            ->assertSeeHtml('data-backup-s3-add')
+            ->assertSeeHtml('data-backup-sftp-add');
 
-        $this->assertSame(['type' => 'sftp', 'name' => 'sftp', 'host' => 'u1234.your-storagebox.de', 'port' => 23, 'user' => 'u1234', 'path' => 'cipi'], $this->sent('PUT', '/api/backups/config')->data());
-        $this->assertNull($this->sent('POST', '/api/backups/destinations'));
+        $this->assertSame([], $this->sent('PUT', '/api/backups/config')->data());
     }
 
     #[Test]
-    public function a_server_without_backups_is_set_up_with_a_bucket_and_the_secret_is_not_kept(): void
+    public function then_an_s3_bucket_named_s3_and_an_sftp_server_are_added_on_a_par_and_the_profile_sent_to_both(): void
     {
         $this->configured = false;
 
-        $this->tab('backups')
-            ->call('openS3Form', 's3')
-            ->assertSet('s3Editing', 's3')
-            ->assertSeeHtml('data-backup-s3-form="default"')
+        $page = $this->tab('backups')->call('setUpBackups')
+            ->call('openS3Form')
+            ->assertSet('s3Name', 's3')
+            ->assertSet('destUse', ['default'])
+            ->assertSeeHtml('data-backup-dest-use')
             ->set('s3Provider', 'hetzner')
-            ->assertSet('s3Endpoint', 'https://fsn1.your-objectstorage.com')
-            ->assertSet('s3Region', 'fsn1')
-            ->set('s3Bucket', 'acme-backups')
-            ->call('saveS3Destination')
-            ->assertHasErrors(['s3Key', 's3Secret'])
-            ->set('s3Key', 'AKIAEXAMPLE')->set('s3Secret', 'sEcReT/+=xyz')
+            ->set('s3Bucket', 'acme-backups')->set('s3Key', 'AKIAEXAMPLE')->set('s3Secret', 'sEcReT/+=xyz')
             ->call('saveS3Destination')
             ->assertHasNoErrors()
             ->assertSet('s3Secret', '')
-            ->assertSet('showS3Form', false)
-            ->assertDontSee('sEcReT/+=xyz');
+            ->assertSet('showS3Form', false);
+        $this->assertSame(['type' => 's3', 'name' => 's3', 'bucket' => 'acme-backups', 'key' => 'AKIAEXAMPLE', 'secret' => 'sEcReT/+=xyz', 'region' => 'fsn1', 'endpoint' => 'https://fsn1.your-objectstorage.com', 'profiles' => ['default']],
+            $this->sent('POST', '/api/backups/destinations')->data());
 
-        $this->assertSame(['bucket' => 'acme-backups', 'key' => 'AKIAEXAMPLE', 'secret' => 'sEcReT/+=xyz', 'region' => 'fsn1', 'endpoint' => 'https://fsn1.your-objectstorage.com'], $this->sent('PUT', '/api/backups/config')->data());
+        $page->call('openSftpForm')
+            ->assertSet('sftpName', 'sftp')
+            ->assertSet('destUse', ['default'])
+            ->set('sftpUser', 'u1234')->call('sftpPresetStorageBox')->set('sftpPath', 'cipi')
+            ->call('saveSftpDestination')
+            ->assertHasNoErrors()
+            ->assertSeeHtml('data-backup-sftp-install');
+        $this->assertSame(['type' => 'sftp', 'name' => 'sftp', 'host' => 'u1234.your-storagebox.de', 'port' => 23, 'user' => 'u1234', 'path' => 'cipi', 'profiles' => ['default']],
+            $this->sent('POST', '/api/backups/destinations')->data());
+    }
+
+    #[Test]
+    public function the_profiles_to_send_there_are_the_ones_ticked(): void
+    {
+        $this->tab('backups')
+            ->call('openS3Form')
+            ->assertSet('s3Name', 'offsite')            // s3 is taken
+            ->assertSet('destUse', ['nightly-db'])       // only the profile that keeps its runs here
+            ->set('destUse', [])
+            ->set('s3Bucket', 'acme-offsite')->set('s3Key', 'AKIA')->set('s3Secret', 'sEcReT')
+            ->call('saveS3Destination')
+            ->assertHasNoErrors();
+        $this->assertArrayNotHasKey('profiles', $this->sent('POST', '/api/backups/destinations')->data());
+    }
+
+    #[Test]
+    public function the_bucket_named_s3_is_edited_and_removed_like_any_other(): void
+    {
+        $this->destinations[1]['profiles'] = [];
+
+        $this->tab('backups')
+            ->assertDontSee('default bucket')
+            ->call('openS3Form', 's3')
+            ->assertSet('s3Editing', 's3')
+            ->assertSet('s3Provider', 'hetzner')
+            ->assertSeeHtml('data-backup-s3-form="edit"')
+            ->assertDontSeeHtml('data-backup-dest-use')
+            ->set('s3Region', 'nbg1')
+            ->call('saveS3Destination')
+            ->assertHasNoErrors()
+            ->call('deleteBackupDestination', 's3')
+            ->assertDispatched('notify');
+
+        $this->assertSame(['bucket' => 'acme-backups', 'region' => 'nbg1', 'endpoint' => 'https://fsn1.your-objectstorage.com'], $this->sent('PUT', '/api/backups/destinations/s3')->data());
+        $this->assertNotNull($this->sent('DELETE', '/api/backups/destinations/s3'));
     }
 
     #[Test]
@@ -175,7 +193,7 @@ class BackupSetupTest extends TestCase
             ->assertSeeHtml('data-backup-s3-add')
             ->call('openS3Form')
             ->assertSeeHtml('data-backup-s3-form="new"')
-            ->set('s3Name', 's3')->set('s3Bucket', 'Bad Bucket')->set('s3Key', 'AK IA')->set('s3Secret', "x'y")->set('s3Endpoint', 'ftp://x')
+            ->set('s3Name', 'local')->set('s3Bucket', 'Bad Bucket')->set('s3Key', 'AK IA')->set('s3Secret', "x'y")->set('s3Endpoint', 'ftp://x')
             ->call('saveS3Destination')
             ->assertHasErrors(['s3Name', 's3Bucket', 's3Key', 's3Secret', 's3Endpoint']);
         $page->set('s3Provider', 'r2')->assertSet('s3Region', 'auto')
@@ -188,7 +206,7 @@ class BackupSetupTest extends TestCase
             ->call('saveS3Destination')
             ->assertHasNoErrors()
             ->assertSet('s3Secret', '');
-        $this->assertSame(['type' => 's3', 'name' => 'offsite', 'bucket' => 'acme-offsite', 'key' => 'AKIAOTHER', 'secret' => 'dEsTsEcReT', 'region' => 'auto', 'endpoint' => 'https://abc123.r2.cloudflarestorage.com'],
+        $this->assertSame(['type' => 's3', 'name' => 'offsite', 'bucket' => 'acme-offsite', 'key' => 'AKIAOTHER', 'secret' => 'dEsTsEcReT', 'region' => 'auto', 'endpoint' => 'https://abc123.r2.cloudflarestorage.com', 'profiles' => ['nightly-db']],
             $this->sent('POST', '/api/backups/destinations')->data());
     }
 
@@ -232,11 +250,11 @@ class BackupSetupTest extends TestCase
         $this->tab('backups')
             ->call('testBackupDestination', 'offsite')->assertDispatched('notify')
             ->call('deleteBackupDestination', 'offsite')->assertDispatched('notify')
-            ->call('deleteBackupDestination', 's3');
+            ->call('deleteBackupDestination', 'local');
 
         $this->assertSame(['name' => 'offsite'], $this->sent('POST', '/api/backups/destinations/test')->data());
         $this->assertNotNull($this->sent('DELETE', '/api/backups/destinations/offsite'));
-        $this->assertNull($this->sent('DELETE', '/api/backups/destinations/s3'));
+        $this->assertNull($this->sent('DELETE', '/api/backups/destinations/local'));   // this server is not a destination to remove
     }
 
     #[Test]
@@ -291,7 +309,7 @@ class BackupSetupTest extends TestCase
             ->call('openS3Form')->assertSet('showS3Form', false)
             ->set('s3Name', 'x1')->set('s3Bucket', 'acme')->set('s3Key', 'k')->set('s3Secret', 's')
             ->call('saveS3Destination')
-            ->call('configureLocalBackups')
+            ->call('setUpBackups')
             ->call('showBackupKey')->assertSet('backupKeyShown', null)
             ->call('rotateBackupKey')
             ->call('pruneBackups', false);

@@ -3,9 +3,10 @@
 namespace CipiGui\Support;
 
 /**
- * An S3 backup destination — a named bucket, or the default one ('s3'): the
- * providers the form offers, and its fields checked as the server checks
- * them. The secret key is only ever sent; nothing here keeps it.
+ * An S3 backup destination — on a par with the SFTP servers, any name but
+ * local ("s3" included): the providers the form offers, and its fields checked
+ * as the server checks them. The secret key is only ever sent; nothing here
+ * keeps it.
  */
 final class BackupS3
 {
@@ -63,8 +64,8 @@ final class BackupS3
     {
         $errors = [];
         if ($name !== null) {
-            if (! preg_match(self::NAME_RE, $name) || in_array($name, ['local', 's3'], true)) {
-                $errors['s3Name'] = 'Lowercase letters, digits and dashes, 2 to 32 — not local or s3.';
+            if (! preg_match(self::NAME_RE, $name) || $name === 'local') {
+                $errors['s3Name'] = 'Lowercase letters, digits and dashes, 2 to 32 — not local (this server).';
             } elseif (in_array($name, $taken, true)) {
                 $errors['s3Name'] = "There is a destination called {$name} already.";
             }

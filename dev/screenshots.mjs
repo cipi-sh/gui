@@ -226,30 +226,18 @@ try {
     await theme('light'); await added(); await shootElement('server-backups-sftp-light', '[data-backup-destinations]'); await callOn('server-manage', 'deleteBackupDestination', 'box'); await theme('dark');
   }
 
-  // Backups set up from the panel: staging (server 3) has none — the three ways to start, the S3 one open
-  // with a Hetzner bucket typed in. Nothing is saved.
-  if (want('server-backups-setup', 'server-backups-setup-light')) {
+  // Backups set up from the panel: staging (server 3) has none — set up on the server first,
+  // then an S3 bucket (named s3, on a par with the SFTP servers) with the nightly profile sent there too.
+  if (want('server-backups-setup', 'server-backups-setup-light', 'server-backups-s3', 'server-backups-s3-light')) {
+    await goto('/server/3?tab=backups'); await ready(); await shootElement('server-backups-setup', '[data-backup-unconfigured]');
+    await theme('light'); await goto('/server/3?tab=backups'); await ready(); await shootElement('server-backups-setup-light', '[data-backup-unconfigured]'); await theme('dark');
     const typed = async () => {
       await goto('/server/3?tab=backups'); await ready();
-      await callOn('server-manage', 'openS3Form', 's3');
+      if (await evaluate(`!!document.querySelector('[data-backup-unconfigured]')`)) await callOn('server-manage', 'setUpBackups');
+      await callOn('server-manage', 'openS3Form');
       await setOn('server-manage', 's3Provider', 'hetzner');
       await setOn('server-manage', 's3Bucket', 'acme-staging-backups'); await setOn('server-manage', 's3Key', 'K7Q2X9M4N1EXAMPLE');
       await setOn('server-manage', 's3Secret', 'demo-secret-not-sent');
-      await sleep(300);
-    };
-    await typed(); await shootElement('server-backups-setup', '[data-backup-unconfigured]');
-    await theme('light'); await typed(); await shootElement('server-backups-setup-light', '[data-backup-unconfigured]'); await theme('dark');
-    await callOn('server-manage', 'closeS3Form');
-  }
-
-  // Backups → Add an S3 bucket on production: Cloudflare R2 picked, the account ID still to fill in. Nothing is saved.
-  if (want('server-backups-s3', 'server-backups-s3-light')) {
-    const typed = async () => {
-      await goto('/server/1?tab=backups'); await ready();
-      await callOn('server-manage', 'openS3Form');
-      await setOn('server-manage', 's3Provider', 'r2');
-      await setOn('server-manage', 's3Name', 'offsite'); await setOn('server-manage', 's3Bucket', 'acme-offsite');
-      await setOn('server-manage', 's3Key', '3f9c2a7e1b4d8c6e5a0f9b2d7c4e1a8b');
       await sleep(300);
     };
     await typed(); await shootElement('server-backups-s3', '[data-backup-destinations]');

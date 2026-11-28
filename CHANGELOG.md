@@ -2,20 +2,22 @@
 
 ## [4.11.0] — 2026-11-28
 
-**Backups set up and managed from the panel.** A server without backups is set up from the Backups tab — to an S3 bucket, to an SFTP server, or on the server only — and then S3 buckets are added, changed, tested and removed like SFTP servers; the encryption key is shown and rotated; the retention is previewed and applied. A secret key is sent to the server once, on the CLI's standard input, and never kept by the panel. **Signed releases** are said to be not available yet. For Cipi 5.19.0 and cipi/api 1.49.
+**Backups set up and managed from the panel — on the server first, then S3 buckets and SFTP servers on a par.** A server without backups is set up from the Backups tab: a nightly profile takes every app and database and keeps them on the server. Then S3 buckets are added, changed, tested and removed exactly like SFTP servers — choosing, as each one is added, which profiles send their runs there too. The encryption key is shown and rotated; the retention previewed and applied. A secret key is sent to the server once, on the CLI's standard input, and never kept by the panel. **Signed releases** are said to be not available yet. For Cipi 5.19.0/5.19.1 and cipi/api 1.49.
 
 ### Added
 
-- **Backups → set up**: a server where backups are not configured shows three ways to start — **Use an S3 bucket** (the default bucket), **Use an SFTP server** (Cipi 5.19.1+: Cipi makes its key and the panel shows it with how to install it, as for any SFTP destination) and **On this server only** (asked first: such a copy is lost with the server). A nightly profile then takes every app and every database there. Before, the card said to run `cipi backup configure` on the server.
-- **Backups → Add an S3 bucket**: a provider (AWS, Hetzner Object Storage, Cloudflare R2, DigitalOcean Spaces, Backblaze B2, Scaleway, any S3-compatible service) fills in the endpoint and the region and says what to change; then the name, the bucket and the keys. The server reaches the bucket with the keys **before it saves anything** — a wrong key changes nothing, and the panel says why. The secret is a password field, sent once and cleared from the form after every save and every refusal. Each S3 destination has *Test*, *Edit* — an empty key or secret keeps the one the server has — and, when no profile uses it, *Remove*. The default bucket has *Edit* too, and *Set the default bucket* is there when there is none.
+- **Backups → Set up backups**: a server where backups are not set up offers one button — the local folder and the nightly profile, on the server (`cipi backup configure`). Before, the card said to run it on the server. While backups are only on the server, the tab says so: a copy there is lost with it.
+- **Backups → Add an S3 bucket**, on a par with *Add an SFTP server*: a provider (AWS, Hetzner Object Storage, Cloudflare R2, DigitalOcean Spaces, Backblaze B2, Scaleway, any S3-compatible service) fills in the endpoint and the region and says what to change; then the name (`s3` first, as `sftp` for an SFTP server), the bucket and the keys. The server reaches the bucket with the keys **before it saves anything** — a wrong key changes nothing, and the panel says why. The secret is a password field, sent once and cleared from the form after every save and every refusal. Each S3 destination has *Test*, *Edit* — an empty key or secret keeps the one the server has — and, when no profile uses it, *Remove*, like the SFTP ones; there is no "default bucket" any more.
+- **Send these profiles there too**: adding an S3 bucket or an SFTP server lists the profiles, the ones that keep their runs on the server only ticked (Cipi 5.19.1+).
 - **Backups → Encryption key**: *Show the key* (asked first: the server logs it and notifies its owner), *Hide*, *Rotate* (asked first: the archives already made keep needing the old key, which stays on the server).
 - **Backups → Stored runs**: *Preview the retention* (what it would delete) and *Apply the retention* (asked first), as a job.
-- `CipiApiClient`: `createS3Destination()`, `updateS3Destination()`, `configureBackups()` (`type` local, s3 or sftp), `backupKey()`, `rotateBackupKey()`, `pruneBackups()`. `Support\BackupS3` — the providers and the fields checked as the server checks them, without the framework (`tests/standalone.php`).
-- Demo API: the setup (the staging server has no backups yet), S3 buckets, the key, the retention as a job.
+- `CipiApiClient`: `createS3Destination()`, `updateS3Destination()` (`profiles` on both create calls), `configureBackups()`, `backupKey()`, `rotateBackupKey()`, `pruneBackups()`. `Support\BackupS3` — the providers and the fields checked as the server checks them, without the framework (`tests/standalone.php`).
+- Demo API: the setup (the staging server has no backups yet), S3 buckets and SFTP servers on a par with `profiles`, the key, the retention as a job.
 
 ### Changed
 
 - **Server → Updates → Install only signed releases** cannot be ticked while no release is signed — *not available yet*, with the delay as the safeguard to use meanwhile — and a save that asks for it is refused before it is sent.
+- A new profile's *Where* starts with this server and every destination (it was the default bucket, or this server).
 - A profile's *Where* names an SFTP destination as `sftp://host` (it read `s3://`).
 
 ## [4.10.0] — 2026-11-27

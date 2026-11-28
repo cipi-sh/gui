@@ -12,11 +12,14 @@ use Livewire\Attributes\Locked;
  * the panel — which profile takes which app and which database (a matrix),
  * when each last ran and how, a run started now, and the profiles themselves.
  *
- * Destinations: SFTP servers (API 1.48+ / Cipi 5.18.0+) and, from API 1.49 /
- * Cipi 5.19.0, S3 buckets, the default bucket (`cipi backup configure`, also
- * on a server where backups were never set up), the encryption key and the
- * retention now. A secret key is sent once and cleared from the form: the
- * API hands it to the CLI on its standard input; the panel keeps nothing.
+ * Backups start on the server (`cipi backup configure`: the local folder and
+ * the nightly profile, also on a server where they were never set up); S3
+ * buckets and SFTP servers are then destinations on a par — SFTP from API
+ * 1.48 / Cipi 5.18.0, S3 from API 1.49 / Cipi 5.19.0 — each added, tested,
+ * changed and removed the same way, and the profiles to send there chosen
+ * when it is added. The encryption key and the retention too. A secret key is
+ * sent once and cleared from the form: the API hands it to the CLI on its
+ * standard input; the panel keeps nothing.
  */
 trait ManagesBackups
 {
@@ -80,10 +83,6 @@ trait ManagesBackups
 
     #[Locked]
     public ?string $sftpEditing = null;
-
-    /** The first setup of a server without backups: `cipi backup configure --type=sftp`. */
-    #[Locked]
-    public bool $sftpSetup = false;
 
     public string $sftpName = '';
 
@@ -270,13 +269,16 @@ trait ManagesBackups
         }
     }
 
-    // ── S3 buckets and the default bucket (API 1.49+ / Cipi 5.19.0) ───
+    // ── S3 buckets (API 1.49+ / Cipi 5.19.0), on a par with SFTP servers ──
 
     public bool $showS3Form = false;
 
-    /** null: a new bucket; 's3': the default bucket (configure); a name: that bucket. */
+    /** null: a new bucket; a name: that bucket ("s3" included). */
     #[Locked]
     public ?string $s3Editing = null;
+
+    /** A new destination: the profiles sent there too (`--use`). */
+    public array $destUse = [];
 
     public string $s3Name = '';
 
@@ -297,7 +299,40 @@ trait ManagesBackups
     #[Locked]
     public ?string $backupKeyShown = null;
 
-    /** A new bucket (''), the default bucket ('s3') or a named one to change. */
+    /**
+     * The profiles a new destination is sent by, ticked first: those that keep
+     * their runs on this server only — they have no copy elsewhere yet.
+     *
+     * @return list<string>
+     */
+    protected function profilesOnlyLocal(): array
+    {
+        return array_values(array_map(fn ($p) => (string) $p['name'], array_filter((array) ($this->backup['profiles'] ?? []),
+            fn ($p) => is_array($p) && isset($p['name']) && array_values((array) ($p['destinations'] ?? [])) === ['local'])));
+    }
+
+    /** A free name for a new destination: s3, offsite… / sftp, box… */
+    protected function suggestDestName(string $type): string
+    {
+        $taken = array_column((array) ($this->backup['destinations'] ?? []), 'name');
+        foreach ($type === 'sftp' ? ['sftp', 'box', 'backup-box'] : ['s3', 'offsite', 'bucket'] as $c) {
+            if (! in_array($c, $taken, true)) {
+                return $c;
+            }
+        }
+
+        return '';
+    }
+
+    /** The profiles to send a new destination by, as the API takes them. */
+    protected function useProfiles(): array
+    {
+        $names = array_column((array) ($this->backup['profiles'] ?? []), 'name');
+
+        return array_values(array_intersect($names, array_filter($this->destUse, 'is_string')));
+    }
+
+    /** A new bucket ('') or one to change, by name ("s3" like any other). */
     public function openS3Form(string $name = ''): void
     {
         if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
@@ -305,25 +340,23 @@ trait ManagesBackups
         }
         $this->resetErrorBag();
         $this->showSftpForm = false;
-        $this->sftpSetup = false;
         $this->sftpAdded = null;
         $dest = null;
-        if ($name !== '' && $name !== 's3') {
+        if ($name !== '') {
             $dest = collect($this->backup['destinations'] ?? [])->firstWhere('name', $name);
             if (($dest['type'] ?? '') !== 's3') {
                 return;
             }
-        } elseif ($name === 's3') {
-            $dest = collect($this->backup['destinations'] ?? [])->firstWhere('name', 's3');
         }
         $this->s3Editing = $name !== '' ? $name : null;
-        $this->s3Name = $name !== '' && $name !== 's3' ? $name : '';
+        $this->s3Name = $name !== '' ? $name : $this->suggestDestName('s3');
         $this->s3Bucket = (string) ($dest['bucket'] ?? '');
         $this->s3Endpoint = (string) ($dest['endpoint'] ?? '');
         $this->s3Region = (string) ($dest['region'] ?? '') !== '' ? (string) $dest['region'] : \CipiGui\Support\BackupS3::PROVIDERS[\CipiGui\Support\BackupS3::providerOf($this->s3Endpoint)]['region'];
         $this->s3Provider = \CipiGui\Support\BackupS3::providerOf($this->s3Endpoint);
         $this->s3Key = '';
         $this->s3Secret = '';
+        $this->destUse = $name === '' ? $this->profilesOnlyLocal() : [];
         $this->showS3Form = true;
     }
 
@@ -350,9 +383,9 @@ trait ManagesBackups
     }
 
     /**
-     * Save the bucket: a new one, a change (an empty key or secret keeps the
-     * one the server has), or the default bucket. The server reaches the
-     * bucket with the keys before it saves anything.
+     * Save the bucket: a new one, or a change (an empty key or secret keeps the
+     * one the server has). The server reaches the bucket with the keys before
+     * it saves anything.
      */
     public function saveS3Destination(): void
     {
@@ -363,12 +396,11 @@ trait ManagesBackups
         foreach (['s3Name', 's3Bucket', 's3Key', 's3Region', 's3Endpoint'] as $f) {
             $this->{$f} = trim($this->{$f});
         }
-        $default = $this->s3Editing === 's3';
-        $isNew = $this->s3Editing === null || ($default && empty(collect($this->backup['destinations'] ?? [])->firstWhere('name', 's3')['bucket'] ?? null));
+        $isNew = $this->s3Editing === null;
         $errors = \CipiGui\Support\BackupS3::errors(
-            $this->s3Editing === null ? $this->s3Name : null,
+            $isNew ? $this->s3Name : null,
             $this->s3Bucket, $this->s3Key, $this->s3Secret, $this->s3Region, $this->s3Endpoint, $isNew,
-            $this->s3Editing === null ? array_column($this->backup['destinations'] ?? [], 'name') : [],
+            $isNew ? array_column($this->backup['destinations'] ?? [], 'name') : [],
         );
         foreach ($errors as $field => $message) {
             $this->addError($field, $message);
@@ -378,23 +410,16 @@ trait ManagesBackups
         }
         $payload = array_filter(['bucket' => $this->s3Bucket, 'key' => $this->s3Key, 'secret' => $this->s3Secret, 'region' => $this->s3Region], fn ($v) => $v !== '');
         $payload['endpoint'] = $this->s3Endpoint !== '' ? $this->s3Endpoint : 'none';
-        if ($this->s3Editing === null && $this->s3Endpoint === '') {
+        if ($isNew && $this->s3Endpoint === '') {
             unset($payload['endpoint']);
         }
+        $use = $isNew ? $this->useProfiles() : [];
 
         try {
-            if ($default) {
-                $wasConfigured = (bool) ($this->backup['configured'] ?? false);
-                $this->client()->configureBackups($payload);
-                $message = "The default bucket is s3://{$this->s3Bucket} — reached with its keys, then saved.";
-                if (! $wasConfigured) {
-                    $message .= ' A nightly profile takes every app and database to the bucket.';
-                } elseif ($isNew) {
-                    $message .= ' Add s3 to the Where of the profiles that should go there.';
-                }
-            } elseif ($this->s3Editing === null) {
-                $this->client()->createS3Destination(['name' => $this->s3Name] + $payload);
-                $message = "Destination {$this->s3Name} added — s3://{$this->s3Bucket} answered with its keys. Choose it in a profile's Where.";
+            if ($isNew) {
+                $this->client()->createS3Destination(['name' => $this->s3Name] + $payload + ($use !== [] ? ['profiles' => $use] : []));
+                $message = "Destination {$this->s3Name} added — s3://{$this->s3Bucket} answered with its keys."
+                    .($use !== [] ? ' '.implode(', ', $use).' '.(count($use) === 1 ? 'sends' : 'send').' its runs there too.' : ' Choose it in a profile\'s Where.');
             } else {
                 $this->client()->updateS3Destination($this->s3Editing, $payload);
                 $message = "Destination {$this->s3Editing} updated.";
@@ -410,7 +435,7 @@ trait ManagesBackups
                 return;
             }
             if (in_array($e->getStatusCode(), [404, 405, 503], true)) {
-                $this->addError('s3Bucket', 'S3 buckets from the panel need an up-to-date Cipi on this server (cipi self-update && cipi api update).');
+                $this->addError('s3Bucket', 'This needs an up-to-date Cipi on this server (cipi self-update && cipi api update).');
 
                 return;
             }
@@ -418,16 +443,16 @@ trait ManagesBackups
         }
     }
 
-    /** Backups on this server only: `cipi backup configure --type=local`. */
-    public function configureLocalBackups(): void
+    /** Backups set up on the server: the local folder and the nightly profile (`cipi backup configure`). */
+    public function setUpBackups(): void
     {
         if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
             return;
         }
 
         try {
-            $this->client()->configureBackups(['type' => 'local']);
-            $this->dispatch('notify', type: 'success', message: 'Backups are set up — on this server only. A nightly profile takes every app and database; add a bucket or an SFTP server to keep a copy elsewhere.');
+            $this->client()->configureBackups();
+            $this->dispatch('notify', type: 'success', message: 'Backups are set up on this server: a nightly profile takes every app and database. Add an S3 bucket or an SFTP server to keep a copy elsewhere too.');
             $this->loadBackups();
         } catch (CipiApiException $e) {
             if (in_array($e->getStatusCode(), [404, 405, 503], true)) {
@@ -502,14 +527,14 @@ trait ManagesBackups
         }
         $this->resetErrorBag();
         $this->sftpAdded = null;
-        $this->sftpSetup = false;
         $this->closeS3Form();
         $dest = $name === '' ? null : collect($this->backup['destinations'] ?? [])->firstWhere('name', $name);
         if ($name !== '' && (($dest['type'] ?? '') !== 'sftp')) {
             return;
         }
         $this->sftpEditing = $dest !== null ? $name : null;
-        $this->sftpName = $dest !== null ? $name : '';
+        $this->sftpName = $dest !== null ? $name : $this->suggestDestName('sftp');
+        $this->destUse = $dest === null ? $this->profilesOnlyLocal() : [];
         $this->sftpHost = (string) ($dest['host'] ?? '');
         $this->sftpPort = (string) ($dest['port'] ?? '22');
         $this->sftpUser = (string) ($dest['user'] ?? '');
@@ -517,22 +542,10 @@ trait ManagesBackups
         $this->showSftpForm = true;
     }
 
-    /** A server without backups, set up to an SFTP server: the form, named 'sftp'. */
-    public function openSftpSetup(): void
-    {
-        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
-            return;
-        }
-        $this->openSftpForm();
-        $this->sftpSetup = true;
-        $this->sftpName = 'sftp';
-    }
-
     public function closeSftpForm(): void
     {
         $this->showSftpForm = false;
         $this->sftpEditing = null;
-        $this->sftpSetup = false;
     }
 
     public function saveSftpDestination(bool $newKey = false): void
@@ -554,18 +567,9 @@ trait ManagesBackups
         $payload = ['host' => $this->sftpHost, 'port' => (int) $this->sftpPort, 'user' => $this->sftpUser, 'path' => rtrim($this->sftpPath, '/')];
 
         try {
-            if ($this->sftpSetup) {
-                $answer = $this->client()->configureBackups(['type' => 'sftp', 'name' => $this->sftpName] + $payload);
-                $this->sftpAdded = is_array($answer['destination'] ?? null) ? $answer['destination'] : null;
-                $this->showSftpForm = false;
-                $this->sftpSetup = false;
-                $this->dispatch('notify', type: 'success', message: "Backups are set up — to the SFTP server {$this->sftpName}. A nightly profile takes every app and database there: install its key on the remote, then test it.");
-                $this->loadBackups();
-
-                return;
-            }
+            $use = $this->sftpEditing === null ? $this->useProfiles() : [];
             $this->sftpAdded = $this->sftpEditing === null
-                ? $this->client()->createSftpDestination(['name' => $this->sftpName] + $payload)
+                ? $this->client()->createSftpDestination(['name' => $this->sftpName] + $payload + ($use !== [] ? ['profiles' => $use] : []))
                 : $this->client()->updateSftpDestination($this->sftpEditing, $payload + ($newKey ? ['new_key' => true] : []));
             $this->showSftpForm = false;
             $this->dispatch('notify', type: 'success', message: $this->sftpEditing === null
@@ -620,7 +624,7 @@ trait ManagesBackups
 
     public function deleteBackupDestination(string $name): void
     {
-        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || in_array($name, ['local', 's3'], true)) {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || $name === 'local') {
             return;
         }
 
@@ -676,8 +680,8 @@ trait ManagesBackups
         } else {
             $this->backupEditing = null;
             $this->reset(['bpName', 'bpScope', 'bpApps', 'bpDatabases', 'bpExcludeDatabases', 'bpExcludeTables', 'bpExcludePaths', 'bpHadExcludePaths', 'bpSchedule', 'bpEvery', 'bpCron', 'bpKeep', 'bpKeepDays', 'bpKeepWeeks', 'bpEncrypt']);
-            // The default bucket when there is one, this server's disk otherwise.
-            $this->bpDestinations = in_array('s3', $destinations, true) ? ['s3'] : ['local'];
+            // This server, and every destination added elsewhere.
+            $this->bpDestinations = $destinations;
         }
 
         $this->showBackupForm = true;

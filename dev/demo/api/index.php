@@ -334,8 +334,8 @@ function handle(string $method, string $route, array $body, array $query, string
         return syncRoute($method, $p(1), $body, $s, $state, $profile);
     }
 
-    // Backups: the status, destinations (SFTP from Cipi 5.18, S3 from 5.19), the
-    // default bucket, the encryption key and the retention (Cipi 5.19)
+    // Backups: the status, the setup on the server, destinations — S3 buckets
+    // and SFTP servers on a par — the encryption key and the retention (Cipi 5.19)
     if ($r('/backups(/runs|/destinations|/destinations/test|/destinations/[a-z0-9_-]+(?:/key)?|/config|/key|/key/rotate|/prune)?')) {
         return backupsRoute($method, $p(1), $body, $s, $state, $profile);
     }
@@ -1225,27 +1225,27 @@ function syncPushJob(array &$state, string $profile, array $p): array
  */
 function backupsRoute(string $method, string $sub, array $body, array &$s, array &$state, string $profile): array
 {
-    // The staging server has no backups yet: the setup card (this server, a bucket, an SFTP server).
+    // The staging server has no backups yet: the setup card, then S3 buckets and SFTP servers.
     $s['backup_demo'] ??= $profile === 'staging' ? [
         'configured' => false, 'destinations' => [['name' => 'local', 'type' => 'local', 'path' => '/var/backups/cipi', 'default' => false]],
-        'keys' => [], 'encryption_key' => 'tG4nW8xQ2mZ6pR0vB5cY9kL3hS7dF1jA4eU8iO2oP6qX0wE3rT7yN5uM9bV1zC4a', 'profile_to' => null,
+        'keys' => [], 'encryption_key' => 'tG4nW8xQ2mZ6pR0vB5cY9kL3hS7dF1jA4eU8iO2oP6qX0wE3rT7yN5uM9bV1zC4a', 'profile_to' => null, 'configured_at' => time(),
     ] : [
         'configured' => true,
         'destinations' => [
             ['name' => 'local', 'type' => 'local', 'path' => '/var/backups/cipi', 'default' => false],
-            ['name' => 's3', 'type' => 's3', 'bucket' => 'acme-backups', 'region' => 'fsn1', 'endpoint' => 'https://fsn1.your-objectstorage.com', 'default' => true],
+            ['name' => 's3', 'type' => 's3', 'bucket' => 'acme-backups', 'region' => 'fsn1', 'endpoint' => 'https://fsn1.your-objectstorage.com', 'default' => false],
         ],
         'keys' => [],
         'encryption_key' => 'q8Vd2kLx0Rf7Tn3Yb6Wm1Pz9Hs4Gc5Ja8Ue2Io7Kl0Mn3Bv6Cx9Zq1Wd4Ef7Rt2Yu',
-        'profile_to' => ['s3'],
+        'profile_to' => ['local', 's3'], 'configured_at' => null,
     ];
     $b = &$s['backup_demo'];
     $apps = array_keys($s['apps']);
     $dbs = array_map(fn ($a) => ['engine' => 'mariadb', 'name' => $a], array_values(array_filter($apps, fn ($a) => empty($s['apps'][$a]['info']['node']))));
     $profiles = $b['profile_to'] === null ? [] : [[
         'name' => 'nightly', 'enabled' => true, 'scope' => 'all', 'apps' => '*', 'databases' => '*', 'every' => '1d', 'cron' => '0 2 * * *',
-        'destinations' => $b['profile_to'], 'keep_days' => 14, 'encrypt' => $b['profile_to'] === ['s3'], 'running' => false,
-        'last' => $b['profile_to'] === ['s3'] ? ['status' => 'ok', 'epoch' => time() - 6 * 3600, 'detail' => 'ok'] : ['status' => null, 'epoch' => null, 'detail' => null],
+        'destinations' => $b['profile_to'], 'keep_days' => 14, 'encrypt' => ($b['configured_at'] ?? null) === null, 'running' => false,
+        'last' => ($b['configured_at'] ?? null) === null ? ['status' => 'ok', 'epoch' => time() - 6 * 3600, 'detail' => 'ok'] : ['status' => null, 'epoch' => null, 'detail' => null],
         'covers' => ['apps' => $apps, 'databases' => $dbs],
     ]];
     $dests = array_map(function ($d) use ($profiles) {
@@ -1317,42 +1317,20 @@ function backupsRoute(string $method, string $sub, array $body, array &$s, array
         return $f;
     };
     if ($sub === '/config' && $method === 'PUT') {
-        $i = $find('s3');
-        $type = ! empty($body['local_only']) ? 'local' : (string) ($body['type'] ?? (isset($body['host']) ? 'sftp' : 's3'));
-        $first = ! $b['configured'];
-        $dest = null;
-        if ($type === 'local') {
-            if ($i !== null) {
-                array_splice($b['destinations'], $i, 1);
-            }
-            $first && $b['profile_to'] = ['local'];
-        } elseif ($type === 'sftp') {
-            $name = (string) ($body['name'] ?? 'sftp');
-            if (preg_match('/^[a-z][a-z0-9-]{1,31}$/', $name) !== 1 || in_array($name, ['local', 's3'], true)) {
-                throw new DemoHttpError(422, "Invalid destination name '{$name}'");
-            }
-            $d = ['name' => $name, 'type' => 'sftp', 'host' => (string) ($body['host'] ?? ''), 'port' => (int) ($body['port'] ?? 22), 'user' => (string) ($body['user'] ?? ''), 'path' => (string) ($body['path'] ?? ''), 'default' => false];
-            if (($j = $find($name)) !== null) {
-                $b['destinations'][$j] = $d;
-            } else {
-                $b['destinations'][] = $d;
-            }
-            $dest = $d + ['public_key' => $key($name)];
-            $first && $b['profile_to'] = [$name];
-        } else {
-            $f = $s3($body, $i === null);
-            $first && $b['profile_to'] = ['s3'];
-            if ($i === null) {
-                $b['destinations'][] = ['name' => 's3', 'type' => 's3', 'bucket' => '', 'region' => 'eu-central-1', 'endpoint' => null, 'default' => true];
-                $i = array_key_last($b['destinations']);
-            }
-            $b['destinations'][$i] = array_merge($b['destinations'][$i], $f);
+        // On the server: the local folder and the nightly profile, kept there.
+        if (! $b['configured']) {
+            $b['configured'] = true;
+            $b['profile_to'] = ['local'];
         }
-        $b['configured'] = true;
-        [, $status] = backupsRoute('GET', '', [], $s, $state, $profile);
 
-        return [200, $status + ['type' => $type, 'destination' => $dest]];
+        return backupsRoute('GET', '', [], $s, $state, $profile);
     }
+    // A new destination: the profiles sent there too (`profiles`, Cipi 5.19.1).
+    $use = function (string $name) use (&$b, $body): void {
+        if ($b['profile_to'] !== null && in_array('nightly', (array) ($body['profiles'] ?? []), true) && ! in_array($name, $b['profile_to'], true)) {
+            $b['profile_to'][] = $name;
+        }
+    };
     if ($sub === '/key' && $method === 'GET') {
         return [200, ['data' => ['key' => $b['encryption_key']]]];
     }
@@ -1366,12 +1344,13 @@ function backupsRoute(string $method, string $sub, array $body, array &$s, array
     }
     if ($sub === '/destinations' && $method === 'POST' && ($body['type'] ?? '') === 's3') {
         $name = (string) ($body['name'] ?? '');
-        if (preg_match('/^[a-z0-9][a-z0-9_-]{0,31}$/', $name) !== 1 || in_array($name, ['local', 's3'], true) || $find($name) !== null) {
+        if (preg_match('/^[a-z][a-z0-9-]{1,31}$/', $name) !== 1 || $name === 'local' || $find($name) !== null) {
             throw new DemoHttpError(422, "Destination '{$name}' already exists or is not a name");
         }
         $d = ['name' => $name, 'type' => 's3', 'bucket' => '', 'region' => 'eu-central-1', 'endpoint' => null, 'default' => false];
         $d = array_merge($d, $s3($body, true));
         $b['destinations'][] = $d;
+        $use($name);
 
         return [201, ['data' => array_intersect_key($d, array_flip(['name', 'type', 'bucket', 'region', 'endpoint']))]];
     }
@@ -1380,9 +1359,10 @@ function backupsRoute(string $method, string $sub, array $body, array &$s, array
             throw new DemoHttpError(422, 'type is sftp or s3');
         }
         $name = (string) ($body['name'] ?? '');
-        if (preg_match('/^[a-z0-9][a-z0-9_-]{0,31}$/', $name) !== 1 || $find($name) !== null) {
+        if (preg_match('/^[a-z][a-z0-9-]{1,31}$/', $name) !== 1 || in_array($name, ['local', 's3'], true) || $find($name) !== null) {
             throw new DemoHttpError(422, "Destination '{$name}' already exists or is not a name");
         }
+        $use($name);
         $d = ['name' => $name, 'type' => 'sftp', 'host' => (string) ($body['host'] ?? ''), 'port' => (int) ($body['port'] ?? 22), 'user' => (string) ($body['user'] ?? ''), 'path' => (string) ($body['path'] ?? ''), 'default' => false];
         $b['destinations'][] = $d;
 
@@ -1391,10 +1371,10 @@ function backupsRoute(string $method, string $sub, array $body, array &$s, array
     if (preg_match('#^/destinations/([a-z0-9_-]+)(/key)?$#', $sub, $dm) === 1) {
         $i = $find($dm[1]);
         if ($i !== null && $b['destinations'][$i]['type'] === 's3' && in_array($method, ['PUT', 'DELETE'], true) && ($dm[2] ?? '') === '') {
-            if ($dm[1] === 's3') {
-                throw new DemoHttpError(422, "The default bucket is changed with PUT /backups/config");
-            }
             if ($method === 'DELETE') {
+                if ($b['profile_to'] !== null && in_array($dm[1], $b['profile_to'], true)) {
+                    throw new DemoHttpError(422, "Destination '{$dm[1]}' is still used by: nightly");
+                }
                 array_splice($b['destinations'], $i, 1);
 
                 return [200, ['data' => ['name' => $dm[1], 'removed' => true]]];

@@ -4,7 +4,7 @@
 @php
     $profiles = $backup['profiles'] ?? [];
     $destinations = $backup['destinations'] ?? [];
-    $hasDefaultBucket = (bool) collect($destinations)->first(fn ($d) => ($d['name'] ?? '') === 's3' && ($d['type'] ?? '') === 's3' && ! empty($d['bucket']));
+    $onlyLocal = collect($destinations)->every(fn ($d) => ($d['type'] ?? '') === 'local');
     $uncoveredApps = $backup['uncovered']['apps'] ?? [];
     $uncoveredDbs = array_map(fn ($d) => ($d['engine'] ?? '').'/'.($d['name'] ?? ''), $backup['uncovered']['databases'] ?? []);
     $covers = [];
@@ -26,23 +26,15 @@
         $bkFile = $backup['config_file'] ?? null;
     @endphp
     <div class="card" data-backup-unconfigured>
-        <x-cipi::empty icon="cloud" title="Backups are not configured on this server">
-            Choose where the archives go: an S3 bucket, an SFTP server, or a folder on this server only — a copy on the server alone is lost with the server. A nightly profile then takes every app and every database there; profiles, more buckets and SFTP servers are managed here.
+        <x-cipi::empty icon="cloud" title="Backups are not set up on this server">
+            They start here: a nightly profile takes every app and every database and keeps them on this server. Then add an <strong>S3 bucket</strong> and/or an <strong>SFTP server</strong> — a copy only on this server is lost with it.
             <x-slot:actions>
                 @if($canManage)
-                    <button type="button" wire:click="openS3Form('s3')" class="btn btn-primary btn-sm" data-backup-setup-s3><x-cipi::icon name="cloud" /> Use an S3 bucket</button>
-                    <button type="button" wire:click="openSftpSetup" class="btn btn-secondary btn-sm" data-backup-setup-sftp><x-cipi::icon name="server-stack" /> Use an SFTP server</button>
-                    <button type="button" wire:click="configureLocalBackups" data-confirm="Keep backups on this server only? They do not survive losing the server — add a bucket or an SFTP server later to keep a copy elsewhere." data-confirm-label="On this server only" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="configureLocalBackups" data-backup-setup-local><x-cipi::icon name="server" /> On this server only</button>
+                    <button type="button" wire:click="setUpBackups" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="setUpBackups" data-backup-setup><x-cipi::icon name="cloud" /> Set up backups</button>
                 @endif
                 <button type="button" wire:click="refresh" class="btn btn-ghost btn-sm" wire:loading.attr="disabled" wire:target="refresh"><x-cipi::icon name="refresh" /> Check again</button>
             </x-slot:actions>
         </x-cipi::empty>
-        @if($showS3Form && $canManage)
-            <div class="max-w-3xl mx-auto">@include('cipi-gui::partials.server-backups-s3-form')</div>
-        @endif
-        @if($showSftpForm && $sftpSetup && $canManage)
-            <div class="max-w-3xl mx-auto">@include('cipi-gui::partials.server-backups-sftp-form')</div>
-        @endif
         <div class="field-hint mt-4 text-center">
             <p>
                 This is the answer of <code>cipi backup status --json</code>@if($bkHost) on <code>{{ $bkHost }}</code>@endif: it found no <code>{{ $bkFile ?: '/etc/cipi/backup.json' }}</code>, the file the setup writes — here or with <code>cipi backup configure</code> on the server.
@@ -69,21 +61,21 @@
             <div class="card-header">
                 <div>
                     <h2 class="card-title">Destinations</h2>
-                    <p class="card-subtitle">Where archives go: this server, <strong>S3 buckets</strong> (AWS, Hetzner, R2, any S3-compatible service) and <strong>SFTP servers</strong> (a VPS with a backup user, a Hetzner Storage Box). A bucket's secret key is sent to the server once, on its standard input, and never kept by the panel; an SFTP server lets Cipi in with a key Cipi makes for it — no password.</p>
+                    <p class="card-subtitle">Where archives go: this server, and as many <strong>S3 buckets</strong> (AWS, Hetzner, R2, any S3-compatible service) and <strong>SFTP servers</strong> (a VPS with a backup user, a Hetzner Storage Box) as you want, each with a name. A bucket's secret key is sent to the server once, on its standard input, and never kept by the panel; an SFTP server lets Cipi in with a key Cipi makes for it — no password.</p>
                 </div>
                 <div class="flex flex-wrap gap-2">
                     @if($canManage && count($destinations) > 1)
                         <button type="button" wire:click="testBackupDestinations" class="btn btn-secondary btn-sm"><x-cipi::icon name="signal" /> Test all</button>
                     @endif
                     @if($canManage)
-                        @unless($hasDefaultBucket)
-                            <button type="button" wire:click="openS3Form('s3')" class="btn btn-secondary btn-sm" data-backup-default-add><x-cipi::icon name="cloud" /> Set the default bucket</button>
-                        @endunless
                         <button type="button" wire:click="openS3Form" class="btn btn-secondary btn-sm" data-backup-s3-add><x-cipi::icon name="cloud" /> Add an S3 bucket</button>
                         <button type="button" wire:click="openSftpForm" class="btn btn-secondary btn-sm" data-backup-sftp-add><x-cipi::icon name="server-stack" /> Add an SFTP server</button>
                     @endif
                 </div>
             </div>
+            @if($onlyLocal)
+                <x-cipi::alert type="warn" class="mb-3" data-backup-only-local>Backups are only on this server: a copy here is lost with it. Add an S3 bucket or an SFTP server, and send the profiles there too.</x-cipi::alert>
+            @endif
             <div class="flex flex-wrap gap-2">
                 @foreach($destinations as $dest)
                     @php
@@ -95,14 +87,14 @@
                         };
                     @endphp
                     <div class="backup-dest" wire:key="backup-dest-{{ $dest['name'] }}" data-backup-dest="{{ $dType }}">
-                        <p class="font-semibold text-strong flex items-center gap-1.5"><x-cipi::icon :name="match ($dType) { 'local' => 'server', 'sftp' => 'server-stack', default => 'cloud' }" class="h-3.5 w-3.5 text-muted" /> {{ $dest['name'] }}@if(!empty($dest['default'])) <span class="badge badge-mono">default bucket</span>@endif @if($dType === 'sftp')<span class="badge badge-mono">SFTP</span>@endif</p>
+                        <p class="font-semibold text-strong flex items-center gap-1.5"><x-cipi::icon :name="match ($dType) { 'local' => 'server', 'sftp' => 'server-stack', default => 'cloud' }" class="h-3.5 w-3.5 text-muted" /> {{ $dest['name'] }} @if($dType === 'sftp')<span class="badge badge-mono">SFTP</span>@elseif($dType === 's3')<span class="badge badge-mono">S3</span>@endif</p>
                         <p class="text-xs text-muted font-mono truncate" title="{{ $dWhere }}{{ $dType === 's3' && !empty($dest['endpoint']) ? ' · '.$dest['endpoint'] : '' }}">{{ $dWhere }}</p>
                         <p class="text-2xs text-subtle mt-1">{{ ($n = count((array) ($dest['profiles'] ?? []))) === 0 ? 'not used by a profile' : 'used by '.$n.' '.($n === 1 ? 'profile' : 'profiles') }}</p>
                         @if($dType === 's3' && $canManage)
                             <div class="flex flex-wrap gap-1 mt-2">
                                 <button type="button" wire:click="testBackupDestination(@js($dest['name']))" class="btn btn-ghost btn-xs" data-backup-s3-test><x-cipi::icon name="signal" /> Test</button>
                                 <button type="button" wire:click="openS3Form(@js($dest['name']))" class="btn btn-ghost btn-xs" data-backup-s3-edit><x-cipi::icon name="pencil" /> Edit</button>
-                                @if(empty($dest['default']) && count((array) ($dest['profiles'] ?? [])) === 0)
+                                @if(count((array) ($dest['profiles'] ?? [])) === 0)
                                     <button type="button" wire:click="deleteBackupDestination(@js($dest['name']))" data-confirm="Remove the destination {{ $dest['name'] }}? The archives in the bucket stay there; Cipi stops pruning them, and its keys are deleted on this server." class="btn btn-ghost btn-xs danger" data-backup-s3-remove><x-cipi::icon name="trash" /></button>
                                 @endif
                             </div>
