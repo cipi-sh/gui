@@ -22,6 +22,9 @@ class SftpAndUpdatesTest extends TestCase
 
     private CipiServer $srv;
 
+    /** The API answers 404 to the update policy: an older server. */
+    private bool $notFound = false;
+
     /** @var list<array<string, mixed>> */
     private array $destinations = [['name' => 'local', 'type' => 'local', 'path' => '/var/backups/cipi', 'default' => false, 'profiles' => []]];
 
@@ -34,6 +37,9 @@ class SftpAndUpdatesTest extends TestCase
 
         Http::fake(function (Request $request) {
             $path = (string) parse_url($request->url(), PHP_URL_PATH);
+            if ($this->notFound && str_starts_with($path, '/api/self-update')) {
+                return Http::response(['message' => 'Not found'], 404);
+            }
             $method = $request->method();
 
             return match (true) {
@@ -126,7 +132,7 @@ class SftpAndUpdatesTest extends TestCase
         $this->tab('backups')
             ->call('showSftpKey', 'box')
             ->assertSee(self::KEY)
-            ->assertSee('>> ~/.ssh/authorized_keys', false)
+            ->assertSee('>> ~/.ssh/authorized_keys')
             ->assertDontSee('ssh-copy-id');
     }
 
@@ -225,7 +231,7 @@ class SftpAndUpdatesTest extends TestCase
     #[Test]
     public function a_server_without_the_policy_says_what_to_update(): void
     {
-        Http::fake(['*' => Http::response(['message' => 'Not found'], 404)]);
+        $this->notFound = true;
         $this->tab('updates')->assertSeeHtml('data-updates-unsupported')->assertSee('cipi self-update && cipi api update');
     }
 }
