@@ -53,7 +53,7 @@
         @endif
 
         {{-- Destinations --}}
-        <div class="card mb-4">
+        <div class="card mb-4" data-backup-destinations>
             <div class="card-header">
                 <div>
                     <h2 class="card-title">Destinations</h2>

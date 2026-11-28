@@ -334,6 +334,15 @@ function handle(string $method, string $route, array $body, array $query, string
         return syncRoute($method, $p(1), $body, $s, $state, $profile);
     }
 
+    // Backups: the status, and the SFTP destinations the panel adds (Cipi 5.18)
+    if ($r('/backups(/runs|/destinations|/destinations/test|/destinations/[a-z0-9_-]+(?:/key)?)?')) {
+        return backupsRoute($method, $p(1), $body, $s);
+    }
+    // How the server updates Cipi (Cipi 5.18): signature check and delay
+    if ($r('/self-update/policy')) {
+        return selfUpdateRoute($method, $body, $s);
+    }
+
     // Disk usage (API 1.33+): `cipi disk --json` and `cipi disk db --json`
     if ($method === 'GET' && $r('/disk/dbs')) {
         return [200, ['data' => $s['disk_dbs'] ?? []]];
@@ -1204,6 +1213,161 @@ function syncPushJob(array &$state, string $profile, array $p): array
     $out[] = '✓ '.count($created).' created, '.count($updated).' updated on '.$p['host'];
 
     return [true, implode("\n", $out), ['host' => $p['host'], 'created' => $created, 'updated' => $updated]];
+}
+
+/**
+ * `GET /backups`, `GET /backups/runs`, `POST /backups/destinations/test` and the
+ * SFTP destinations (`POST /backups/destinations`, `PUT|DELETE
+ * /backups/destinations/{name}`, `GET …/{name}/key`) — what `cipi backup status
+ * --json` and `cipi backup sftp …` answer. One nightly profile to the default
+ * bucket; no S3 destination can be added here, as on a real panel.
+ */
+function backupsRoute(string $method, string $sub, array $body, array &$s): array
+{
+    $s['backup_demo'] ??= [
+        'destinations' => [
+            ['name' => 'local', 'type' => 'local', 'path' => '/var/backups/cipi', 'default' => false],
+            ['name' => 's3', 'type' => 's3', 'bucket' => 'acme-backups', 'endpoint' => 'https://fsn1.your-objectstorage.com', 'default' => true],
+        ],
+        'keys' => [],
+    ];
+    $b = &$s['backup_demo'];
+    $apps = array_keys($s['apps']);
+    $dbs = array_map(fn ($a) => ['engine' => 'mariadb', 'name' => $a], array_values(array_filter($apps, fn ($a) => empty($s['apps'][$a]['info']['node']))));
+    $profiles = [[
+        'name' => 'nightly', 'enabled' => true, 'scope' => 'all', 'apps' => '*', 'databases' => '*', 'every' => '1d', 'cron' => '0 2 * * *',
+        'destinations' => ['s3'], 'keep_days' => 14, 'encrypt' => true, 'running' => false,
+        'last' => ['status' => 'ok', 'epoch' => time() - 6 * 3600, 'detail' => 'ok'],
+        'covers' => ['apps' => $apps, 'databases' => $dbs],
+    ]];
+    $dests = array_map(function ($d) use ($profiles) {
+        $d['profiles'] = array_values(array_map(fn ($p) => $p['name'], array_filter($profiles, fn ($p) => in_array($d['name'], $p['destinations'], true))));
+
+        return $d;
+    }, $b['destinations']);
+    $find = function (string $name) use (&$b): ?int {
+        foreach ($b['destinations'] as $i => $d) {
+            if ($d['name'] === $name) {
+                return $i;
+            }
+        }
+
+        return null;
+    };
+    $key = fn (string $name) => $b['keys'][$name] ??= 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI'.substr(hash('sha256', $name), 0, 43).' cipi-backup-'.$name.'@fra1-production';
+
+    if ($sub === '' && $method === 'GET') {
+        return [200, ['data' => ['configured' => true, 'host' => 'fra1-production', 'config_file' => '/etc/cipi/backup.json', 'local_dir' => '/var/backups/cipi', 'encryption_key' => true,
+            'destinations' => $dests, 'profiles' => $profiles, 'apps' => $apps, 'databases' => $dbs, 'uncovered' => ['apps' => [], 'databases' => []]]]];
+    }
+    if ($sub === '/runs' && $method === 'GET') {
+        $runs = [];
+        for ($i = 0; $i < 5; $i++) {
+            $runs[] = ['run' => gmdate('Y-m-d_020000', time() - $i * 86400), 'destinations' => ['s3']];
+        }
+
+        return [200, ['data' => ['profiles' => ['nightly' => $runs], 'errors' => []]]];
+    }
+    if ($sub === '/destinations/test' && $method === 'POST') {
+        $names = isset($body['name']) ? [(string) $body['name']] : array_column(array_filter($b['destinations'], fn ($d) => $d['type'] !== 'local'), 'name');
+        $out = [];
+        foreach ($names as $n) {
+            $i = $find($n);
+            if ($i === null) {
+                throw new DemoHttpError(404, "No such destination: {$n}");
+            }
+            $d = $b['destinations'][$i];
+            $out[] = $d['type'] === 'sftp' ? "  {$n}  sftp://{$d['user']}@{$d['host']}:{$d['port']}/{$d['path']}  OK — a file written and removed" : "  {$n}  s3://{$d['bucket']}  OK";
+        }
+
+        return [200, ['data' => ['ok' => true, 'output' => implode("\n", $out)]]];
+    }
+    if ($sub === '/destinations' && $method === 'POST') {
+        if (($body['type'] ?? '') !== 'sftp') {
+            throw new DemoHttpError(422, 'Only SFTP destinations are added through the API — an S3 bucket takes a secret key: cipi backup destination add on the server');
+        }
+        $name = (string) ($body['name'] ?? '');
+        if (preg_match('/^[a-z0-9][a-z0-9_-]{0,31}$/', $name) !== 1 || $find($name) !== null) {
+            throw new DemoHttpError(422, "Destination '{$name}' already exists or is not a name");
+        }
+        $d = ['name' => $name, 'type' => 'sftp', 'host' => (string) ($body['host'] ?? ''), 'port' => (int) ($body['port'] ?? 22), 'user' => (string) ($body['user'] ?? ''), 'path' => (string) ($body['path'] ?? ''), 'default' => false];
+        $b['destinations'][] = $d;
+
+        return [201, ['data' => $d + ['public_key' => $key($name)]]];
+    }
+    if (preg_match('#^/destinations/([a-z0-9_-]+)(/key)?$#', $sub, $dm) === 1) {
+        $i = $find($dm[1]);
+        if ($i === null || $b['destinations'][$i]['type'] !== 'sftp') {
+            throw new DemoHttpError(404, "No SFTP destination '{$dm[1]}'");
+        }
+        if (($dm[2] ?? '') === '/key' && $method === 'GET') {
+            return [200, ['data' => ['name' => $dm[1], 'public_key' => $key($dm[1])]]];
+        }
+        if ($method === 'PUT') {
+            foreach (['host', 'user', 'path'] as $k) {
+                if (isset($body[$k])) {
+                    $b['destinations'][$i][$k] = (string) $body[$k];
+                }
+            }
+            if (isset($body['port'])) {
+                $b['destinations'][$i]['port'] = (int) $body['port'];
+            }
+            if (! empty($body['new_key'])) {
+                unset($b['keys'][$dm[1]]);
+                $b['keys'][$dm[1]] = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI'.substr(hash('sha256', $dm[1].microtime()), 0, 43).' cipi-backup-'.$dm[1].'@fra1-production';
+            }
+
+            return [200, ['data' => $b['destinations'][$i] + ['public_key' => $key($dm[1])]]];
+        }
+        if ($method === 'DELETE') {
+            array_splice($b['destinations'], $i, 1);
+            unset($b['keys'][$dm[1]]);
+
+            return [200, ['data' => ['name' => $dm[1], 'removed' => true]]];
+        }
+    }
+
+    throw new DemoHttpError(404, "No demo route for {$method} /api/backups{$sub}");
+}
+
+/**
+ * `GET|PUT /self-update/policy` — `cipi self-update policy --json`. The demo
+ * ships one signer; turning the check on the first time takes its fingerprint.
+ */
+function selfUpdateRoute(string $method, array $body, array &$s): array
+{
+    $shipped = [['fingerprint' => 'SHA256:q2mB7tVd0bW3cN5rXy8kZf1HsLp9GjU4oAiE6TwQeRc', 'principal' => 'releases@cipi.sh', 'type' => 'ssh-ed25519']];
+    $s['selfupdate_demo'] ??= ['verify' => false, 'delay_hours' => 0, 'signers' => [],
+        'pending' => null, 'held' => null, 'installed_sha' => 'a3f1c2e9b8d74f0e6c5b4a39281706f5e4d3c2b1'];
+    $u = &$s['selfupdate_demo'];
+    if ($method === 'PUT') {
+        if (array_key_exists('delay_hours', $body)) {
+            $h = $body['delay_hours'];
+            if (! is_int($h) || $h < 0 || $h > 168) {
+                throw new DemoHttpError(422, 'delay_hours is 0 to 168');
+            }
+            $u['delay_hours'] = $h;
+            $u['pending'] = $h > 0 ? ['sha' => '5e0d7c1a9b2f48e3a6d0c9b8a7f6e5d4c3b2a190', 'version' => '5.18.1', 'first_seen' => time() - 3 * 3600] : null;
+        }
+        if (array_key_exists('verify', $body)) {
+            if ($body['verify'] === true && $u['signers'] === []) {
+                if (($body['fingerprint'] ?? '') !== $shipped[0]['fingerprint']) {
+                    throw new DemoHttpError(422, 'Say which key you checked: the fingerprint published at https://cipi.sh/docs/self-update#signers — nothing changed');
+                }
+                $u['signers'] = $shipped;
+            }
+            $u['verify'] = (bool) $body['verify'];
+        }
+    } elseif ($method !== 'GET') {
+        throw new DemoHttpError(405, 'GET or PUT');
+    }
+
+    return [200, ['data' => [
+        'verify' => $u['verify'], 'delay_hours' => $u['delay_hours'], 'delay_default_hours' => 12,
+        'signers_file' => '/etc/cipi/release-signers', 'signers' => $u['signers'], 'signers_ready' => $u['signers'] !== [],
+        'shipped_signers' => $shipped, 'version' => $s['status']['version'] ?? '5.18.0', 'installed_sha' => $u['installed_sha'],
+        'pending' => $u['pending'], 'held' => $u['pending'] ? ['reason' => 'delay: v5.18.1 (5e0d7c1a9b2f) first seen 3 hours ago; installed in 9 hours (delay 12h)', 'at' => time() - 3 * 3600] : null,
+    ]]];
 }
 
 function firewallRoute(string $method, string $action, array $body, array &$s, array &$state, string $profile): array

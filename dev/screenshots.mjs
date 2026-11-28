@@ -200,6 +200,39 @@ try {
     await theme('light'); await checked(); await shoot('server-transfer-light'); await callOn('server-manage', 'forgetSyncTrust'); await theme('dark');
   }
 
+  // Page cache: blog (WordPress) with the cache on — purge some pages, the plugin, the PHP package.
+  if (want('app-page-cache', 'app-page-cache-light')) {
+    const on = async () => {
+      await goto('/apps/blog?server=1&tab=cache'); await ready();
+      if (!(await evaluate(`${wireOf('app-detail')}.get('pageCache')?.enabled`))) await callOn('app-detail', 'savePageCache');
+      await setOn('app-detail', 'cachePurge', '/hello-world/\n/category/news/*\n/');
+    };
+    await on(); await shoot('app-page-cache');
+    await theme('light'); await on(); await shoot('app-page-cache-light'); await theme('dark');
+  }
+
+  // Backups → an SFTP destination: a Hetzner Storage Box added, its key to install. Removed after each shot.
+  if (want('server-backups-sftp', 'server-backups-sftp-light')) {
+    const added = async () => {
+      await goto('/server/1?tab=backups'); await ready();
+      await callOn('server-manage', 'openSftpForm');
+      await setOn('server-manage', 'sftpName', 'box'); await setOn('server-manage', 'sftpUser', 'u123456');
+      await callOn('server-manage', 'sftpPresetStorageBox'); await setOn('server-manage', 'sftpPath', 'cipi');
+      await callOn('server-manage', 'saveSftpDestination');
+      await sleep(300);
+    };
+    await added(); await shootElement('server-backups-sftp', '[data-backup-destinations]'); await callOn('server-manage', 'deleteBackupDestination', 'box');
+    await theme('light'); await added(); await shootElement('server-backups-sftp-light', '[data-backup-destinations]'); await callOn('server-manage', 'deleteBackupDestination', 'box'); await theme('dark');
+  }
+
+  // Updates: a 12-hour delay, with a release waiting for it. Back to no delay afterwards.
+  if (want('server-updates', 'server-updates-light')) {
+    const delayed = async () => { await goto('/server/1?tab=updates'); await ready(); await setOn('server-manage', 'upDelay', '12'); await callOn('server-manage', 'saveUpdatePolicy'); await sleep(300); };
+    await delayed(); await shoot('server-updates');
+    await theme('light'); await delayed(); await shoot('server-updates-light'); await theme('dark');
+    await setOn('server-manage', 'upDelay', '0'); await callOn('server-manage', 'saveUpdatePolicy');
+  }
+
   // ── jobs last ──
   if (want('create-app', 'job-credentials')) {
     await goto('/apps'); await ready();
