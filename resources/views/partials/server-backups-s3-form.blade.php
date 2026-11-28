@@ -21,7 +21,7 @@
         @endif
     </p>
     @if($s3Default)
-        <p class="text-sm text-soft">The bucket the nightly profile sends its archives to, as <code>s3</code> in a profile's <em>Where</em>. A copy stays on this server too.</p>
+        <p class="text-sm text-soft">The bucket the nightly profile sends its archives to — <code>s3</code> in a profile's <em>Where</em>. Add <code>local</code> there to keep a copy on this server too.</p>
     @endif
     <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
         <div class="sm:col-span-2">
@@ -70,7 +70,7 @@
     <p class="field-hint">The server reaches the bucket with these keys <strong>before</strong> it saves anything: a wrong key changes nothing. The secret goes to the server once — on its standard input, never on a command line or in a log — and the panel does not keep it. Give Cipi a key limited to this bucket.</p>
     <div class="flex flex-wrap gap-2">
         <button type="submit" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="saveS3Destination" data-backup-s3-save>
-            <span wire:loading.remove wire:target="saveS3Destination"><x-cipi::icon name="check" /> {{ $s3Keeps ? 'Save' : ($s3Default ? 'Reach it and save' : 'Add it') }}</span>
+            <span class="inline-flex items-center gap-1.5" wire:loading.remove wire:target="saveS3Destination"><x-cipi::icon name="check" /> {{ $s3Keeps ? 'Save' : ($s3Default ? 'Reach it and save' : 'Add it') }}</span>
             <span wire:loading wire:target="saveS3Destination">Reaching the bucket…</span>
         </button>
         <button type="button" wire:click="closeS3Form" class="btn btn-ghost btn-sm">Cancel</button>
