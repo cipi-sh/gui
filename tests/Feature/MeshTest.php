@@ -340,7 +340,7 @@ class MeshTest extends TestCase
         $this->tab()->call('lockMesh', 'ssh')->assertSet('error', 'The token of this connection is missing the zt-manage ability: create it again with the command on Connections, on the server.');
 
         $this->answers['POST /api/zt/mesh/lock'] = [['message' => 'Not Found'], 404];
-        $this->tab()->call('lockMesh', 'ssh')->assertSet('error', 'Managing the mesh from the panel needs an update of Cipi on this server (cipi self-update && cipi api update).');
+        $this->tab()->call('lockMesh', 'ssh')->assertSet('error', 'Managing the mesh from the panel needs an update of Cipi on this server (sudo cipi self-update && sudo cipi api update).');
     }
 
     #[Test]

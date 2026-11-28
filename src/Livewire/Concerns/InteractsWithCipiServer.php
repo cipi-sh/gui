@@ -141,10 +141,10 @@ trait InteractsWithCipiServer
         $message = self::versionless(self::plainCliText($e->getMessage()));
 
         return match (true) {
-            $message === 'Server Error' || str_starts_with($message, 'API request failed with status 500') => 'Panel API error (HTTP 500). On the managed server run: cipi self-update && cipi api update',
-            $e->getStatusCode() === 401 => 'The server rejected the API token (401). Update it under Connections, or create a new one with cipi api token create.',
+            $message === 'Server Error' || str_starts_with($message, 'API request failed with status 500') => 'Panel API error (HTTP 500). On the managed server run: sudo cipi self-update && sudo cipi api update',
+            $e->getStatusCode() === 401 => 'The server rejected the API token (401). Update it under Connections, or create a new one with sudo cipi api token create.',
             $e->getStatusCode() === 403 && ($message === 'Invalid ability provided.' || str_contains(strtolower($message), 'ability')) => 'This token is missing the ability for that action (403). Recreate it with the full ability list from the docs.',
-            $e->getStatusCode() === 403 && str_contains($message, 'IP not allowed') => $message.' — add this panel to the API IP whitelist on the server (cipi api ip-whitelist).',
+            $e->getStatusCode() === 403 && str_contains($message, 'IP not allowed') => $message.' — add this panel to the API IP whitelist on the server (sudo cipi api ip-whitelist).',
             default => $message,
         };
     }
@@ -158,7 +158,7 @@ trait InteractsWithCipiServer
      */
     public static function versionless(string $message): string
     {
-        $update = 'an update of Cipi on this server (cipi self-update && cipi api update)';
+        $update = 'an update of Cipi on this server (sudo cipi self-update && sudo cipi api update)';
         $message = (string) preg_replace_callback('/\b(?i:needs|requires)\s+(?:Cipi(?: CLI)?|cipi\/api|API|the API)\s*(?:≥|>=)?\s*v?\d+(?:\.\d+){0,2}\+?(?:\s*(?:and|\/|or)\s*(?:Cipi(?: CLI)?|cipi\/api|API)\s*(?:≥|>=)?\s*v?\d+(?:\.\d+){0,2}\+?)*(?:\s*[—–-]+\s*this server runs (?:Cipi(?: CLI)?|cipi\/api|API)\s*v?\d+(?:\.\d+){0,2})?/u', fn (array $m) => (ctype_upper($m[0][0]) ? 'Needs ' : 'needs ').$update, $message);
         $message = (string) preg_replace('/\b(?:Cipi(?: CLI)?|cipi\/api|API)\s*(?:≥|>=)?\s*v?\d+(?:\.\d+){0,2}\+?\s+is required/u', 'an update of Cipi is required', $message);
         $message = (string) preg_replace('/\s*\((?:Cipi(?: CLI)?|cipi\/api|API)\s*(?:≥|>=)?\s*v?\d+(?:\.\d+){0,2}\+?(?:\s+required)?\)/u', '', $message);

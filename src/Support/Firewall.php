@@ -140,7 +140,7 @@ final class Firewall
         if ($http !== []) {
             $parts[] = '80/443 to '.implode(' and ', array_map($name, $http));
             foreach ($http as $h) {
-                $commands[] = $h === 'cloudflare' ? 'cipi zt unlock http' : 'cipi zt '.$h.' unlock http';
+                $commands[] = $h === 'cloudflare' ? 'sudo cipi zt unlock http' : 'sudo cipi zt '.$h.' unlock http';
             }
         }
         if ($ssh !== []) {
@@ -149,7 +149,7 @@ final class Firewall
                 ? 'SSH to '.implode(' and ', array_map($name, $mesh))
                 : 'SSH closed';
             foreach ($ssh as $h) {
-                $commands[] = $h === 'cloudflare' ? 'cipi zt ssh unlock' : 'cipi zt '.$h.' unlock ssh';
+                $commands[] = $h === 'cloudflare' ? 'sudo cipi zt ssh unlock' : 'sudo cipi zt '.$h.' unlock ssh';
             }
         }
 

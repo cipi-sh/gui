@@ -73,7 +73,7 @@
         @elseif($unsupported[$activeTab] ?? false)
             <x-cipi::alert type="warn" title="Not available on this server">
                 This section needs a newer Cipi API or a token with the matching abilities.
-                Run <code>cipi self-update &amp;&amp; cipi api update</code> on the server and recreate the token from
+                Run <code>sudo cipi self-update &amp;&amp; sudo cipi api update</code> on the server and recreate the token from
                 <a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>.
                 @if($activeTab === 'backups') (abilities <code>backups-view</code> and <code>backups-manage</code>) @elseif($activeTab === 'metrics') (abilities <code>metrics-view</code> and <code>metrics-manage</code>) @elseif($activeTab === 'smtp') (abilities <code>smtp-view</code> and <code>smtp-manage</code>, or <code>notifications-view</code> and <code>notifications-manage</code>) @endif
                 @if(($unsupportedReason[$activeTab] ?? '') !== '')
@@ -86,7 +86,7 @@
             <x-cipi::alert type="danger" title="The backup status could not be read" data-tab-error>
                 The server did not return its backup status, so nothing is shown rather than a guess.
                 <p class="mt-2">The server answered: <span class="font-mono text-xs break-words">{{ $tabError['backups'] }}</span></p>
-                <p class="mt-2">What the panel asks for is <code>cipi backup status --json</code>, run by the API on the server. To read the same there:
+                <p class="mt-2">What the panel asks for is <code>sudo cipi backup status --json</code>, run by the API on the server. To read the same there:
                     <code>sudo -u www-data sudo -n /usr/local/bin/cipi backup status --json</code></p>
                 <p class="mt-3"><button type="button" wire:click="refresh" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="refresh"><x-cipi::icon name="refresh" /> Try again</button></p>
             </x-cipi::alert>
@@ -262,7 +262,7 @@
                     </table>
                 </div>
                 <div class="card-footer">
-                    <p class="text-xs text-muted">Measured when this tab opens. Soft limit per app: <code>cipi app limits &lt;app&gt; --disk=&lt;GB&gt;</code> on the host — the monitor check <code>app_disk</code> warns at 90% and alerts when over; nothing is blocked.</p>
+                    <p class="text-xs text-muted">Measured when this tab opens. Soft limit per app: <code>sudo cipi app limits &lt;app&gt; --disk=&lt;GB&gt;</code> on the host — the monitor check <code>app_disk</code> warns at 90% and alerts when over; nothing is blocked.</p>
                     <button type="button" wire:click="refresh" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="refresh"><x-cipi::icon name="refresh" wire:loading.class="animate-spin" wire:target="refresh" /> Measure again</button>
                 </div>
             </div>
@@ -330,7 +330,7 @@
                         </tbody>
                     </table>
                     @if($legacyPhp !== [])
-                        <p class="field-hint p-5 pt-3">PHP {{ implode(', ', $legacyPhp) }}: legacy, installed by an older Cipi. The apps on {{ count($legacyPhp) === 1 ? 'it' : 'them' }} keep running and can be moved to a current version from their configuration; no app can be created on or moved to a legacy version, and a server with Deployer 8 refuses to deploy one that is. Remove a version no app uses on the host: <code>cipi php remove &lt;version&gt;</code>.</p>
+                        <p class="field-hint p-5 pt-3">PHP {{ implode(', ', $legacyPhp) }}: legacy, installed by an older Cipi. The apps on {{ count($legacyPhp) === 1 ? 'it' : 'them' }} keep running and can be moved to a current version from their configuration; no app can be created on or moved to a legacy version, and a server with Deployer 8 refuses to deploy one that is. Remove a version no app uses on the host: <code>sudo cipi php remove &lt;version&gt;</code>.</p>
                     @endif
                 </div>
                 <div class="card">
@@ -349,7 +349,7 @@
                             <button type="submit" class="btn btn-primary w-full">Install</button>
                         </form>
                     @endif
-                    <p class="field-hint mt-3">Removing a version and changing the CLI default stay on the host (<code>cipi php</code>).</p>
+                    <p class="field-hint mt-3">Removing a version and changing the CLI default stay on the host (<code>sudo cipi php</code>).</p>
                 </div>
             </div>
 
@@ -363,7 +363,7 @@
                 <div class="card-header p-5 mb-0">
                     <div>
                         <h2 class="card-title">Node runtimes</h2>
-                        <p class="card-subtitle">Official builds, one directory per major, side by side. The server default is what Laravel asset builds and <code>cipi app run npm</code> use; a Node app keeps the major it was given.</p>
+                        <p class="card-subtitle">Official builds, one directory per major, side by side. The server default is what Laravel asset builds and <code>sudo cipi app run npm</code> use; a Node app keeps the major it was given.</p>
                     </div>
                     @if($canManage && count($nodeManaged) > 0)
                         <div class="flex items-center gap-3">
@@ -429,7 +429,7 @@
                         </form>
                         @error('nodeInstallMajor') <p class="field-error">{{ $message }}</p> @enderror
                     @else
-                        <p class="text-sm text-muted">Every major the panel offers is installed. Another one: <code>cipi node install &lt;major&gt;</code> on the server.</p>
+                        <p class="text-sm text-muted">Every major the panel offers is installed. Another one: <code>sudo cipi node install &lt;major&gt;</code> on the server.</p>
                     @endif
                 </div>
             @endif
@@ -456,9 +456,9 @@
                             {{-- Which server runs on port 3306 is chosen on the server only (cipi db switch, Cipi 5.13.0). --}}
                             <p class="text-xs text-muted mt-3" data-engine-server="{{ $engine['server'] }}">
                                 @if($engine['server'] === 'mysql')
-                                    MySQL runs in place of MariaDB on port 3306. Back to MariaDB, while there are no databases: <code>cipi db switch mariadb</code> on the server.
+                                    MySQL runs in place of MariaDB on port 3306. Back to MariaDB, while there are no databases: <code>sudo cipi db switch mariadb</code> on the server.
                                 @else
-                                    MySQL instead of MariaDB, on a server with no databases yet: <code>cipi db switch mysql</code> on the server.
+                                    MySQL instead of MariaDB, on a server with no databases yet: <code>sudo cipi db switch mysql</code> on the server.
                                 @endif
                             </p>
                         @endif
@@ -570,11 +570,11 @@
                             @if($vkShared !== [])
                                 <strong>Isolate</strong> copies the app's keys to a new instance with the app in maintenance mode for those seconds, points its <code>.env</code> at it and restarts its workers — nobody is signed out, no queued job is lost. New Laravel apps get their own instance from the start.
                             @elseif($valkeyFlushed)
-                                Shared instance emptied: its new password is on the server only — <code>cipi credentials</code>.
+                                Shared instance emptied: its new password is on the server only — <code>sudo cipi credentials</code>.
                             @elseif($vkOwn > 0)
-                                No app uses the shared instance any more. It still holds their old keys, and every app has seen its password: <strong>Empty the shared instance</strong> deletes them and changes it. The new password stays on the server (<code>cipi credentials</code>).
+                                No app uses the shared instance any more. It still holds their old keys, and every app has seen its password: <strong>Empty the shared instance</strong> deletes them and changes it. The new password stays on the server (<code>sudo cipi credentials</code>).
                             @endif
-                            No password travels through the panel. On the server: <code>cipi valkey list</code>.
+                            No password travels through the panel. On the server: <code>sudo cipi valkey list</code>.
                         </p>
                     @endif
                 </div>
@@ -612,7 +612,7 @@
                 <div class="card-header p-5 mb-0">
                     <div>
                         <h2 class="card-title">System monitor</h2>
-                        <p class="card-subtitle">Runs every 5 minutes, alerts on state changes{{ isset($monitor['reminder_minutes']) ? ' and reminds every '.$monitor['reminder_minutes'].' min while failing' : '' }}. Tune with <code>cipi monitor set</code>.</p>
+                        <p class="card-subtitle">Runs every 5 minutes, alerts on state changes{{ isset($monitor['reminder_minutes']) ? ' and reminds every '.$monitor['reminder_minutes'].' min while failing' : '' }}. Tune with <code>sudo cipi monitor set</code>.</p>
                     </div>
                 </div>
                 <table>
@@ -641,7 +641,7 @@
         @elseif($activeTab === 'smtp')
             <x-cipi::alert type="info" class="mb-4" data-notifications-legacy>
                 This server manages only email from the panel. With an up-to-date Cipi
-                (<code>cipi self-update &amp;&amp; cipi api update</code>) this tab manages every channel — Slack, Discord, Telegram, ntfy,
+                (<code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>) this tab manages every channel — Slack, Discord, Telegram, ntfy,
                 Pushover, Resend, SES, webhooks — and which events notify.
             </x-cipi::alert>
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -712,14 +712,14 @@
                     @else
                         <p class="text-muted">Save a configuration first.</p>
                     @endif
-                    <p class="field-hint mt-4">On this server, Slack, Discord, Telegram, ntfy and webhook channels, and which events notify, are set on the host with <code>cipi notification</code>.</p>
+                    <p class="field-hint mt-4">On this server, Slack, Discord, Telegram, ntfy and webhook channels, and which events notify, are set on the host with <code>sudo cipi notification</code>.</p>
                 </div>
             </div>
 
         @elseif($activeTab === 'ssh')
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div class="card card-flush lg:col-span-2">
-                    <div class="card-header p-5 mb-0"><div><h2 class="card-title">Authorized keys — cipi user</h2><p class="card-subtitle">App users have their own SSH access (<code>cipi ssh apps</code>).</p></div></div>
+                    <div class="card-header p-5 mb-0"><div><h2 class="card-title">Authorized keys — cipi user</h2><p class="card-subtitle">App users have their own SSH access (<code>sudo cipi ssh apps</code>).</p></div></div>
                     <table>
                         <thead><tr><th>#</th><th>Key</th><th>Fingerprint</th><th></th></tr></thead>
                         <tbody>
@@ -762,7 +762,7 @@
         @elseif($activeTab === 'search')
             <div class="card">
                 <div class="card-header">
-                    <div><h2 class="card-title">Meilisearch</h2><p class="card-subtitle">Install, upgrade and key rotation stay on the host (<code>cipi search</code>); enable it per Laravel app.</p></div>
+                    <div><h2 class="card-title">Meilisearch</h2><p class="card-subtitle">Install, upgrade and key rotation stay on the host (<code>sudo cipi search</code>); enable it per Laravel app.</p></div>
                     <span class="badge {{ !empty($search['installed']) ? (!empty($search['running']) ? 'badge-green' : 'badge-amber') : 'badge-gray' }}">{{ !empty($search['installed']) ? (!empty($search['running']) ? 'Running' : 'Stopped') : 'Not installed' }}</span>
                 </div>
                 @if(!empty($search['installed']))
@@ -780,7 +780,7 @@
                         <p class="text-muted">No app has search enabled yet.</p>
                     @endforelse
                 @else
-                    <p class="text-muted">Run <code>cipi search install</code> on the host, then enable it from a Laravel app's overview.</p>
+                    <p class="text-muted">Run <code>sudo cipi search install</code> on the host, then enable it from a Laravel app's overview.</p>
                 @endif
             </div>
 
@@ -825,7 +825,7 @@
                     <div class="card text-muted">No packages returned.</div>
                 @endforelse
             </div>
-            <p class="field-hint mt-3">A closed catalog: the server installs only these entries — from Ubuntu's own repositories, or, marked <em>Upstream</em>, releases Cipi pins by version and SHA-256 (the <code>sec-*</code> scanners Hackly runs) — and removes only what no other package needs. Installing and removing from the panel needs an up-to-date Cipi and a token with <code>packages-manage</code>; until then run <code>cipi package install &lt;id&gt;</code> on the host.</p>
+            <p class="field-hint mt-3">A closed catalog: the server installs only these entries — from Ubuntu's own repositories, or, marked <em>Upstream</em>, releases Cipi pins by version and SHA-256 (the <code>sec-*</code> scanners Hackly runs) — and removes only what no other package needs. Installing and removing from the panel needs an up-to-date Cipi and a token with <code>packages-manage</code>; until then run <code>sudo cipi package install &lt;id&gt;</code> on the host.</p>
 
         @elseif($activeTab === 'zt')
             @php
@@ -841,7 +841,7 @@
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <div class="card">
                         <div class="card-header">
-                            <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="cloud" /> Cloudflare Zero Trust</h2><p class="card-subtitle">Status only — every change stays with the operator on the CLI (<code>cipi zt</code>).</p></div>
+                            <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="cloud" /> Cloudflare Zero Trust</h2><p class="card-subtitle">Status only — every change stays with the operator on the CLI (<code>sudo cipi zt</code>).</p></div>
                             <span class="badge {{ !empty($zt['enabled']) ? 'badge-green' : 'badge-gray' }}">{{ !empty($zt['enabled']) ? 'Enabled' : 'Disabled' }}</span>
                         </div>
                         <dl class="kv">
@@ -866,7 +866,7 @@
                 <div class="space-y-4" data-zt-details>
                     <div class="card">
                         <div class="card-header">
-                            <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="cloud" /> Cloudflare Zero Trust</h2><p class="card-subtitle">The tunnel that publishes the sites. Status only — it is changed at the server's shell (<code>cipi zt</code>). Cloudflare's DNS and zones are in Infrastructure → Cloudflare.</p></div>
+                            <div><h2 class="card-title flex items-center gap-2"><x-cipi::icon name="cloud" /> Cloudflare Zero Trust</h2><p class="card-subtitle">The tunnel that publishes the sites. Status only — it is changed at the server's shell (<code>sudo cipi zt</code>). Cloudflare's DNS and zones are in Infrastructure → Cloudflare.</p></div>
                             <span class="badge {{ empty($ztd['enabled']) ? 'badge-gray' : (in_array($cfStatus, ['healthy', ''], true) && ! empty($tun['running']) ? 'badge-green' : ($cfStatus === 'degraded' ? 'badge-amber' : 'badge-red')) }}" data-zt-state>
                                 {{ empty($ztd['enabled']) ? 'Disabled' : (empty($tun['running']) ? 'cloudflared stopped' : ($cfStatus !== '' ? 'Tunnel '.$cfStatus : 'Running')) }}
                             </span>
@@ -886,7 +886,7 @@
                                 <dt>SSH 22</dt><dd>{{ ! empty($lock['ssh']) ? 'Closed — SSH through the tunnel only' : 'Open' }}</dd>
                             </dl>
                         @else
-                            <p class="text-sm text-soft">Off on this server. <code>cipi zt token set</code>, then <code>cipi zt enable</code>.</p>
+                            <p class="text-sm text-soft">Off on this server. <code>sudo cipi zt token set</code>, then <code>sudo cipi zt enable</code>.</p>
                         @endif
                     </div>
 
@@ -896,7 +896,7 @@
                     @endphp
                     @if($meshView === null)
                         <x-cipi::alert type="info" data-zt-mesh-update>
-                            A mesh network — Tailscale or NetBird — reaches the server on a private address, so SSH and the panel need not be open to the Internet. Joining one from here needs an up-to-date Cipi on this server: <code>cipi self-update &amp;&amp; cipi api update</code>.
+                            A mesh network — Tailscale or NetBird — reaches the server on a private address, so SSH and the panel need not be open to the Internet. Joining one from here needs an up-to-date Cipi on this server: <code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>.
                         </x-cipi::alert>
                     @else
                         @php
@@ -1009,7 +1009,7 @@
                                     @if(! $canManage)
                                         <p class="text-muted">Changing this needs Manage access to this server.</p>
                                     @elseif(! $meshBlocked['managed'])
-                                        <p class="text-sm text-soft" data-zt-mesh-shell>This server does not say what the panel may do with its mesh: update Cipi on it (<code>cipi self-update &amp;&amp; cipi api update</code>), or use <code>cipi zt {{ $mesh['provider'] ?? 'tailscale' }}</code> at its shell.</p>
+                                        <p class="text-sm text-soft" data-zt-mesh-shell>This server does not say what the panel may do with its mesh: update Cipi on it (<code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>), or use <code>sudo cipi zt {{ $mesh['provider'] ?? 'tailscale' }}</code> at its shell.</p>
                                     @else
                                         <ul class="space-y-4">
                                             <li data-zt-mesh-ssh>
@@ -1024,7 +1024,7 @@
                                                 @if(empty($meshLock['ssh']) && $meshBlocked['lock_ssh'] !== null)
                                                     <p class="field-hint" data-zt-mesh-why="ssh">{{ $meshBlocked['lock_ssh'] }}</p>
                                                 @elseif(! empty($meshLock['ssh']) && ! empty($meshCfLock['ssh']))
-                                                    <p class="field-hint">Cloudflare's own lock holds SSH too: reopening here leaves it closed until <code>cipi zt ssh unlock</code> at the server.</p>
+                                                    <p class="field-hint">Cloudflare's own lock holds SSH too: reopening here leaves it closed until <code>sudo cipi zt ssh unlock</code> at the server.</p>
                                                 @endif
                                             </li>
                                             <li data-zt-mesh-http>
@@ -1039,7 +1039,7 @@
                                                 @if(empty($meshLock['http']) && $meshBlocked['lock_http'] !== null)
                                                     <p class="field-hint" data-zt-mesh-why="http">{{ $meshBlocked['lock_http'] }}</p>
                                                 @elseif(! empty($meshLock['http']) && ! empty($meshCfLock['http']))
-                                                    <p class="field-hint">Cloudflare's own lock holds 80/443 too: reopening here leaves them closed until <code>cipi zt unlock http</code> at the server.</p>
+                                                    <p class="field-hint">Cloudflare's own lock holds 80/443 too: reopening here leaves them closed until <code>sudo cipi zt unlock http</code> at the server.</p>
                                                 @endif
                                             </li>
                                             @if($meshIsTailscale)
@@ -1070,7 +1070,7 @@
                                         <li><span class="text-strong">Sign in once over it.</span> From a device of the network, <code>ssh cipi@&lt;the server's address on it&gt;</code>: that login is the proof the way in works.</li>
                                         <li><span class="text-strong">Close what you want.</span> SSH, then 80/443 if the sites are private or come through Cloudflare — each with its own button, each reopened the same way.</li>
                                     </ol>
-                                    <p class="field-hint mt-4">One mesh per server; Cloudflare Tunnel may be on beside it. The same at the server's shell: <code>cipi zt tailscale</code>, <code>cipi zt netbird</code>.</p>
+                                    <p class="field-hint mt-4">One mesh per server; Cloudflare Tunnel may be on beside it. The same at the server's shell: <code>sudo cipi zt tailscale</code>, <code>sudo cipi zt netbird</code>.</p>
                                 @endif
                             </div>
                         </div>
@@ -1123,7 +1123,7 @@
                                 </table>
                             </div>
                             @if(! empty($ztd['missing']))
-                                <p class="text-xs text-muted px-5 py-3">Not on the tunnel: {{ implode(', ', (array) $ztd['missing']) }} — <code>cipi zt hostname add &lt;app&gt;</code>, or everything at once with <code>cipi zt lockdown</code>.</p>
+                                <p class="text-xs text-muted px-5 py-3">Not on the tunnel: {{ implode(', ', (array) $ztd['missing']) }} — <code>sudo cipi zt hostname add &lt;app&gt;</code>, or everything at once with <code>sudo cipi zt lockdown</code>.</p>
                             @endif
                         </div>
                     @endif

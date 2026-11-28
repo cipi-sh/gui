@@ -73,7 +73,7 @@ final class Cloudflare extends Connector
             __('Account permissions, for what you use: Account Settings — Read (the account names), Workers Scripts — Edit, Cloudflare Pages — Edit, Workers R2 Storage — Edit, Cloudflare Tunnel — Read.'),
             __('Zone Resources: All zones (or the account or the zones the panel manages). Client IP filtering: the panel server\'s address, if you want it tighter.'),
             __('Read-only is possible: the same permissions as Read; the actions that change something then answer 403.'),
-            __('The servers\' Zero Trust token (cipi zt token set) is a different one: it lives on each server, this one in the panel.'),
+            __('The servers\' Zero Trust token (sudo cipi zt token set) is a different one: it lives on each server, this one in the panel.'),
         ];
     }
 

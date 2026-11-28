@@ -292,7 +292,7 @@ class BackupSetupTest extends TestCase
             ->set('s3Name', 'offsite')->set('s3Bucket', 'acme-offsite')->set('s3Key', 'AKIA')->set('s3Secret', 'sEcReT')
             ->call('saveS3Destination')
             ->assertHasErrors(['s3Bucket'])
-            ->assertSee('cipi self-update && cipi api update')
+            ->assertSee('sudo cipi self-update && sudo cipi api update')
             ->assertSet('s3Secret', '');
     }
 

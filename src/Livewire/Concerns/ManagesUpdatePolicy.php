@@ -40,7 +40,7 @@ trait ManagesUpdatePolicy
             $this->updatePolicy = null;
             $this->updatePolicyUnsupported = match (true) {
                 $e->getStatusCode() === 403 => 'This token cannot read the update policy: it needs the updates-view and updates-manage abilities — create it again from Connections.',
-                in_array($e->getStatusCode(), [404, 405, 501, 503], true) => 'The update policy needs an up-to-date Cipi on this server: cipi self-update && cipi api update.',
+                in_array($e->getStatusCode(), [404, 405, 501, 503], true) => 'The update policy needs an up-to-date Cipi on this server: sudo cipi self-update && sudo cipi api update.',
                 default => self::versionless(self::plainCliText($e->getMessage())),
             };
         }

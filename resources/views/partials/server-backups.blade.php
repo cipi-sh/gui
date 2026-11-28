@@ -37,7 +37,7 @@
         </x-cipi::empty>
         <div class="field-hint mt-4 text-center">
             <p>
-                This is the answer of <code>cipi backup status --json</code>@if($bkHost) on <code>{{ $bkHost }}</code>@endif: it found no <code>{{ $bkFile ?: '/etc/cipi/backup.json' }}</code>, the file the setup writes — here or with <code>cipi backup configure</code> on the server.
+                This is the answer of <code>sudo cipi backup status --json</code>@if($bkHost) on <code>{{ $bkHost }}</code>@endif: it found no <code>{{ $bkFile ?: '/etc/cipi/backup.json' }}</code>, the file the setup writes — here or with <code>sudo cipi backup configure</code> on the server.
             </p>
             <p class="mt-1">
                 Already configured? Check that this is the server you configured, then compare there:
@@ -260,7 +260,7 @@
                 <div class="card-header">
                     <div>
                         <h2 class="card-title">Stored runs</h2>
-                        <p class="card-subtitle">What each destination holds right now. Each profile's retention is applied after its runs; <strong>Apply the retention</strong> does it now, for every profile — <strong>Preview</strong> first lists what it would delete. Downloading or restoring a run is done on the server: <code>cipi backup fetch &lt;profile&gt; &lt;run&gt;</code>.</p>
+                        <p class="card-subtitle">What each destination holds right now. Each profile's retention is applied after its runs; <strong>Apply the retention</strong> does it now, for every profile — <strong>Preview</strong> first lists what it would delete. Downloading or restoring a run is done on the server: <code>sudo cipi backup fetch &lt;profile&gt; &lt;run&gt;</code>.</p>
                     </div>
                     <div class="btn-actions">
                         @if($canManage)
@@ -432,7 +432,7 @@
                 </div>
                 <label class="flex items-start gap-2">
                     <input type="checkbox" wire:model="bpEncrypt" class="mt-1">
-                    <span><span class="font-medium text-strong">Encrypt the archives</span><span class="block text-xs text-muted">AES-256 before they leave the server. The key is created on the server on first use: save it elsewhere (<em>Encryption key</em> on this tab, or <code>cipi backup key show</code>) — without it the archives cannot be read.</span></span>
+                    <span><span class="font-medium text-strong">Encrypt the archives</span><span class="block text-xs text-muted">AES-256 before they leave the server. The key is created on the server on first use: save it elsewhere (<em>Encryption key</em> on this tab, or <code>sudo cipi backup key show</code>) — without it the archives cannot be read.</span></span>
                 </label>
             </div>
             <div class="modal-footer">

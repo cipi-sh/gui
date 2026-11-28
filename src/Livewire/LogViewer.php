@@ -135,7 +135,7 @@ class LogViewer extends Component
 
             if ($this->files === [] && $this->logType === 'laravel') {
                 $this->hint = 'Laravel logs were not returned by the server API. '
-                    .'On the server run: cipi self-update && cipi api update, then test '
+                    .'On the server run: sudo cipi self-update && sudo cipi api update, then test '
                     .'`sudo -u www-data sudo cipi app logs read '.$this->appName.' --type=laravel --page=1 --per-page=20`';
             } elseif ($this->files === []) {
                 $this->hint = 'No log output for filter "'.ucfirst($this->logType).'". '

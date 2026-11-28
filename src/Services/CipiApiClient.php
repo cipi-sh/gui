@@ -296,6 +296,27 @@ class CipiApiClient
         return $this->put("/apps/{$name}/env", $payload)['data'] ?? [];
     }
 
+    /**
+     * The .env as it is — comments, blank lines, spaces (cipi/api 1.49.1,
+     * Cipi 5.19.2; 404 or 501 before).
+     *
+     * @return array{app?: string, text?: string}
+     */
+    public function showEnvRaw(string $name): array
+    {
+        return $this->get("/apps/{$name}/env/raw")['data'] ?? [];
+    }
+
+    /**
+     * Replace the whole .env with $text, written byte for byte.
+     *
+     * @return array{app?: string, text?: string} the file as it is now
+     */
+    public function updateEnvRaw(string $name, string $text): array
+    {
+        return $this->put("/apps/{$name}/env/raw", ['text' => $text])['data'] ?? [];
+    }
+
     // ── Shared auth.json (Composer — not HTTP Basic Auth) ─────────────
 
     public function showAuthJson(string $name): array

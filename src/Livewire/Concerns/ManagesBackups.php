@@ -109,7 +109,7 @@ trait ManagesBackups
         // a read that failed, and is shown as one (4.2.1: it used to be drawn
         // as a server where `cipi backup configure` was never run).
         if (! array_key_exists('configured', $data) || ! (is_bool($data['configured']) || in_array($data['configured'], [0, 1, '0', '1', 'true', 'false'], true))) {
-            throw new CipiApiException('GET /api/backups answered without a backup status (no "configured" in it), so the panel cannot tell whether backups are configured. Read it on the server: cipi backup status', 502);
+            throw new CipiApiException('GET /api/backups answered without a backup status (no "configured" in it), so the panel cannot tell whether backups are configured. Read it on the server: sudo cipi backup status', 502);
         }
 
         $data['configured'] = filter_var($data['configured'], FILTER_VALIDATE_BOOLEAN);
@@ -435,7 +435,7 @@ trait ManagesBackups
                 return;
             }
             if (in_array($e->getStatusCode(), [404, 405, 503], true)) {
-                $this->addError('s3Bucket', 'This needs an up-to-date Cipi on this server (cipi self-update && cipi api update).');
+                $this->addError('s3Bucket', 'This needs an up-to-date Cipi on this server (sudo cipi self-update && sudo cipi api update).');
 
                 return;
             }
@@ -456,7 +456,7 @@ trait ManagesBackups
             $this->loadBackups();
         } catch (CipiApiException $e) {
             if (in_array($e->getStatusCode(), [404, 405, 503], true)) {
-                $this->dispatch('notify', type: 'error', message: 'Setting up backups from the panel needs an up-to-date Cipi on this server (cipi self-update && cipi api update) — or run cipi backup configure there.');
+                $this->dispatch('notify', type: 'error', message: 'Setting up backups from the panel needs an up-to-date Cipi on this server (sudo cipi self-update && sudo cipi api update) — or run sudo cipi backup configure there.');
 
                 return;
             }
@@ -584,7 +584,7 @@ trait ManagesBackups
                 return;
             }
             if (in_array($e->getStatusCode(), [404, 405], true) || $e->getStatusCode() === 503) {
-                $this->addError('sftpHost', 'SFTP destinations need an up-to-date Cipi on this server (cipi self-update && cipi api update).');
+                $this->addError('sftpHost', 'SFTP destinations need an up-to-date Cipi on this server (sudo cipi self-update && sudo cipi api update).');
 
                 return;
             }

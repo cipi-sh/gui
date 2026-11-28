@@ -508,7 +508,7 @@ namespace {
     $concern = (string) file_get_contents($root.'/src/Livewire/Concerns/InteractsWithCipiServer.php');
     eval('namespace CipiGui\\Livewire\\Probe; class V { '.(preg_match('/public static function versionless\(string \$message\): string\s*\{.*?\n    \}/s', $concern, $mm) ? $mm[0] : '').' }');
     $V = \CipiGui\Livewire\Probe\V::class;
-    $check($V::versionless('The firewall from the panel needs Cipi 5.14.0+ — this server runs Cipi 5.13.1') === 'The firewall from the panel needs an update of Cipi on this server (cipi self-update && cipi api update)', "versionless: the API's \"needs Cipi x+ — this server runs Cipi y\"");
+    $check($V::versionless('The firewall from the panel needs Cipi 5.14.0+ — this server runs Cipi 5.13.1') === 'The firewall from the panel needs an update of Cipi on this server (sudo cipi self-update && sudo cipi api update)', "versionless: the API's \"needs Cipi x+ — this server runs Cipi y\"");
     $check($V::versionless('cipi notification status --json returned no JSON (Cipi CLI ≥ 5.12.0 required)') === 'cipi notification status --json returned no JSON' && $V::versionless('PHP 8.4 is not installed') === 'PHP 8.4 is not installed' && ! preg_match('/\d+\.\d+/', $V::versionless('This server cannot edit nginx directives yet: Cipi 5.14.0+ is required (cipi self-update).')), 'versionless: a version in brackets or "is required" goes, PHP versions stay');
     $check(str_contains($concern, '$message = self::versionless(self::plainCliText($e->getMessage()));'), "friendlyApiError: the server's messages without versions");
 
@@ -658,14 +658,14 @@ namespace {
     $check(str_contains($changelog, '## [4.10.0]'), 'CHANGELOG 4.10.0');
     $check($FW::zeroTrustLocks(['lock_http' => false, 'lock_ssh' => false, 'by' => ['http' => [], 'ssh' => []]]) === null && $FW::zeroTrustLocks([]) === null, 'no lock: no notice');
     $l = $FW::zeroTrustLocks(['lock_http' => true, 'lock_ssh' => true]);
-    $check($l['text'] === 'Zero Trust keeps 80/443 to Cloudflare and SSH closed: opening them to everyone from here is refused.' && $l['commands'] === ['cipi zt unlock http', 'cipi zt ssh unlock'], 'a server that does not say who holds a lock: Cloudflare, as before');
+    $check($l['text'] === 'Zero Trust keeps 80/443 to Cloudflare and SSH closed: opening them to everyone from here is refused.' && $l['commands'] === ['sudo cipi zt unlock http', 'sudo cipi zt ssh unlock'], 'a server that does not say who holds a lock: Cloudflare, as before');
     $l = $FW::zeroTrustLocks(['lock_http' => false, 'lock_ssh' => true, 'by' => ['http' => [], 'ssh' => ['tailscale']]]);
-    $check($l['text'] === 'Zero Trust keeps SSH to the Tailscale network: opening it to everyone from here is refused.' && $l['commands'] === ['cipi zt tailscale unlock ssh'], "SSH locked by the mesh: its name, and its own unlock command");
+    $check($l['text'] === 'Zero Trust keeps SSH to the Tailscale network: opening it to everyone from here is refused.' && $l['commands'] === ['sudo cipi zt tailscale unlock ssh'], "SSH locked by the mesh: its name, and its own unlock command");
     $l = $FW::zeroTrustLocks(['lock_http' => true, 'lock_ssh' => true, 'by' => ['http' => ['cloudflare', 'netbird'], 'ssh' => ['cloudflare', 'netbird']]]);
     $check($l['text'] === 'Zero Trust keeps 80/443 to Cloudflare and the NetBird network and SSH closed: opening them to everyone from here is refused.'
-        && $l['commands'] === ['cipi zt unlock http', 'cipi zt netbird unlock http', 'cipi zt ssh unlock', 'cipi zt netbird unlock ssh'], 'both sides hold a lock: both named, a command each');
+        && $l['commands'] === ['sudo cipi zt unlock http', 'sudo cipi zt netbird unlock http', 'sudo cipi zt ssh unlock', 'sudo cipi zt netbird unlock ssh'], 'both sides hold a lock: both named, a command each');
     $l = $FW::zeroTrustLocks(['lock_http' => true, 'by' => ['http' => ['tailscale; rm -rf /', ['x'], 'TAILSCALE'], 'ssh' => ['tailscale']]]);
-    $check($l['commands'] === ['cipi zt tailscale unlock http'] && ! str_contains($l['text'], 'rm -rf'), 'a holder is one of three names, whatever the server sends; a lock that is off has none');
+    $check($l['commands'] === ['sudo cipi zt tailscale unlock http'] && ! str_contains($l['text'], 'rm -rf'), 'a holder is one of three names, whatever the server sends; a lock that is off has none');
     $check($FW::mesh(null) === null && $FW::mesh('x') === null, 'a server that says nothing of a mesh: no card');
     $off = $FW::mesh(['enabled' => false, 'provider' => null, 'active' => null]);
     $check($off['on'] === false && $off['badge'] === 'Off' && $off['tone'] === 'gray', 'no mesh on: Off');
@@ -727,7 +727,7 @@ namespace {
     }
     $check($guarded, 'every action of the mesh needs Manage on the server, before anything else');
     $check(str_contains($trait, "finally {") && str_contains($trait, "\$this->meshKey = '';") && ! str_contains($trait, 'Log::') && ! str_contains($trait, 'session('), 'the key is cleared once sent, whatever the server answered; never logged, never in the session');
-    $check(str_contains($trait, "in_array(\$port, ['ssh', 'http'], true)") && str_contains($trait, 'zt-manage') && str_contains($trait, 'cipi self-update && cipi api update'), 'a port is ssh or http; a token without zt-manage and an older server are said in words');
+    $check(str_contains($trait, "in_array(\$port, ['ssh', 'http'], true)") && str_contains($trait, 'zt-manage') && str_contains($trait, 'sudo cipi self-update && sudo cipi api update'), 'a port is ssh or http; a token without zt-manage and an older server are said in words');
     $check(substr_count($trait, '$this->meshBrowserIp()') >= 6 && str_contains($trait, 'request()->ip()'), 'the browser\'s address goes with every call: the server refuses to close 80/443 under the page being looked at');
     $smc = (string) file_get_contents($root.'/src/Livewire/ServerManage.php');
     $check(str_contains($smc, 'use ManagesMesh;') && str_contains($smc, "'zt' => fn () => \$this->zt = \$this->loadZt(),"), 'the server page has the mesh actions and reads Zero Trust for this browser');
@@ -900,7 +900,17 @@ namespace {
     $check(array_filter(array_unique($ic[1]), fn ($n) => ! str_contains($iconsSrc, "'{$n}' =>")) === [], 'every icon of the two tabs exists');
 
     echo "--- Backups set up and managed from the panel: on the server first, S3 buckets and SFTP servers on a par, the key, the retention\n";
-    $check(str_contains($theme, "VERSION = '4.11.0'") && str_contains($theme, "API = '1.49'") && str_contains($changelog, '## [4.11.0]'), 'version 4.11.0 for API 1.49');
+    $check(str_contains($theme, "VERSION = '4.11.1'") && str_contains($theme, "API = '1.49'") && str_contains($changelog, '## [4.11.0]') && str_contains($changelog, '## [4.11.1]'), 'version 4.11.1 for API 1.49');
+
+    echo "--- The .env as text: the file itself, saved as typed (4.11.1)\n";
+    $check((bool) preg_match('/function openEnvText\(string \$mode\): void\s*\{\s*if \(! \$this->allowed\(\'env\'\)/', $ad) && str_contains($ad, '$data = $this->client()->showEnvRaw($this->appName);') && str_contains($ad, 'if (! $this->isUnsupported($e)) {'), 'Edit as text reads the file itself; a server without it: the list as text, as before');
+    $check((bool) preg_match('/function saveEnvText\(\): void\s*\{\s*if \(! \$this->allowed\(\'env\'\) \|\| \$this->envTextMode !== \'edit\' \|\| ! \$this->envTextRaw\)/', $ad) && str_contains($ad, '$this->client()->updateEnvRaw($this->appName, $this->envText);') && preg_match('/function saveEnvText\(\): void\s*\{.*?\n    \}\n/s', $ad, $saveFn) === 1 && ! preg_match('/trim\(\$this->envText\)\s*[,;)]|EnvText::(parse|dump|quote)/', $saveFn[0]), 'Save sends the text as typed: never parsed, quoted or trimmed (only checked for empty)');
+    $check(str_contains($ad, 'Save or discard the changes in the list first'), 'the file is not opened over unsaved changes in the list');
+    $check(str_contains($client, '"/apps/{$name}/env/raw"') && str_contains($client, "['text' => \$text]"), 'the client: GET|PUT /apps/{name}/env/raw');
+    $check(str_contains($adv, '<form wire:submit="saveEnvText" wire:key="env-text-file"') && str_contains($adv, 'wrap="off"') && str_contains($adv, '@unless($envTextFile)'), 'the file in a textarea that keeps its columns; the list\'s Save is not shown with it');
+    $check(str_contains($demo, "case \$sub === '/env/raw' && \$method === 'GET':") && str_contains($demo, "case \$sub === '/env/raw' && \$method === 'PUT':"), 'the demo API keeps the .env as written');
+    $srvView = (string) file_get_contents($root.'/resources/views/livewire/servers.blade.php');
+    $check(str_contains((string) file_get_contents($root.'/src/Livewire/Servers.php'), "'tokenCommand' => 'sudo cipi api token create --name=gui") && str_contains($srvView, "'title' => 'cipi@your-server'") && ! str_contains($srvView, '(as root)'), 'the token card: sudo cipi, typed as the cipi user');
 
     require_once $root.'/src/Support/BackupS3.php';
     $S = \CipiGui\Support\BackupS3::class;

@@ -26,7 +26,7 @@
                 <p class="mt-2">The API cannot save Git tokens. Fix it on the server over SSH:</p>
                 <x-cipi::secret label="Run on the server" :value="$repoAccess['hint']" />
             @else
-                <p class="mt-2">Add the deploy key to the repository, then check again on the server with <code>cipi git check{{ is_string($activeJobResult['app'] ?? null) ? ' '.$activeJobResult['app'] : '' }}</code>.</p>
+                <p class="mt-2">Add the deploy key to the repository, then check again on the server with <code>sudo cipi git check{{ is_string($activeJobResult['app'] ?? null) ? ' '.$activeJobResult['app'] : '' }}</code>.</p>
             @endif
         </x-cipi::alert>
     @endif

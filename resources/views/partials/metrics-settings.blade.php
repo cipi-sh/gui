@@ -101,7 +101,7 @@
                 @if(! empty($om['enabled']))
                     <p class="field-hint"><span class="badge badge-green">On</span> Port {{ $om['port'] ?? 9273 }}, from <span class="font-mono">{{ implode(', ', (array) ($om['allow'] ?? [])) }}</span>.</p>
                 @else
-                    <p class="field-hint">Off. For an existing Prometheus, on the server: <code>cipi metrics openmetrics on --allow=&lt;IP&gt;</code> — a port and firewall rules, so not from the panel.</p>
+                    <p class="field-hint">Off. For an existing Prometheus, on the server: <code>sudo cipi metrics openmetrics on --allow=&lt;IP&gt;</code> — a port and firewall rules, so not from the panel.</p>
                 @endif
             </div>
         </div>

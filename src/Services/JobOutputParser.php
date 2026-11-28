@@ -168,7 +168,7 @@ class JobOutputParser
         if ($timeout = $this->deployTimeout($output)) {
             if ($timeout['build'] && $timeout['seconds'] <= 300) {
                 return [
-                    'The frontend build is the long step of a deploy: an up-to-date Cipi gives it 30 minutes, not 5. Run cipi self-update on the server, then deploy again.',
+                    'The frontend build is the long step of a deploy: an up-to-date Cipi gives it 30 minutes, not 5. Run sudo cipi self-update on the server, then deploy again.',
                     'On a server that is up to date, the deploy.php of this app was edited by hand and kept the old limit: the output names the command that writes it again.',
                     $live,
                 ];
@@ -178,23 +178,23 @@ class JobOutputParser
                 $timeout['build']
                     ? 'A build that needs this long is usually short of memory (the server swaps) or waiting for an answer nobody gives: the deploy log shows where it stopped.'
                     : 'Every step of a deploy has 5 minutes, the frontend build 30: the deploy log shows what this one was doing.',
-                'Run it on the server to watch it: cipi deploy <app>',
+                'Run it on the server to watch it: sudo cipi deploy <app>',
                 $live,
             ];
         }
 
         if (str_contains($this->stripAnsi($output), '[cipi-api] Stopped after')) {
             return [
-                'The API closes a job that runs longer than it lets one run (the line above says after how long). Whether the deploy is still running on the server: cipi deploy <app> --status',
+                'The API closes a job that runs longer than it lets one run (the line above says after how long). Whether the deploy is still running on the server: sudo cipi deploy <app> --status',
                 'If it left a lock behind: use Unlock deploy, then retry.',
             ];
         }
 
         return [
             'Verify the app has a Git repository configured (Laravel apps require one).',
-            'Add the deploy key to your Git provider: cipi deploy <app> --key',
-            'Trust a custom Git host if needed: cipi deploy <app> --trust-host=git.example.com',
-            'Run manually on the server: cipi deploy <app>',
+            'Add the deploy key to your Git provider: sudo cipi deploy <app> --key',
+            'Trust a custom Git host if needed: sudo cipi deploy <app> --trust-host=git.example.com',
+            'Run manually on the server: sudo cipi deploy <app>',
             'If deploy is stuck: use Unlock deploy, then retry.',
         ];
     }
@@ -233,7 +233,7 @@ class JobOutputParser
         }
 
         return "The release is live, but cipi deploy {$how} afterwards without saying why. "
-            .'Check the deploy log. Cipi before 5.8.1 exits 1 after every successful deploy: run cipi self-update on the server.';
+            .'Check the deploy log. Cipi before 5.8.1 exits 1 after every successful deploy: run sudo cipi self-update on the server.';
     }
 
     /**
@@ -246,7 +246,7 @@ class JobOutputParser
         return [
             'The release is live: nothing was rolled back.',
             'Check the post-deploy steps of cipi.yml and the deploy log (App → Logs).',
-            'Cipi before 5.8.1 exits 1 after every successful deploy started from the API: run cipi self-update on the server.',
+            'Cipi before 5.8.1 exits 1 after every successful deploy started from the API: run sudo cipi self-update on the server.',
         ];
     }
 

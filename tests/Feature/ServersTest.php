@@ -34,9 +34,9 @@ class ServersTest extends TestCase
 
         $this->actingAs($this->admin())->get('/servers')
             ->assertOk()
-            ->assertSeeHtml('terminal-line prompt">$ cipi api token create --name=gui --abilities=')
+            ->assertSeeHtml('terminal-line prompt">$ sudo cipi api token create --name=gui --abilities=')
             ->assertDontSeeHtml('prompt">$ cipi api</div>')
-            ->assertSeeHtml("raw: 'cipi api token create --name=gui")
+            ->assertSeeHtml("raw: 'sudo cipi api token create --name=gui")
             ->assertDontSeeHtml("raw: '$ cipi api");
     }
 

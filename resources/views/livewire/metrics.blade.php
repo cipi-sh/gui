@@ -26,7 +26,7 @@
         <x-cipi::alert type="warn" title="Metrics are not available on this server" data-metrics-unsupported>
             The history needs an up-to-date Cipi on the server, with a token that has the
             <code>metrics-view</code> ability (and <code>metrics-manage</code> to change the retention). On the server:
-            <code>cipi self-update &amp;&amp; cipi api update</code>, then recreate the token from
+            <code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>, then recreate the token from
             <a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>.
             @if($unsupportedReason !== '')
                 <p class="mt-2">The server answered: <span class="font-mono text-xs break-words">{{ $unsupportedReason }}</span></p>
@@ -72,7 +72,7 @@
         @if(($collector['sqlite'] ?? true) === false)
             <x-cipi::alert type="danger" class="mb-4" title="sqlite3 is missing on the server">Nothing is collected until it is installed: <code>apt-get install -y sqlite3</code>.</x-cipi::alert>
         @elseif(($collector['enabled'] ?? true) === false)
-            <x-cipi::alert type="warn" class="mb-4" title="The collector is off">The history is kept, nothing new is recorded. @if($canManage) Turn it on below, or @endif on the server: <code>cipi metrics enable</code>.</x-cipi::alert>
+            <x-cipi::alert type="warn" class="mb-4" title="The collector is off">The history is kept, nothing new is recorded. @if($canManage) Turn it on below, or @endif on the server: <code>sudo cipi metrics enable</code>.</x-cipi::alert>
         @elseif($lastRun && $lastRun < time() - 600)
             <x-cipi::alert type="warn" class="mb-4" title="No new minute for {{ intdiv(time() - (int) $lastRun, 60) }} minutes">Is cron running on the server? <code>systemctl status cron</code>, and <code>cat /etc/cron.d/cipi-metrics</code>.</x-cipi::alert>
         @endif
@@ -171,7 +171,7 @@
                     @forelse($uptimeApps as $u)
                         @include('cipi-gui::partials.metrics-uptime-row', ['u' => $u, 'label' => $u['app'] ?? '?'])
                     @empty
-                        <p class="text-sm text-muted">No app has a healthcheck yet. Set one from an app's overview (or <code>cipi health set &lt;app&gt;</code>): it is probed every minute and its uptime is kept here.</p>
+                        <p class="text-sm text-muted">No app has a healthcheck yet. Set one from an app's overview (or <code>sudo cipi health set &lt;app&gt;</code>): it is probed every minute and its uptime is kept here.</p>
                     @endforelse
                 </div>
                 <div class="card">

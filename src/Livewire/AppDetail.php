@@ -201,8 +201,19 @@ class AppDetail extends Component
     /** The .env as text, while the text panel is open. */
     public string $envText = '';
 
-    /** null (closed), `paste` (add and update from a pasted block) or `edit` (the whole list as text). */
+    /** null (closed), `paste` (add and update from a pasted block) or `edit` (the whole file as text). */
     public ?string $envTextMode = null;
+
+    /**
+     * `edit` on the file itself: the text is the .env as the server has it —
+     * comments, blank lines, spaces — and Save writes it back as typed. False
+     * on a server that cannot read and write the file as text: then `edit`
+     * shows the list as KEY=value lines, applied to the list as before.
+     */
+    public bool $envTextRaw = false;
+
+    /** The file as it was read, to tell whether the text changed. */
+    public string $envTextOriginal = '';
 
     public string $envNewValue = '';
 
@@ -1072,7 +1083,7 @@ class AppDetail extends Component
         } catch (CipiApiException $e) {
             $this->nginxUnavailable = match (true) {
                 $e->getStatusCode() === 403 => 'The panel\'s token lacks the nginx-view and nginx-manage abilities: create a new one from Connections.',
-                in_array($e->getStatusCode(), [404, 405, 501], true) => 'Editing nginx directives needs an up-to-date Cipi on this server (cipi self-update && cipi api update).',
+                in_array($e->getStatusCode(), [404, 405, 501], true) => 'Editing nginx directives needs an up-to-date Cipi on this server (sudo cipi self-update && sudo cipi api update).',
                 default => self::versionless(self::plainCliText($e->getMessage())),
             };
         }
@@ -1152,7 +1163,7 @@ class AppDetail extends Component
             $this->pageCache = null;
             $this->pageCacheUnavailable = match (true) {
                 $e->getStatusCode() === 403 => 'The panel\'s token lacks the nginx-view and nginx-manage abilities: create a new one from Connections.',
-                in_array($e->getStatusCode(), [404, 405, 501], true) => 'The page cache needs an up-to-date Cipi on this server (cipi self-update && cipi api update).',
+                in_array($e->getStatusCode(), [404, 405, 501], true) => 'The page cache needs an up-to-date Cipi on this server (sudo cipi self-update && sudo cipi api update).',
                 default => self::versionless(self::plainCliText($e->getMessage())),
             };
         }
@@ -1314,7 +1325,7 @@ class AppDetail extends Component
                 return;
             }
             if (in_array($e->getStatusCode(), [404, 405], true) || str_contains($e->getMessage(), '5.18')) {
-                $this->cachePurgeRefused = 'Purging some pages needs an up-to-date Cipi on this server (cipi self-update && cipi api update). Empty the cache now still works.';
+                $this->cachePurgeRefused = 'Purging some pages needs an up-to-date Cipi on this server (sudo cipi self-update && sudo cipi api update). Empty the cache now still works.';
 
                 return;
             }
@@ -1343,7 +1354,7 @@ class AppDetail extends Component
             $this->octane = null;
             $this->octaneUnavailable = match (true) {
                 $e->getStatusCode() === 403 => 'The panel\'s token lacks the php-view and php-manage abilities: create a new one from Connections.',
-                in_array($e->getStatusCode(), [404, 405, 501], true) => 'Managing Octane from the panel needs an up-to-date Cipi on this server (cipi self-update && cipi api update).',
+                in_array($e->getStatusCode(), [404, 405, 501], true) => 'Managing Octane from the panel needs an up-to-date Cipi on this server (sudo cipi self-update && sudo cipi api update).',
                 default => self::versionless(self::plainCliText($e->getMessage())),
             };
         }
@@ -2119,7 +2130,7 @@ class AppDetail extends Component
     {
         $message = match ($this->ymlUnsupportedReason($e)) {
             'ability' => 'This token lacks the yml-manage ability (403). Recreate it from Connections with yml-manage to apply cipi.yml and turn auto-apply on or off.',
-            'server' => rtrim($e->getStatusCode() === 503 ? self::versionless($e->getMessage()) : 'Not available on this server', '.').' — cipi.yml from the panel needs an up-to-date Cipi on this server (cipi self-update && cipi api update).',
+            'server' => rtrim($e->getStatusCode() === 503 ? self::versionless($e->getMessage()) : 'Not available on this server', '.').' — cipi.yml from the panel needs an up-to-date Cipi on this server (sudo cipi self-update && sudo cipi api update).',
             default => $this->friendlyApiError($e),
         };
 
@@ -2351,16 +2362,93 @@ class AppDetail extends Component
             return;
         }
 
+        $this->resetErrorBag('envText');
+        $this->envTextRaw = false;
+        $this->envTextOriginal = '';
+
+        if ($mode === 'edit') {
+            // The file itself, as it is: what is typed is what is saved.
+            if ($this->envChangeCount() > 0) {
+                $this->dispatch('notify', type: 'warning', message: 'Save or discard the changes in the list first: the text is the file as the server has it.');
+
+                return;
+            }
+            try {
+                $data = $this->client()->showEnvRaw($this->appName);
+                if (is_string($data['text'] ?? null)) {
+                    $this->envTextMode = 'edit';
+                    $this->envTextRaw = true;
+                    $this->envText = $data['text'];
+                    $this->envTextOriginal = $this->envText;
+
+                    return;
+                }
+            } catch (CipiApiException $e) {
+                if (! $this->isUnsupported($e)) {
+                    $this->handleApiError($e);
+
+                    return;
+                }
+                // A server that cannot give the file as text: the list as text.
+            }
+        }
+
         $this->envTextMode = $mode;
         $this->envText = $mode === 'edit' ? EnvText::dump($this->envRows) : '';
-        $this->resetErrorBag('envText');
     }
 
     public function closeEnvText(): void
     {
         $this->envTextMode = null;
         $this->envText = '';
+        $this->envTextRaw = false;
+        $this->envTextOriginal = '';
         $this->resetErrorBag('envText');
+    }
+
+    /**
+     * Save the text of `edit` as the whole .env, exactly as typed: no line is
+     * read, quoted, trimmed or moved. The list is read again afterwards.
+     */
+    public function saveEnvText(): void
+    {
+        if (! $this->allowed('env') || $this->envTextMode !== 'edit' || ! $this->envTextRaw) {
+            return;
+        }
+
+        $this->resetErrorBag('envText');
+        if ($this->envText === $this->envTextOriginal) {
+            $this->dispatch('notify', type: 'info', message: 'No .env changes to save.');
+
+            return;
+        }
+        if (trim($this->envText) === '') {
+            $this->addError('envText', 'The text is empty: an empty .env would leave the app without its settings.');
+
+            return;
+        }
+        if (strlen($this->envText) > EnvText::MAX_BYTES) {
+            $this->addError('envText', 'The text is too long (64 KB at most).');
+
+            return;
+        }
+
+        try {
+            $this->client()->updateEnvRaw($this->appName, $this->envText);
+        } catch (CipiApiException $e) {
+            if ($e->getStatusCode() === 422) {
+                $this->addError('envText', self::plainCliText($e->getMessage()));
+
+                return;
+            }
+            $this->handleApiError($e);
+
+            return;
+        }
+
+        $this->closeEnvText();
+        $this->loadEnv();
+        $this->dispatch('notify', type: 'success', message: '.env saved. Deploy or run config:cache to apply.');
     }
 
     public function applyEnvText(): void
@@ -2554,14 +2642,14 @@ class AppDetail extends Component
             $changes = count($set) + count($unset) + ($order !== null ? 1 : 0);
             if ($order !== null && array_keys($this->envOriginal) !== $order) {
                 // An API before 1.43 takes the keys and drops the order.
-                $this->dispatch('notify', type: 'warning', message: '.env saved, but this server did not keep the new order — it needs an up-to-date Cipi (cipi self-update && cipi api update).');
+                $this->dispatch('notify', type: 'warning', message: '.env saved, but this server did not keep the new order — it needs an up-to-date Cipi (sudo cipi self-update && sudo cipi api update).');
             } else {
                 $this->dispatch('notify', type: 'success', message: '.env saved ('.$changes.' '.\Illuminate\Support\Str::plural('change', $changes).'). Deploy or run config:cache to apply.');
             }
         } catch (CipiApiException $e) {
             if ($order !== null && $set === [] && $unset === [] && $e->getStatusCode() === 422 && ! str_contains(strtolower($e->getMessage()), 'order')) {
                 // Only a new order, refused by an API before 1.43 ("set or unset").
-                $this->dispatch('notify', type: 'warning', message: 'Reordering the .env needs an up-to-date Cipi on this server (cipi self-update && cipi api update).');
+                $this->dispatch('notify', type: 'warning', message: 'Reordering the .env needs an up-to-date Cipi on this server (sudo cipi self-update && sudo cipi api update).');
 
                 return;
             }
@@ -2582,6 +2670,8 @@ class AppDetail extends Component
         $this->envOriginal = $normalized;
         $this->envTextMode = null; // the text panel showed the rows that are being replaced
         $this->envText = '';
+        $this->envTextRaw = false;
+        $this->envTextOriginal = '';
         $this->envRows = [];
         foreach ($normalized as $key => $value) {
             $this->envRows[] = ['key' => $key, 'value' => $value];

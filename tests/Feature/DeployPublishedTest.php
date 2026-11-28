@@ -72,7 +72,7 @@ class DeployPublishedTest extends TestCase
             ->assertSet('activeJobStatus', 'failed')
             ->assertSet('jobRunning', false)
             ->assertSet('activeJobError', 'The release is live, but cipi deploy exited with code 1 afterwards without saying why. '
-                .'Check the deploy log. Cipi before 5.8.1 exits 1 after every successful deploy: run cipi self-update on the server.')
+                .'Check the deploy log. Cipi before 5.8.1 exits 1 after every successful deploy: run sudo cipi self-update on the server.')
             ->assertSee('The release is live, but the command then failed')
             ->assertSee('What to check')
             ->assertSee('nothing was rolled back')

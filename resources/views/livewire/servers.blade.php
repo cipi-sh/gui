@@ -93,19 +93,19 @@
     @endif
 
     @if($servers->contains(fn ($s) => $s->machine_name !== null))
-        <p class="field-hint mt-3" data-hostname-hint><strong>Hostname</strong> is the machine's own name — what a notification says (<code>Server: {{ $servers->first(fn ($s) => $s->machine_name !== null)->hostname }}</code>) unless the server is told the name it has here: <a href="{{ route('cipi-gui.server-manage', ['serverId' => $servers->first(fn ($s) => $s->machine_name !== null)->id, 'tab' => 'smtp']) }}" class="text-link">Notifications</a> → <em>Written as</em>, or <code>cipi notification server-name &lt;name&gt;</code> on the server.</p>
+        <p class="field-hint mt-3" data-hostname-hint><strong>Hostname</strong> is the machine's own name — what a notification says (<code>Server: {{ $servers->first(fn ($s) => $s->machine_name !== null)->hostname }}</code>) unless the server is told the name it has here: <a href="{{ route('cipi-gui.server-manage', ['serverId' => $servers->first(fn ($s) => $s->machine_name !== null)->id, 'tab' => 'smtp']) }}" class="text-link">Notifications</a> → <em>Written as</em>, or <code>sudo cipi notification server-name &lt;name&gt;</code> on the server.</p>
     @endif
 
     <div class="card mt-6">
         <div class="card-header">
             <div>
                 <h2 class="card-title">Create a token on the server</h2>
-                <p class="card-subtitle">Run this on each Cipi server (as root). It grants every ability the panel uses. <code>cipi api token create --name=gui --full-access</code> grants them all too, and the ones the API adds later.</p>
+                <p class="card-subtitle">Run this on each Cipi server, logged in as <code>cipi</code>. It grants every ability the panel uses. <code>sudo cipi api token create --name=gui --full-access</code> grants them all too, and the ones the API adds later.</p>
             </div>
             <x-cipi::copy :value="$tokenCommand" label="Copy command" />
         </div>
-        @include('cipi-gui::partials.terminal', ['lines' => ['$ '.$tokenCommand], 'title' => 'root@your-server', 'autoScroll' => false, 'stripPrompt' => true])
-        <p class="field-hint">Needs <code>cipi api</code> installed on that server. Restrict who can call the API with <code>cipi api ip-whitelist</code> and keep this panel on it.@if($panelIp) It calls from <x-cipi::copyable :value="$panelIp" label="Copy IP" /> — <code>cipi api ip-whitelist add {{ $panelIp }}</code> when you restrict a list that is still open.@endif When a list is already restricted, a successful connection test adds the panel's address by itself.</p>
+        @include('cipi-gui::partials.terminal', ['lines' => ['$ '.$tokenCommand], 'title' => 'cipi@your-server', 'autoScroll' => false, 'stripPrompt' => true])
+        <p class="field-hint">Needs the API on that server (<code>sudo cipi api &lt;domain&gt;</code>). Restrict who can call the API with <code>sudo cipi api ip-whitelist</code> and keep this panel on it.@if($panelIp) It calls from <x-cipi::copyable :value="$panelIp" label="Copy IP" /> — <code>sudo cipi api ip-whitelist add {{ $panelIp }}</code> when you restrict a list that is still open.@endif When a list is already restricted, a successful connection test adds the panel's address by itself.</p>
     </div>
 
     @if($showFormModal)
@@ -129,7 +129,7 @@
                     <div>
                         <label for="server-url">API URL</label>
                         <input id="server-url" type="url" wire:model="url" placeholder="https://vps.example.com" autocomplete="off">
-                        <p class="field-hint">The host that serves <code>cipi api</code> — the panel calls <code>{url}/api/…</code>.</p>
+                        <p class="field-hint">The host that serves <code>sudo cipi api</code> — the panel calls <code>{url}/api/…</code>.</p>
                         @error('url') <p class="field-error">{{ $message }}</p> @enderror
                     </div>
                     <div>
@@ -151,7 +151,7 @@
                                 @error('accessClientSecret') <p class="field-error">{{ $message }}</p> @enderror
                             </div>
                         </div>
-                        <p class="field-hint">When the server's API sits behind Cloudflare Access, the panel sends a service token with every call. On the server: <code>cipi zt hostname add --api</code>, <code>cipi zt access enable --api --allow=none</code>, <code>cipi zt service-token create panel --for=api</code> — it prints both values once.</p>
+                        <p class="field-hint">When the server's API sits behind Cloudflare Access, the panel sends a service token with every call. On the server: <code>sudo cipi zt hostname add --api</code>, <code>sudo cipi zt access enable --api --allow=none</code>, <code>sudo cipi zt service-token create panel --for=api</code> — it prints both values once.</p>
                         @if($editingId && $accessClientId !== '')
                             <label class="flex items-center gap-2 text-sm mt-2"><input type="checkbox" wire:model="accessClear"> Remove the service token from this connection</label>
                         @endif
@@ -171,7 +171,7 @@
     @if($deleting)
         <x-cipi::modal title="Remove connection" close="cancelDelete">
             <div class="modal-body">
-                <p class="text-soft">Remove <strong class="text-strong">{{ $deleting->name }}</strong> from this panel? The server, its apps and the API token on it are not touched — revoke the token there with <code>cipi api token revoke</code> if you no longer need it.</p>
+                <p class="text-soft">Remove <strong class="text-strong">{{ $deleting->name }}</strong> from this panel? The server, its apps and the API token on it are not touched — revoke the token there with <code>sudo cipi api token revoke</code> if you no longer need it.</p>
             </div>
             <div class="modal-footer">
                 <button type="button" wire:click="cancelDelete" class="btn btn-secondary">Cancel</button>
