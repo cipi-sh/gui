@@ -49,6 +49,7 @@ The mesh network of Zero Trust — Tailscale or NetBird — **managed from the Z
 
 ### Fixed
 
+- **Create app → Custom PHP with the document root left empty stopped at once on the server**: *Stopped unexpectedly at common.sh in read_input() (exit 1): read -r input*. The panel sent no docroot for an app served from `htdocs` itself, and Cipi asked for one with no terminal to answer. The panel now always sends it — `/` for `htdocs` — so it works with a server on an older Cipi too (Cipi 5.18.0 no longer asks without a terminal).
 - **A deploy stopped on the clock is said as that.** When a step ran out of time — the frontend build, most of the time: `The command "… node-build.sh …" exceeded the timeout of 300 seconds` — the overlay said *Deploy failed (exit 1)* and listed what to check on the Git repository: the deploy key, the trusted host. It now names the step and how long it ran (*The build (cipi:node_build) ran for 5 minutes, the most it is given, and was stopped*), and the hints are the ones for that case: update the server, where the build has 30 minutes of its own; or, for a build that used its 30 minutes, where to look. A deploy job the API closed after its time shows the line the API left, and how to ask the server whether the deploy is still running. Every other failed deploy keeps its error and its hints. `JobOutputParser::deployTimeout()`, `deployTimeoutError()`, `deployHints($output)`.
 
 ### Security

@@ -200,6 +200,15 @@ class CreateAppTest extends TestCase
     }
 
     #[Test]
+    public function a_custom_app_always_sends_its_docroot_slash_for_htdocs(): void
+    {
+        // An older Cipi asks for the docroot when it is not given — with no
+        // terminal to answer, and the create stopped ("read -r input").
+        $this->createForm()->call('setAppKind', 'custom')->call('createApp')->assertHasNoErrors();
+        $this->assertSame('/', $this->createPayload()['docroot'] ?? null);
+    }
+
+    #[Test]
     public function a_refused_repository_is_shown_with_the_fix_to_copy(): void
     {
         $this->jobResult = [
