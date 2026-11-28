@@ -119,7 +119,7 @@ class JobOutputParserTest extends TestCase
         // Nothing after the release went live: the exit code and the Cipi < 5.8.1 bug.
         $this->assertSame(
             'The release is live, but cipi deploy exited with code 1 afterwards without saying why. '
-            .'Check the deploy log. Cipi before 5.8.1 exits 1 after every successful deploy: run cipi self-update on the server.',
+            .'Check the deploy log. Cipi before 5.8.1 exits 1 after every successful deploy: run sudo cipi self-update on the server.',
             $parser->publishedDeployError($published, 1),
         );
         $this->assertStringStartsWith('The release is live, but cipi deploy exited with an error afterwards', $parser->publishedDeployError($published));
