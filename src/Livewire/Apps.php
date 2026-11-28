@@ -635,8 +635,11 @@ class Apps extends Component
                 $payload['repository'] = $this->repository;
                 $payload['branch'] = $this->branch ?: 'main';
             }
-            if ($isCustom && $this->docroot !== '') {
-                $payload['docroot'] = $this->docroot;
+            // Always said for a custom app: "/" is htdocs itself. A Cipi older
+            // than 5.18.0 asks for the docroot when it is not given, with no
+            // terminal to answer, and the create stops right there.
+            if ($isCustom) {
+                $payload['docroot'] = $this->docroot !== '' ? $this->docroot : '/';
             }
             if (! $isCustom && $this->engine !== '') {
                 $payload['engine'] = $this->engine;

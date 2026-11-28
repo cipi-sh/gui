@@ -808,6 +808,7 @@ namespace {
     $check(str_contains($appsSrc, "\$this->dbName = \$isNode || \$isCustom ? trim(\$this->dbName) : '';") && str_contains($appsSrc, "\$rules['dbName'] = ['regex:/^[a-z][a-z0-9_]{1,63}\$/'];")
         && str_contains($appsSrc, "\$payload['db'] = \$this->dbName;"), 'the name is checked like the server checks it, sent as db, and never for a Laravel app');
     $check(str_contains($appsSrc, "'docroot', 'engine', 'dbName',") && str_contains($appsSrc, "'docroot', 'dbName', 'assetBuild'"), 'it is part of the draft: reset with the form, kept while the form has input');
+    $check(str_contains($appsSrc, "\$payload['docroot'] = \$this->docroot !== '' ? \$this->docroot : '/';"), 'a custom app always sends its docroot, "/" for htdocs: an older Cipi would ask for it with no terminal and stop');
     $check(str_contains($appsView, "@if(\$appKind !== 'laravel')\n                        <div class=\"grid grid-cols-1 sm:grid-cols-2 gap-4\" data-create-db>") && str_contains($appsView, 'wire:model="dbName"')
         && str_contains($appsView, '@if(count($availableEngines) > 1)'), 'the form: the field for custom and Node apps, the engine only where there is a choice');
     $check(substr_count($appsView, '@if(') + substr_count($appsView, '@if (') === substr_count($appsView, '@endif'), 'apps: every @if has its @endif');
