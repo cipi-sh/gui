@@ -213,6 +213,25 @@ class FirewallTest extends TestCase
     }
 
     #[Test]
+    public function a_zero_trust_lock_is_named_by_who_holds_it(): void
+    {
+        $fw = $this->firewall();
+        // A server that does not say who holds a lock: Cloudflare, as it always was.
+        $fw['zero_trust'] = ['lock_http' => true, 'lock_ssh' => false];
+        $this->answers['GET /api/firewall'] = [['data' => $fw], 200];
+        $this->tab()->assertSee('data-firewall-zt', false)->assertSee('Zero Trust keeps 80/443 to Cloudflare')->assertSee('cipi zt unlock http')->assertDontSee('unlock ssh');
+
+        // SSH locked to the mesh network: its name and its own command.
+        $fw['zero_trust'] = ['lock_http' => false, 'lock_ssh' => true, 'by' => ['http' => [], 'ssh' => ['tailscale']]];
+        $this->answers['GET /api/firewall'] = [['data' => $fw], 200];
+        $this->tab()->assertSee('Zero Trust keeps SSH to the Tailscale network')->assertSee('cipi zt tailscale unlock ssh')->assertDontSee('cipi zt ssh unlock');
+
+        $fw['zero_trust'] = ['lock_http' => false, 'lock_ssh' => false, 'by' => ['http' => [], 'ssh' => []]];
+        $this->answers['GET /api/firewall'] = [['data' => $fw], 200];
+        $this->tab()->assertDontSee('data-firewall-zt', false);
+    }
+
+    #[Test]
     public function the_servers_refusal_is_shown_as_it_said_it(): void
     {
         $this->answers['POST /api/firewall/rules'] = [['error' => 'Zero Trust keeps 80/443 to Cloudflare (cipi zt lock http): an allow to everyone would reopen them'], 422];

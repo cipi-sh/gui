@@ -55,6 +55,7 @@ class Release490Test extends TestCase
                 $path === '/api/apps/shop/cache' && $method === 'PUT' => $this->putCache($request),
                 $path === '/api/apps/shop/cache/exclude' => $this->putExclude($request),
                 $path === '/api/apps/shop/cache/clear' => Http::response(['data' => $this->clearCache()]),
+                $path === '/api/apps/shop/cache/purge' => Http::response(['data' => ['app' => 'shop', 'enabled' => $this->cache['enabled'], 'purged' => 6, 'targets' => $request->data()['paths']]]),
                 $path === '/api/apps/shop/octane' => Http::response(['data' => $this->octane]),
                 $path === '/api/apps/shop/octane/php', $path === '/api/apps/shop/octane/restart', $path === '/api/frankenphp/upgrade',
                 $path === '/api/valkey/isolate', $path === '/api/valkey/share' => Http::response(['job_id' => 'job-1', 'status' => 'pending'], 202),
@@ -149,7 +150,11 @@ class Release490Test extends TestCase
             // How to empty it from a recipe of one's own.
             ->assertSee('sudo /usr/local/bin/cipi-cache-clear shop')
             ->assertSee('deploy:symlink')
-            ->assertSee('save_post');
+            // WordPress and PHP: the plugin and the package that purge some pages.
+            ->assertSee('cipi-sh/cache-wp')
+            ->assertSee('wp plugin install https://github.com/cipi-sh/cache-wp/releases/latest/download/cipi-cache.zip --activate')
+            ->assertSee('composer require cipi/cache')
+            ->assertDontSeeHtml('data-page-cache-purge-some');
 
         $page->set('cacheTtl', '1h')->set('cacheSize', '1g')->set('cacheClearOnDeploy', false)
             ->call('savePageCache')
@@ -158,6 +163,19 @@ class Release490Test extends TestCase
             ->assertDispatched('notify')
             ->assertSee('Empty the cache now');
         $this->assertSame(['enabled' => true, 'ttl' => '1h', 'size' => '1g', 'clear_on_deploy' => false], $this->sent('PUT', '/api/apps/shop/cache')->data());
+
+        // Some pages: checked first, then sent as the server takes them.
+        $page->assertSeeHtml('data-page-cache-purge-some')
+            ->set('cachePurge', "/blog/hello-world/?utm_source=x\n/category/news/*\n\nabout/")
+            ->call('purgePageCache')
+            ->assertHasNoErrors()
+            ->assertSet('cachePurge', '')
+            ->assertDispatched('notify');
+        $this->assertSame(['paths' => ['/blog/hello-world/', '/category/news/*', '/about/']], $this->sent('POST', '/api/apps/shop/cache/purge')->data());
+        $before = Http::recorded()->count();
+        $page->set('cachePurge', '/a*b/')->call('purgePageCache')->assertHasErrors('cachePurge');
+        $page->set('cachePurge', '')->call('purgePageCache')->assertHasErrors('cachePurge');
+        $this->assertSame($before, Http::recorded()->count(), 'nothing leaves while the pages are wrong');
 
         $this->cache['files'] = 128;
         $page->call('clearPageCache')->assertSet('pageCache.files', 0)->assertDispatched('notify');

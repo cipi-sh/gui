@@ -100,6 +100,110 @@ final class Firewall
         };
     }
 
+    /**
+     * The Zero Trust locks of `GET /api/firewall`, in words: what is kept
+     * closed, by whom, and the commands that reopen it on the server. A lock
+     * is Cloudflare's (`cipi zt lock`) or the mesh network's (`cipi zt
+     * tailscale|netbird lock`); a server that does not say who holds a lock
+     * has Cloudflare's. `mesh` says whether a mesh network holds one of them:
+     * those are also reopened from the Zero Trust tab. Null when nothing is
+     * locked.
+     *
+     * @return array{text: string, commands: list<string>, mesh: bool}|null
+     */
+    public static function zeroTrustLocks(array $zeroTrust): ?array
+    {
+        $by = is_array($zeroTrust['by'] ?? null) ? $zeroTrust['by'] : [];
+        $holders = static function (string $what) use ($zeroTrust, $by): array {
+            if (empty($zeroTrust['lock_'.$what])) {
+                return [];
+            }
+            $named = array_values(array_unique(array_filter(
+                array_map(static fn ($h) => is_string($h) ? strtolower($h) : '', is_array($by[$what] ?? null) ? $by[$what] : []),
+                static fn (string $h) => in_array($h, ['cloudflare', 'tailscale', 'netbird'], true),
+            )));
+
+            return $named !== [] ? $named : ['cloudflare'];
+        };
+        $http = $holders('http');
+        $ssh = $holders('ssh');
+        if ($http === [] && $ssh === []) {
+            return null;
+        }
+        $name = static fn (string $h): string => match ($h) {
+            'tailscale' => 'the Tailscale network',
+            'netbird' => 'the NetBird network',
+            default => 'Cloudflare',
+        };
+        $parts = [];
+        $commands = [];
+        if ($http !== []) {
+            $parts[] = '80/443 to '.implode(' and ', array_map($name, $http));
+            foreach ($http as $h) {
+                $commands[] = $h === 'cloudflare' ? 'cipi zt unlock http' : 'cipi zt '.$h.' unlock http';
+            }
+        }
+        if ($ssh !== []) {
+            $mesh = array_values(array_filter($ssh, static fn (string $h) => $h !== 'cloudflare'));
+            $parts[] = $mesh !== [] && count($mesh) === count($ssh)
+                ? 'SSH to '.implode(' and ', array_map($name, $mesh))
+                : 'SSH closed';
+            foreach ($ssh as $h) {
+                $commands[] = $h === 'cloudflare' ? 'cipi zt ssh unlock' : 'cipi zt '.$h.' unlock ssh';
+            }
+        }
+
+        return [
+            'text' => 'Zero Trust keeps '.implode(' and ', $parts).': opening '.($http !== [] ? 'them' : 'it').' to everyone from here is refused.',
+            'commands' => $commands,
+            'mesh' => array_diff(array_merge($http, $ssh), ['cloudflare']) !== [],
+        ];
+    }
+
+    /**
+     * The mesh network of `GET /api/zt` (`details.mesh`), in the words the
+     * Zero Trust tab shows. Null when the server says nothing of a mesh.
+     *
+     * @return array{on: bool, label: string, badge: string, tone: string, key: ?string, ssh: string}|null
+     */
+    public static function mesh(mixed $mesh): ?array
+    {
+        if (! is_array($mesh)) {
+            return null;
+        }
+        $on = ! empty($mesh['enabled']) && is_string($mesh['provider'] ?? null) && $mesh['provider'] !== '';
+        $label = match ($mesh['provider'] ?? null) {
+            'tailscale' => 'Tailscale',
+            'netbird' => 'NetBird',
+            default => is_string($mesh['label'] ?? null) && $mesh['label'] !== '' ? $mesh['label'] : 'Mesh',
+        };
+        if (! $on) {
+            return ['on' => false, 'label' => $label, 'badge' => 'Off', 'tone' => 'gray', 'key' => null, 'ssh' => ''];
+        }
+        $connected = ! empty($mesh['connected']);
+        $warnings = is_array($mesh['warnings'] ?? null) ? $mesh['warnings'] : [];
+        $key = null;
+        if (($mesh['provider'] ?? null) === 'tailscale') {
+            $expiry = is_string($mesh['key_expiry'] ?? null) ? substr($mesh['key_expiry'], 0, 10) : null;
+            $days = is_numeric($mesh['key_expires_in_days'] ?? null) ? (int) $mesh['key_expires_in_days'] : null;
+            $key = $expiry === null ? 'Does not expire'
+                : ($days !== null && $days <= 0 ? 'Expired on '.$expiry
+                    : 'Expires on '.$expiry.($days !== null ? ' — in '.$days.' '.($days === 1 ? 'day' : 'days') : ''));
+        }
+        $ssh = is_array($mesh['ssh'] ?? null) && ! empty($mesh['ssh']['provider_ssh'])
+            ? ($label === 'Tailscale' ? "Tailscale SSH — the tailnet's policy signs people in" : $label."'s own SSH server answers in place of OpenSSH")
+            : "OpenSSH, with the server's keys";
+
+        return [
+            'on' => true,
+            'label' => $label,
+            'badge' => $label.' '.($connected ? 'connected' : 'disconnected'),
+            'tone' => $connected ? ($warnings === [] ? 'green' : 'amber') : 'red',
+            'key' => $key,
+            'ssh' => $ssh,
+        ];
+    }
+
     /** Seconds the way `cipi firewall attempts` prints them: 1d, 6h, 30m, 45s. */
     public static function duration(mixed $seconds): string
     {

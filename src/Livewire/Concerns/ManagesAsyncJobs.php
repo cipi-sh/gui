@@ -120,7 +120,7 @@ trait ManagesAsyncJobs
                 } else {
                     $this->activeJobError = $parser->extractError($rawOutput ?? '', $this->activeJobResult);
                     $this->showDeployHints = $parser->isDeployFailure($rawOutput ?? '', $data['type'] ?? null);
-                    $this->deployHints = $this->showDeployHints ? $parser->deployHints() : [];
+                    $this->deployHints = $this->showDeployHints ? $parser->deployHints($rawOutput ?? '') : [];
                     $this->dispatch('notify', type: 'error', message: $this->activeJobError);
                     $this->onJobFailed($data);
                 }

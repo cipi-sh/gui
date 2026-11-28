@@ -181,6 +181,11 @@ class AppDetail extends Component
     /** Why the last list of paths was refused (the server's words); nothing changed. */
     public ?string $cacheExcludeRefused = null;
 
+    /** Pages to purge, as typed: one per line. */
+    public string $cachePurge = '';
+
+    public ?string $cachePurgeRefused = null;
+
     // ── the PHP of an Octane app (Cipi 5.17.0) ──
 
     /** php, octane_php, build, frankenphp, state, restart_pending, available_php, fix. */
@@ -304,6 +309,15 @@ class AppDetail extends Component
     public string $dcNodeBuild = '';
 
     public string $dcExtraArtisan = '';
+
+    /** Seconds the frontend build of a deploy may run, and every other command (the server's numbers). */
+    public string $dcBuildTimeout = '1800';
+
+    public string $dcStepTimeout = '300';
+
+    /** The server answered with the two clocks: only then are they shown, and sent back. */
+    #[Locked]
+    public bool $dcTimeouts = false;
 
     // Deploy audit ledger (API 1.31+ / Cipi ≥ 5.4.0)
     /** @var list<array<string, mixed>> */
@@ -588,7 +602,8 @@ class AppDetail extends Component
 
     protected function loadDeployTab(): void
     {
-        if ($this->isLaravelApp($this->app ?? [])) {
+        // A Node app has deploy options too: the releases kept, and the two clocks.
+        if ($this->isLaravelApp($this->app ?? []) || $this->isNodeApp($this->app ?? [])) {
             $this->loadDeployConfig();
         }
         if (! $this->auditLoaded) {
@@ -1264,6 +1279,49 @@ class AppDetail extends Component
         }
     }
 
+    /**
+     * Purge some pages, not all: those typed, on every domain of the app.
+     * Whoever may empty the cache may purge some of it.
+     */
+    public function purgePageCache(): void
+    {
+        if (! $this->allowed(($this->can['deploy'] ?? false) ? 'deploy' : 'edit')) {
+            return;
+        }
+        $this->resetErrorBag('cachePurge');
+        $this->cachePurgeRefused = null;
+        $pages = PageCache::purgeParse($this->cachePurge);
+        if ($error = PageCache::purgeError($pages)) {
+            $this->addError('cachePurge', $error);
+
+            return;
+        }
+
+        try {
+            $data = $this->client()->purgePageCache($this->appName, $pages);
+            $files = (int) ($data['purged'] ?? 0);
+            $this->cachePurge = '';
+            $this->dispatch('notify', type: 'success', message: match (true) {
+                ! ($data['enabled'] ?? true) => 'The page cache is off — nothing to purge.',
+                $files === 0 => count($pages) === 1 ? 'That page was not in the cache — nothing to purge.' : 'None of those pages was in the cache — nothing to purge.',
+                default => sprintf('Purged %d cached file%s for %d page%s — the rest of the cache stays.', $files, $files === 1 ? '' : 's', count($pages), count($pages) === 1 ? '' : 's'),
+            });
+            $this->loadPageCache();
+        } catch (CipiApiException $e) {
+            if ($e->getStatusCode() === 422) {
+                $this->cachePurgeRefused = self::plainCliText($e->getMessage());
+
+                return;
+            }
+            if (in_array($e->getStatusCode(), [404, 405], true) || str_contains($e->getMessage(), '5.18')) {
+                $this->cachePurgeRefused = 'Purging some pages needs an up-to-date Cipi on this server (cipi self-update && cipi api update). Empty the cache now still works.';
+
+                return;
+            }
+            $this->handleApiError($e);
+        }
+    }
+
     // ── Octane: the PHP that answers requests, the PHP that runs the rest ──
 
     public function loadOctane(): void
@@ -1501,7 +1559,7 @@ class AppDetail extends Component
     {
         $this->deployConfigUnsupported = false;
 
-        if (! $this->isLaravelApp($this->app ?? [])) {
+        if (! $this->isLaravelApp($this->app ?? []) && ! $this->isNodeApp($this->app ?? [])) {
             $this->deployConfigUnsupported = true;
 
             return;
@@ -1534,6 +1592,9 @@ class AppDetail extends Component
         $this->dcNodeBuild = (string) ($data['node_build'] ?? '');
         $extra = is_array($data['extra_artisan'] ?? null) ? $data['extra_artisan'] : [];
         $this->dcExtraArtisan = implode("\n", array_map('strval', $extra));
+        $this->dcTimeouts = is_numeric($data['build_timeout'] ?? null) && is_numeric($data['step_timeout'] ?? null);
+        $this->dcBuildTimeout = (string) (int) ($data['build_timeout'] ?? 1800);
+        $this->dcStepTimeout = (string) (int) ($data['step_timeout'] ?? 300);
     }
 
     public function saveDeployConfig(): void
@@ -1542,24 +1603,36 @@ class AppDetail extends Component
             return;
         }
 
+        $node = $this->isNodeApp($this->app ?? []);
         $this->dcNodeBuild = trim($this->dcNodeBuild);
         $this->validate([
             'dcKeepReleases' => ['required', 'integer', 'min:1', 'max:20'],
             'dcNodeBuild' => ['nullable', 'string', BuildCommand::rule()],
-        ]);
+        ] + ($this->dcTimeouts ? [
+            'dcBuildTimeout' => ['required', 'integer', 'min:60', 'max:3600'],
+            'dcStepTimeout' => ['required', 'integer', 'min:60', 'max:1800'],
+        ] : []), [], ['dcBuildTimeout' => 'build time limit', 'dcStepTimeout' => 'step time limit', 'dcKeepReleases' => 'releases to keep']);
 
-        try {
-            $data = $this->client()->updateDeployConfig($this->appName, [
-                'keep_releases' => (int) $this->dcKeepReleases,
+        // A Node app's recipe has no artisan hooks, and its build command is on the Node tab.
+        $payload = ['keep_releases' => (int) $this->dcKeepReleases, 'predeploy_snapshot' => $this->dcPredeploySnapshot];
+        if (! $node) {
+            $payload += [
                 'migrate' => $this->dcMigrate,
                 'optimize' => $this->dcOptimize,
                 'storage_link' => $this->dcStorageLink,
                 'queue_restart' => $this->dcQueueRestart,
                 'horizon_terminate' => $this->dcHorizonTerminate,
-                'predeploy_snapshot' => $this->dcPredeploySnapshot,
                 'node_build' => $this->dcNodeBuild,
                 'extra_artisan' => array_values(array_filter(array_map('trim', explode("\n", $this->dcExtraArtisan)))),
-            ]);
+            ];
+        }
+        // Only to a server that knows them: an older one would refuse the whole save.
+        if ($this->dcTimeouts) {
+            $payload += ['build_timeout' => (int) $this->dcBuildTimeout, 'step_timeout' => (int) $this->dcStepTimeout];
+        }
+
+        try {
+            $data = $this->client()->updateDeployConfig($this->appName, $payload);
             $this->syncDeployConfig($data);
             $this->dispatch('notify', type: 'success', message: 'Deploy options saved — deploy.php regenerated.');
         } catch (CipiApiException $e) {

@@ -25,6 +25,9 @@ namespace {
     require $root.'/src/Services/CipiApiException.php';
     require $root.'/src/Livewire/Concerns/ManagesBackups.php';
     require $root.'/src/Support/Firewall.php';
+    require $root.'/src/Support/Mesh.php';
+    require $root.'/src/Services/JobOutputParser.php';
+    require $root.'/src/Support/Sync.php';
 
     use CipiGui\Http\Controllers\DbUploadController as Up;
     use CipiGui\Support\DeployLog;
@@ -535,7 +538,7 @@ namespace {
     $ms = (string) file_get_contents($root.'/resources/views/partials/metrics-settings.blade.php');
     $check(str_contains($ms, '<label class="label" for="m-hb">Heartbeat URL</label>') && str_contains($ms, '<label class="label" for="m-hb-every">Every</label>') && str_contains($ms, '<div class="flex items-start gap-2">') && ! str_contains($ms, 'class="input-group"'), 'Metrics: the heartbeat is a field like the retention\'s — labelled URL and interval on the line of their inputs');
 
-    $check((bool) preg_match("/VERSION = '4\\.(7|8|9)\\.\\d+'/", $theme) && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.7.0]'), 'version 4.7.0 or later, its changelog kept');
+    $check(preg_match("/VERSION = '(\d+\.\d+\.\d+)'/", $theme, $tv47) === 1 && version_compare($tv47[1], '4.7.0', '>=') && str_contains((string) file_get_contents($root.'/CHANGELOG.md'), '## [4.7.0]'), 'version 4.7.0 or later, its changelog kept');
 
     echo "--- 4.8.0: connectors, passkeys, Zero Trust in full\n";
     $routes = (string) file_get_contents($root.'/routes/web.php');
@@ -564,7 +567,7 @@ namespace {
     $PC = \CipiGui\Support\PageCache::class;
     $theme = (string) file_get_contents($root.'/src/Support/Theme.php');
     $changelog = (string) file_get_contents($root.'/CHANGELOG.md');
-    $check(str_contains($theme, "VERSION = '4.9.0'") && str_contains($theme, "API = '1.47'") && str_contains($changelog, '## [4.9.0]'), 'version 4.9.0 for API 1.47');
+    $check(preg_match("/VERSION = '(\d+\.\d+\.\d+)'/", $theme, $tv49) === 1 && version_compare($tv49[1], '4.9.0', '>=') && preg_match("/API = '(\d+\.\d+)'/", $theme, $ta49) === 1 && version_compare($ta49[1], '1.47', '>=') && str_contains($changelog, '## [4.9.0]'), 'version 4.9.0 or later, for API 1.47 or later');
 
     // The page cache: the values the form takes are the server's own rules.
     $check($PC::ttlValid('30s') && $PC::ttlValid('10m') && $PC::ttlValid('30d') && ! $PC::ttlValid('31d') && ! $PC::ttlValid('0s') && ! $PC::ttlValid('10') && ! $PC::ttlValid('10 m') && ! $PC::ttlValid('1w') && $PC::ttlSeconds('2h') === 7200,
@@ -597,8 +600,13 @@ namespace {
     $check(str_contains($ad, "\$tabs['cache'] = 'Page cache';") && str_contains($ad, "\$tabs['octane'] = 'Octane';") && str_contains($ad, "'cache' => \$this->loadPageCache(),") && str_contains($ad, "'octane' => \$this->loadOctane(),"), 'an app has a Page cache tab (not a Node app) and, on Octane, an Octane tab');
     $check(str_contains($adv, 'OPcache is on already') && str_contains($adv, 'PHP still runs') && str_contains($adv, 'The page cache keeps the page itself.') && str_contains($adv, 'Not OPcache — the other cache'), 'the tab says what OPcache does and what the page cache adds');
     $check(str_contains($adv, 'WordPress, WooCommerce, blogs, catalogues, landing pages') && str_contains($adv, 'Traffic peaks') && str_contains($adv, 'What is never cached') && str_contains($adv, 'A Laravel app chooses its pages'), 'what one gets (WordPress and the like), what is never cached, and Laravel\'s own case');
-    $check(str_contains($adv, 'Cipi empties the cache by itself after every successful deploy and rollback') && str_contains($adv, "after('deploy:symlink', function () {") && str_contains($adv, "add_action('save_post', function () {") && str_contains($adv, '$pcRecipe') && str_contains($adv, 'data-page-cache-purge'),
-        'how to empty it: nothing after a Cipi deploy, one command in a recipe of one\'s own, a hook in WordPress');
+    $check(str_contains($adv, 'Cipi empties the cache by itself after every successful deploy and rollback') && str_contains($adv, "after('deploy:symlink', function () {") && str_contains($adv, 'data-page-cache-wordpress') && str_contains($adv, '$pcRecipe') && str_contains($adv, 'data-page-cache-purge'),
+        'how to empty it: nothing after a Cipi deploy, one command in a recipe of one\'s own, the WordPress plugin');
+    $check($PC::purgeParse("/a/?x=1#y\n b/*  /a/\nhttps://x.test/c/") === ['/a/', '/b/*', 'https://x.test/c/'] && $PC::purgeError(['/a/', '/b/*', 'https://x.test/c/', '/caff%C3%A8/']) === null
+        && $PC::purgeError([]) !== null && $PC::purgeError(['/a*b']) !== null && $PC::purgeError(["/x'"]) !== null && $PC::purgeError(array_fill(0, 501, '/x')) !== null, 'purge some pages: parsed and checked as the server checks them');
+    $check(str_contains($adv, 'wire:submit="purgePageCache"') && str_contains($adv, 'wire:model="cachePurge"') && str_contains($adv, 'data-page-cache-purge-some') && str_contains($adv, '@if($pcOn && $pcMayClear)')
+        && preg_match('/public function purgePageCache\(\): void\s*\{\s*if \(! \$this->allowed\(\(\$this->can\[\'deploy\'\] \?\? false\) \? \'deploy\' : \'edit\'\)\)/', $ad) === 1, 'purging some pages: with the cache on, for whoever may empty it');
+    $check(str_contains($adv, 'PageCache::WP_PLUGIN_REPO') && str_contains($adv, 'PageCache::WP_PLUGIN_ZIP') && str_contains($adv, 'PageCache::PHP_PACKAGE_REPO') && $PC::WP_PLUGIN_REPO === 'https://github.com/cipi-sh/cache-wp' && $PC::PHP_PACKAGE_REPO === 'https://github.com/cipi-sh/cache-php', 'the tab links the WordPress plugin and the PHP package, with how to install them');
     $check(str_contains($adv, 'wire:click="clearPageCache"') && str_contains($adv, 'wire:click="disablePageCache"') && str_contains($adv, 'wire:submit="savePageCache"') && str_contains($adv, 'X-Cache-Status'), 'turn on, save, empty now, turn off — and how to check a page');
     $check(preg_match('/public function savePageCache\(\): void\s*\{\s*if \(! \$this->allowed\(\'edit\'\)\)/', $ad) === 1 && preg_match('/public function disablePageCache\(\): void\s*\{\s*if \(! \$this->allowed\(\'edit\'\)\)/', $ad) === 1 && str_contains($ad, "\$this->allowed((\$this->can['deploy'] ?? false) ? 'deploy' : 'edit')"),
         'turning the cache on or off needs Edit on the app; emptying it comes with Deploy too');
@@ -645,6 +653,250 @@ namespace {
         $visible = (string) preg_replace('/\{\{--.*?--\}\}/s', '', $text);
         $check(! preg_match('/\b(API|Cipi) \d+\.\d+/', $visible), "{$label}: no version of Cipi or of its API in its text");
     }
+
+    echo "--- 4.10.0: the mesh network (Tailscale, NetBird) in the Zero Trust tab, who holds a firewall lock\n";
+    $check(str_contains($theme, "VERSION = '4.10.0'") && str_contains($theme, "API = '1.48'") && str_contains($changelog, '## [4.10.0]'), 'version 4.10.0 for API 1.48');
+    $check($FW::zeroTrustLocks(['lock_http' => false, 'lock_ssh' => false, 'by' => ['http' => [], 'ssh' => []]]) === null && $FW::zeroTrustLocks([]) === null, 'no lock: no notice');
+    $l = $FW::zeroTrustLocks(['lock_http' => true, 'lock_ssh' => true]);
+    $check($l['text'] === 'Zero Trust keeps 80/443 to Cloudflare and SSH closed: opening them to everyone from here is refused.' && $l['commands'] === ['cipi zt unlock http', 'cipi zt ssh unlock'], 'a server that does not say who holds a lock: Cloudflare, as before');
+    $l = $FW::zeroTrustLocks(['lock_http' => false, 'lock_ssh' => true, 'by' => ['http' => [], 'ssh' => ['tailscale']]]);
+    $check($l['text'] === 'Zero Trust keeps SSH to the Tailscale network: opening it to everyone from here is refused.' && $l['commands'] === ['cipi zt tailscale unlock ssh'], "SSH locked by the mesh: its name, and its own unlock command");
+    $l = $FW::zeroTrustLocks(['lock_http' => true, 'lock_ssh' => true, 'by' => ['http' => ['cloudflare', 'netbird'], 'ssh' => ['cloudflare', 'netbird']]]);
+    $check($l['text'] === 'Zero Trust keeps 80/443 to Cloudflare and the NetBird network and SSH closed: opening them to everyone from here is refused.'
+        && $l['commands'] === ['cipi zt unlock http', 'cipi zt netbird unlock http', 'cipi zt ssh unlock', 'cipi zt netbird unlock ssh'], 'both sides hold a lock: both named, a command each');
+    $l = $FW::zeroTrustLocks(['lock_http' => true, 'by' => ['http' => ['tailscale; rm -rf /', ['x'], 'TAILSCALE'], 'ssh' => ['tailscale']]]);
+    $check($l['commands'] === ['cipi zt tailscale unlock http'] && ! str_contains($l['text'], 'rm -rf'), 'a holder is one of three names, whatever the server sends; a lock that is off has none');
+    $check($FW::mesh(null) === null && $FW::mesh('x') === null, 'a server that says nothing of a mesh: no card');
+    $off = $FW::mesh(['enabled' => false, 'provider' => null, 'active' => null]);
+    $check($off['on'] === false && $off['badge'] === 'Off' && $off['tone'] === 'gray', 'no mesh on: Off');
+    $m = $FW::mesh(['enabled' => true, 'provider' => 'tailscale', 'connected' => true, 'key_expiry' => null, 'warnings' => [], 'ssh' => ['provider_ssh' => false]]);
+    $check($m['on'] && $m['badge'] === 'Tailscale connected' && $m['tone'] === 'green' && $m['key'] === 'Does not expire' && $m['ssh'] === "OpenSSH, with the server's keys", 'Tailscale connected, a node key that does not expire, OpenSSH');
+    $m = $FW::mesh(['enabled' => true, 'provider' => 'tailscale', 'connected' => true, 'key_expiry' => '2027-01-06T10:00:00Z', 'key_expires_in_days' => 40, 'warnings' => ['The node key expires in 40 days'], 'ssh' => ['provider_ssh' => true]]);
+    $check($m['tone'] === 'amber' && $m['key'] === 'Expires on 2027-01-06 — in 40 days' && str_starts_with($m['ssh'], 'Tailscale SSH'), 'a node key that expires: the day, the days left, amber; Tailscale SSH said');
+    $m = $FW::mesh(['enabled' => true, 'provider' => 'tailscale', 'connected' => false, 'key_expiry' => '2026-11-20T10:00:00Z', 'key_expires_in_days' => -7]);
+    $check($m['tone'] === 'red' && $m['badge'] === 'Tailscale disconnected' && $m['key'] === 'Expired on 2026-11-20', 'off the network with an expired key: red, and why');
+    $m = $FW::mesh(['enabled' => true, 'provider' => 'netbird', 'connected' => true, 'warnings' => []]);
+    $check($m['badge'] === 'NetBird connected' && $m['key'] === null, 'NetBird: no node key line');
+    $check($FW::mesh(['enabled' => true, 'provider' => ''])['on'] === false, 'a mesh with no provider is off');
+    $ztTab = (string) (preg_match("/@elseif\(\\\$activeTab === 'zt'\)(.*?)@elseif\(\\\$activeTab === 'ip'\)/s", $smv, $zm) ? $zm[1] : '');
+    $check($ztTab !== '' && str_contains($ztTab, 'data-zt-mesh') && str_contains($ztTab, "\\CipiGui\\Support\\Firewall::mesh(\$mesh)")
+        && strpos($ztTab, 'data-zt-mesh') > strpos($ztTab, 'data-zt-details'), 'Zero Trust tab: the mesh card, in the detailed view');
+    $check(! preg_match('/\b(API|Cipi) \d+\.\d+/', (string) preg_replace('/{{--(.*?)--}}/s', '', $ztTab)), 'Zero Trust tab: no version of Cipi or of its API in its text');
+    $fwv = $views[$root.'/resources/views/livewire/firewall.blade.php'] ?? '';
+    $check(str_contains($fwv, 'F::zeroTrustLocks($zt)') && str_contains($fwv, 'data-firewall-zt') && ! str_contains($fwv, "'80/443 to Cloudflare'"), 'Firewall tab: the lock notice comes from who holds it');
+
+    echo "--- the mesh network managed from the Zero Trust tab: join, leave, locks, Tailscale SSH\n";
+    $MS = 'CipiGui\Support\Mesh';
+    $check($MS::joinErrors(['provider' => 'tailscale', 'key' => 'tskey-auth-kABC-0123456789']) === [] && $MS::joinErrors(['provider' => 'netbird', 'key' => 'A1B2C3D4-E5F6-7890-ABCD-EF1234567890']) === [], 'join: an auth key, a setup key');
+    $check($MS::joinErrors(['provider' => 'tailscale', 'key' => '']) === [] && $MS::joinErrors(['provider' => 'netbird']) === [], 'join without a key: the server takes a client that is already connected');
+    $check(array_keys($MS::joinErrors(['provider' => 'zerotier'])) === ['provider'] && array_keys($MS::joinErrors([])) === ['provider'], 'join: Tailscale or NetBird');
+    foreach (["tskey'; id", 'short', 'has space key', 'tskey$(id)xx', "tskey\nabcdefg"] as $bad) {
+        $check(isset($MS::joinErrors(['provider' => 'tailscale', 'key' => $bad])['key']), 'join: not a key '.json_encode($bad));
+    }
+    $e = $MS::joinErrors(['provider' => 'tailscale', 'key' => 'tskey-abcdef', 'hostname' => 'web_1', 'control_url' => 'ftp://x', 'tags' => 'ok, no way']);
+    $check(array_keys($e) === ['hostname', 'control_url', 'tags'], 'join: a hostname, a control URL and a tag that are not ones, each on its field');
+    $check($MS::joinErrors(['provider' => 'netbird', 'key' => 'abcdefgh', 'tags' => 'no way']) === [], 'join NetBird: tags are not its own — not read, not an error');
+    $check($MS::tags('cipi, tag:prod ,cipi,') === ['tag:cipi', 'tag:prod'] && $MS::tags('') === [] && $MS::tags(null) === [] && $MS::tags("a';id") === null, 'tags: tag: added, doubles dropped; a bad one refused');
+    $check($MS::joinPayload(['provider' => 'tailscale', 'key' => ' tskey-auth-k1 ', 'hostname' => 'web1', 'control_url' => '', 'tags' => 'cipi', 'direct' => true, 'accept_dns' => false, 'accept_routes' => false, 'ssh' => true])
+        === ['provider' => 'tailscale', 'key' => 'tskey-auth-k1', 'hostname' => 'web1', 'direct' => true, 'tags' => ['tag:cipi'], 'ssh' => true], 'join Tailscale: only what was filled in');
+    $check($MS::joinPayload(['provider' => 'netbird', 'key' => 'A1B2C3D4', 'control_url' => 'https://nb.example.com', 'tags' => 'cipi', 'ssh' => true, 'accept_routes' => true])
+        === ['provider' => 'netbird', 'key' => 'A1B2C3D4', 'control_url' => 'https://nb.example.com', 'accept_routes' => true], 'join NetBird: nothing of Tailscale\'s goes');
+    $check($MS::keyName('tailscale') === 'Auth key' && $MS::keyName('netbird') === 'Setup key' && $MS::label('netbird') === 'NetBird' && $MS::label(['x']) === 'Mesh', 'each provider calls its key by its own name');
+    $b = $MS::blocked(['enabled' => true, 'provider' => 'tailscale']);
+    $check($b === ['managed' => false, 'lock_ssh' => null, 'lock_http' => null, 'leave' => null], 'a server that does not say what the panel may do: not managed from here');
+    $b = $MS::blocked(['panel' => ['via' => 'public', 'blocked' => ['lock_ssh' => ' Nobody has signed in over SSH through Tailscale yet. ', 'lock_http' => 'The panel reaches this server on its public address', 'disable' => null]]]);
+    $check($b['managed'] && $b['lock_ssh'] === 'Nobody has signed in over SSH through Tailscale yet.' && str_starts_with($b['lock_http'], 'The panel reaches') && $b['leave'] === null, 'what the server would refuse, with its reason; the rest goes');
+    $check($MS::blocked(['panel' => ['blocked' => ['lock_ssh' => ['x'], 'lock_http' => '', 'disable' => 5]]]) === ['managed' => true, 'lock_ssh' => null, 'lock_http' => null, 'leave' => null], 'a reason is text or nothing');
+    $r = fn (array $panel, string $p = 'tailscale') => $MS::route(['provider' => $p, 'panel' => $panel]);
+    $check($MS::route(['provider' => 'tailscale']) === null && $MS::route(null) === null, 'no route said: no line');
+    $check(str_contains($r(['via' => 'mesh', 'from' => '100.64.0.2']), 'over Tailscale (from 100.64.0.2)') && str_contains($r(['via' => 'mesh'], 'netbird'), 'over NetBird:'), 'the panel over the mesh');
+    $check(str_contains($r(['via' => 'public', 'from' => '203.0.113.9']), 'on its public address (from 203.0.113.9)') && str_contains($r(['via' => 'public', 'from' => '<b>x']), 'public address:'), 'the panel on the public address; an address that is not one is not shown');
+    $check(str_contains($r(['via' => 'tunnel']), 'Cloudflare tunnel') && str_contains($r(['via' => 'unknown']), 'could not tell') && str_contains($r(['via' => 'whatever']), 'could not tell'), 'through the tunnel; unknown');
+    $check(str_contains($r(['via' => 'local', 'client' => ['via' => 'public', 'from' => '198.51.100.7']]), 'You are looking at it on its public address (from 198.51.100.7)')
+        && str_contains($r(['via' => 'local', 'client' => ['via' => 'public', 'from' => '198.51.100.7']]), 'on its Tailscale address first'), 'a panel on the server, looked at on the public address: said, with what to do');
+    $check(str_contains($r(['via' => 'local', 'client' => ['via' => 'mesh', 'from' => '100.64.0.9']]), 'over Tailscale (from 100.64.0.9): closing 80/443 to the world keeps this page')
+        && str_contains($r(['via' => 'local', 'client' => ['via' => 'tunnel']]), 'through the Cloudflare tunnel') && str_contains($r(['via' => 'local', 'client' => null]), 'runs on the server itself'), 'a panel on the server, looked at over the mesh or through the tunnel');
+    $check($MS::seen(['ssh' => ['seen' => ['at' => '2026-11-27T12:00:01', 'from' => '100.99.1.2']]]) === 'Last login over the network from 100.99.1.2 · 2026-11-27T12:00:01'
+        && $MS::seen(['ssh' => ['seen' => null]]) === null && $MS::seen([]) === null && $MS::seen(['ssh' => ['seen' => ['at' => 'Nov 27 12:00:01', 'from' => 'x; id']]]) === 'Last login over the network · Nov 27 12:00:01', 'the last login over the mesh; nobody yet is nothing');
+
+    $trait = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesMesh.php');
+    $actions = ['joinMesh', 'leaveMesh', 'lockMesh', 'unlockMesh', 'setMeshSsh'];
+    $guarded = true;
+    foreach ($actions as $a) {
+        $guarded = $guarded && (bool) preg_match('/public function '.$a.'\([^)]*\): void\s*\{\s*if \(! \$this->serverAllowed\(Access::MANAGE, \(int\) \$this->serverId\)/', $trait);
+    }
+    $check($guarded, 'every action of the mesh needs Manage on the server, before anything else');
+    $check(str_contains($trait, "finally {") && str_contains($trait, "\$this->meshKey = '';") && ! str_contains($trait, 'Log::') && ! str_contains($trait, 'session('), 'the key is cleared once sent, whatever the server answered; never logged, never in the session');
+    $check(str_contains($trait, "in_array(\$port, ['ssh', 'http'], true)") && str_contains($trait, 'zt-manage') && str_contains($trait, 'cipi self-update && cipi api update'), 'a port is ssh or http; a token without zt-manage and an older server are said in words');
+    $check(substr_count($trait, '$this->meshBrowserIp()') >= 6 && str_contains($trait, 'request()->ip()'), 'the browser\'s address goes with every call: the server refuses to close 80/443 under the page being looked at');
+    $smc = (string) file_get_contents($root.'/src/Livewire/ServerManage.php');
+    $check(str_contains($smc, 'use ManagesMesh;') && str_contains($smc, "'zt' => fn () => \$this->zt = \$this->loadZt(),"), 'the server page has the mesh actions and reads Zero Trust for this browser');
+    $client = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    foreach (["'post', '/zt/mesh'," => 'join', "'delete', '/zt/mesh'," => 'leave', "'post', '/zt/mesh/lock'," => 'lock', "'delete', '/zt/mesh/lock'," => 'unlock', "'put', '/zt/mesh/ssh'," => 'Tailscale SSH'] as $needle => $what) {
+        $check(str_contains($client, $needle), "client: {$what}");
+    }
+    $check(str_contains($client, "max(240, (int) config('cipi-gui.http_timeout', 30))") && str_contains($client, "\$data['client'] = \$client;"), 'client: a join gets minutes, not seconds; the browser\'s address goes in the body');
+    $check(str_contains($cfg, "'zt-view', 'zt-manage'"), 'the token command on Connections asks for zt-manage');
+    foreach (['data-zt-mesh-join' => 'the join form', 'wire:submit="joinMesh"' => 'join', "wire:click=\"lockMesh('ssh')\"" => 'close SSH', "wire:click=\"lockMesh('http')\"" => 'close 80/443', "wire:click=\"unlockMesh('ssh')\"" => 'reopen SSH',
+        "wire:click=\"unlockMesh('http')\"" => 'reopen 80/443', 'wire:click="setMeshSsh(true)"' => 'Tailscale SSH on', 'wire:click="setMeshSsh(false)"' => 'Tailscale SSH off', 'wire:click="leaveMesh"' => 'leave',
+        'data-zt-mesh-why="ssh"' => 'why SSH is not closed', 'data-zt-mesh-why="http"' => 'why 80/443 are not closed', 'data-zt-mesh-why="leave"' => 'why the network is not left', 'data-zt-mesh-route' => 'how the panel reaches the server',
+        'data-zt-mesh-seen' => 'the last login over the mesh', 'data-zt-mesh-update' => 'a server that needs an update', 'data-zt-mesh-shell' => 'a mesh the panel is not told about'] as $needle => $what) {
+        $check(str_contains($ztTab, $needle), "Zero Trust tab: {$what}");
+    }
+    preg_match_all('/<button[^>]*wire:click="(lockMesh|unlockMesh|leaveMesh|setMeshSsh\(true\))[^>]*>/', $ztTab, $bm);
+    $check(count($bm[0]) === 6 && ! array_filter($bm[0], fn ($b) => ! str_contains($b, 'data-confirm="')), 'closing, reopening, leaving and Tailscale SSH on all ask first');
+    $check(substr_count($ztTab, '@disabled($meshBlocked[') === 3 && str_contains($ztTab, 'type="password" wire:model="meshKey"') && str_contains($ztTab, 'autocomplete="off"'), 'a button the server would refuse is greyed out; the key is typed as a secret');
+    $check(str_contains($ztTab, '@elseif($canManage)') && str_contains($ztTab, '@if(! $canManage)') && str_contains($ztTab, 'needs Manage access to this server'), 'without Manage access: the status, and no form or button');
+    $cfCard = (string) (preg_match('/data-zt-details>(.*?)\$mesh = is_array/s', $ztTab, $cm) ? $cm[1] : 'wire:click');
+    $check(! str_contains($cfCard, 'wire:click') && ! str_contains($cfCard, 'wire:submit') && str_contains($cfCard, 'Status only'), 'Cloudflare\'s card is still status only');
+    $check(! preg_match('/\b(API|Cipi) \d+\.\d+/', (string) preg_replace('/{{--(.*?)--}}/s', '', $ztTab)) && ! preg_match('/\b(API|Cipi) \d+\.\d+/', (string) preg_replace('~/\*.*?\*/|//[^\n]*~s', '', (string) file_get_contents($root.'/src/Support/Mesh.php'))), 'the mesh in the panel: no version of Cipi or of its API in what it says');
+    $l = $FW::zeroTrustLocks(['lock_http' => false, 'lock_ssh' => true, 'by' => ['http' => [], 'ssh' => ['tailscale']]]);
+    $l2 = $FW::zeroTrustLocks(['lock_http' => true, 'lock_ssh' => false]);
+    $check($l['mesh'] === true && $l2['mesh'] === false && str_contains($fwv, 'data-firewall-zt-tab') && str_contains($fwv, 'href="?tab=zt"'), 'Firewall tab: a lock of the mesh is reopened in the Zero Trust tab, and the notice links there');
+    $demo = (string) file_get_contents($root.'/dev/demo/api/index.php');
+    $check(str_contains($demo, "\$r('/zt/mesh(/lock|/ssh)?')") && str_contains($demo, 'function ztMeshRoute('), 'the demo API joins, leaves and locks too');
+
+    $appsView = (string) file_get_contents($root.'/resources/views/livewire/apps.blade.php');
+    $check(str_contains($appsView, 'data-create-coming-soon') && str_contains($appsView, "@if(\$appKind === 'custom')") && str_contains($appsView, 'Coming soon</em> page'), 'Create app, custom: the form says what the domain shows while there is no repository');
+
+    echo "--- a deploy stopped on the clock: said as that, with hints of its own\n";
+    $jp = new CipiGui\Services\JobOutputParser;
+    $generic = $jp->deployHints();
+    // What the job of the report carried: the build at Deployer's 300 seconds.
+    $old = "[INFO] Deploying 'iceberg'...\n\ntask deploy:vendors\ntask cipi:node_build\n[localhost] Deployer\\Exception\\TimeoutException in deploy.php on line 52:\n\n"
+        ."  The command \"test ! -x /home/iceberg/.deployer/node-build.sh || /home/iceberg/.deployer/node-build.sh /home/iceberg/releases/71\" exceeded the timeout of 300 seconds.\n\n"
+        ."task deploy:failed\ntask deploy:unlock\n\n\e[0;31m[ERROR]\e[0m Deploy failed (exit 1)\n\e[0;33m[WARN]\e[0m Log: /var/log/cipi-apps/iceberg/deploy.log";
+    $check($jp->deployTimeout($old) === ['step' => 'cipi:node_build', 'seconds' => 300, 'build' => true], 'the step and its seconds are read from the output — the step before the error, not deploy:failed after it');
+    $check($jp->extractError($old) === 'The build (cipi:node_build) ran for 5 minutes, the most it is given, and was stopped.', 'the error is that sentence, not "Deploy failed (exit 1)"');
+    $hints = $jp->deployHints($old);
+    $check($hints !== $generic && str_contains($hints[0], 'cipi self-update') && str_contains($hints[0], '30 minutes') && ! str_contains(implode(' ', $hints), 'deploy key'), 'a build stopped at 5 minutes: update the server — not the hints about the Git repository');
+    $check(preg_match('/\d+\.\d+/', implode(' ', $hints).$jp->extractError($old)) === 0, '…and no version number in any of it');
+    $new = str_replace('of 300 seconds', 'of 1800 seconds', $old);
+    $check($jp->extractError($new) === 'The build (cipi:node_build) ran for 30 minutes, the most it is given, and was stopped.' && str_contains($jp->deployHints($new)[0], 'short of memory') && ! str_contains(implode(' ', $jp->deployHints($new)), 'self-update'),
+        'a build that used its 30 minutes: where to look, and no "update the server"');
+    $node = "task node:install\n[localhost] Deployer\\Exception\\TimeoutException in deploy.php on line 80:\n\n  The command \"export PATH=/opt/cipi/node/22/bin && cd /home/web/releases/3 && npm ci --no-audit --no-fund\" exceeded the timeout of 300 seconds.\n\n[ERROR] Deploy failed (exit 1)";
+    $check($jp->deployTimeout($node)['build'] === true && $jp->extractError($node) === 'The build (node:install) ran for 5 minutes, the most it is given, and was stopped.', 'a Node app: its install and its build are build steps too');
+    $migrate = "➤ Executing task artisan:migrate\n[localhost] Deployer\\Exception\\TimeoutException in Client.php on line 99:\n\n  The command \"/usr/bin/php8.5 artisan migrate --force\" exceeded the timeout of 300 seconds.\n\n[ERROR] Deploy failed (exit 1)";
+    $check($jp->extractError($migrate) === 'The step artisan:migrate ran for 5 minutes, the most it is given, and was stopped.' && str_contains($jp->deployHints($migrate)[0], 'Every step of a deploy has 5 minutes'), 'another step, announced the verbose way: named as a step');
+    $check($jp->extractError("The command \"x\" exceeded the timeout of 45 seconds.") === 'A step of the deploy ran for 45 seconds, the most it is given, and was stopped.', 'no step in the output: said without one');
+    $api = "task deploy:vendors\ntask cipi:node_build\n\n[cipi-api] Stopped after 120 minutes: the time the API gives a job of this kind. The command had not ended. On the server, `cipi deploy shop --status` says whether a deploy is still running, and the deploy log how far it went.";
+    $check(str_starts_with($jp->extractError($api), 'Stopped after 120 minutes: the time the API gives a job of this kind.') && count($jp->deployHints($api)) === 2 && str_contains($jp->deployHints($api)[0], '--status') && str_contains($jp->deployHints($api)[1], 'Unlock deploy'),
+        'a deploy job the API closed after its two hours: its line is the error, the hints say where to look');
+    $key = "task deploy:update_code\n[ERROR] Permission denied (publickey).";
+    $check($jp->deployTimeout($key) === null && $jp->extractError($key) === 'Permission denied (publickey).' && $jp->deployHints($key) === $generic && count($generic) === 5, 'every other failed deploy: the error and the hints it had');
+    $trait = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesAsyncJobs.php');
+    $check(str_contains($trait, "\$parser->deployHints(\$rawOutput ?? '')"), 'the overlay asks for the hints of this output');
+
+    echo "--- the two clocks of a deploy in the Deploy pipeline card (Laravel and Node apps)\n";
+    $ad = (string) file_get_contents($root.'/src/Livewire/AppDetail.php');
+    $adv = (string) file_get_contents($root.'/resources/views/livewire/app-detail.blade.php');
+    $check(str_contains($ad, "'dcBuildTimeout' => ['required', 'integer', 'min:60', 'max:3600']") && str_contains($ad, "'dcStepTimeout' => ['required', 'integer', 'min:60', 'max:1800']"), 'the bounds of the server: 60-3600 seconds for the build, 60-1800 for every other step');
+    $check(str_contains($ad, "\$this->dcTimeouts = is_numeric(\$data['build_timeout'] ?? null) && is_numeric(\$data['step_timeout'] ?? null);") && (bool) preg_match('/#\[Locked\]\s+public bool \$dcTimeouts = false;/', $ad)
+        && str_contains($ad, "if (\$this->dcTimeouts) {\n            \$payload += ['build_timeout' => (int) \$this->dcBuildTimeout, 'step_timeout' => (int) \$this->dcStepTimeout];"),
+        'they are shown and sent back only to a server that reported them (the browser cannot say it did)');
+    $check(str_contains($ad, "\$payload = ['keep_releases' => (int) \$this->dcKeepReleases, 'predeploy_snapshot' => \$this->dcPredeploySnapshot];\n        if (! \$node) {")
+        && substr_count($ad, "\$this->isLaravelApp(\$this->app ?? []) || \$this->isNodeApp(\$this->app ?? [])") === 1, 'a Node app loads its deploy options and saves the four it takes — no artisan hook, no asset build');
+    $check(str_contains($adv, '@if($isLaravel || $isNode)') && str_contains($adv, 'data-deploy-pipeline-form="node"') && substr_count($adv, 'data-dc-build-timeout') === 2 && substr_count($adv, 'data-dc-step-timeout') === 2
+        && substr_count($adv, '@if($dcTimeouts)') === 2, 'the card: one form for a Laravel app, one for a Node app, the two numbers in each');
+    $check(substr_count($adv, '@if(') + substr_count($adv, '@if (') === substr_count($adv, '@endif'), 'app-detail: every @if has its @endif');
+    $demoApi = (string) file_get_contents($root.'/dev/demo/api/index.php');
+    $check(str_contains($demoApi, "'build_timeout' => 1800, 'step_timeout' => 300") && str_contains($demoApi, "['app' => \$name, 'runtime' => 'node'] + \$a['deploy_config']"), 'the demo API answers with the clocks, and for a Node app');
+
+    echo "--- Create app: a database made with a custom or a Node app\n";
+    $appsSrc = (string) file_get_contents($root.'/src/Livewire/Apps.php');
+    $appsView = (string) file_get_contents($root.'/resources/views/livewire/apps.blade.php');
+    $check(str_contains($appsSrc, "\$this->dbName = \$isNode || \$isCustom ? trim(\$this->dbName) : '';") && str_contains($appsSrc, "\$rules['dbName'] = ['regex:/^[a-z][a-z0-9_]{1,63}\$/'];")
+        && str_contains($appsSrc, "\$payload['db'] = \$this->dbName;"), 'the name is checked like the server checks it, sent as db, and never for a Laravel app');
+    $check(str_contains($appsSrc, "'docroot', 'engine', 'dbName',") && str_contains($appsSrc, "'docroot', 'dbName', 'assetBuild'"), 'it is part of the draft: reset with the form, kept while the form has input');
+    $check(str_contains($appsView, "@if(\$appKind !== 'laravel')\n                        <div class=\"grid grid-cols-1 sm:grid-cols-2 gap-4\" data-create-db>") && str_contains($appsView, 'wire:model="dbName"')
+        && str_contains($appsView, '@if(count($availableEngines) > 1)'), 'the form: the field for custom and Node apps, the engine only where there is a choice');
+    $check(substr_count($appsView, '@if(') + substr_count($appsView, '@if (') === substr_count($appsView, '@endif'), 'apps: every @if has its @endif');
+
+    echo "--- Server → Transfer: apps sent to another server, with the key and the passphrase managed\n";
+    $S = \CipiGui\Support\Sync::class;
+    $check($S::sshHost('198.51.100.42', 'https://clients.example.com') === '198.51.100.42' && $S::sshHost(null, 'https://clients.example.com:8443/x') === 'clients.example.com'
+        && $S::sshHost('', 'http://[2001:db8::1]/') === '' && $S::sshHost('1.2.3.4; id', 'not a url') === '', 'the address suggested for a server of the panel: its IP, else the host of its URL, never something that is not a host');
+    $existing = ['shop', 'docs'];
+    $check($S::movable([['app' => 'shop', 'kind' => 'laravel'], ['app' => 'console', 'kind' => 'node'], ['app' => 'docs', 'kind' => 'custom'], ['app' => '', 'kind' => 'laravel']]) === $existing
+        && $S::movable([['app' => 'console', 'kind' => 'node']]) === [] && array_keys($S::errors('h1', '22', true, [], [])) === ['syncApps'], 'Node apps are not moved by a transfer: left out of what is sent, and a server with nothing else has nothing to send');
+    $check($S::errors('203.0.113.9', '22', true, [], $existing) === [] && $S::errors('fra1.tail1234.ts.net', '2222', false, ['docs'], $existing) === []
+        && $S::errors('fd7a:115c:a1e0::6f01', '22', true, [], $existing) === [], 'an IPv4, an IPv6 or a hostname and a port are a target');
+    $check(array_keys($S::errors('a b', '22', true, [], $existing)) === ['syncHost'] && array_keys($S::errors('-oProxyCommand=x', '22', true, [], $existing)) === ['syncHost']
+        && array_keys($S::errors('', '22', true, [], $existing)) === ['syncHost'] && array_keys($S::errors('host$(id)', '22', true, [], $existing)) === ['syncHost'], 'a host with a space, a leading dash or shell characters is refused in the page');
+    $check(array_keys($S::errors('h1', '0', true, [], $existing)) === ['syncPort'] && array_keys($S::errors('h1', '65536', true, [], $existing)) === ['syncPort']
+        && array_keys($S::errors('h1', '22x', true, [], $existing)) === ['syncPort'] && array_keys($S::errors('h1', '', true, [], $existing)) === ['syncPort'], 'a port is 1–65535, digits only');
+    $check(array_keys($S::errors('h1', '22', false, [], $existing)) === ['syncApps'] && array_keys($S::errors('h1', '22', false, ['shop', 'ghost'], $existing)) === ['syncApps']
+        && $S::errors('h1', '22', true, ['ghost'], $existing) === [], 'chosen apps: at least one, all of them on the server (ticks do not count when every app is sent)');
+    $ok = ['ok' => true, 'auto_passphrase' => true];
+    $check($S::verdict(null, false) === ['none', ''] && $S::verdict($ok, false)[0] === 'ok' && $S::verdict(['ok' => true, 'auto_passphrase' => false], true)[0] === 'old'
+        && $S::verdict(['ok' => true], true)[0] === 'old', 'a target that answers is ready only when its Cipi takes the passphrase from the source');
+    $check($S::verdict(['ok' => false, 'reason' => 'not-trusted'], false)[0] === 'trust' && str_contains($S::verdict(['ok' => false, 'reason' => 'not-trusted'], false)[1], 'add the key below')
+        && str_contains($S::verdict(['ok' => false, 'reason' => 'not-trusted'], true)[1], 'sync-manage'), 'not trusted: the key to add for a server outside the panel, the token to look at for one inside');
+    $check($S::verdict(['ok' => false, 'reason' => 'unreachable'], false)[0] === 'error' && str_contains($S::verdict(['ok' => false, 'reason' => 'unreachable'], false)[1], 'from this server, not from your browser')
+        && str_contains($S::verdict(['ok' => false, 'reason' => 'host-key-changed'], false)[1], 'ssh-keygen -R') && str_contains($S::verdict(['ok' => false, 'reason' => 'no-cipi'], false)[1], 'Cipi does not')
+        && $S::verdict(['ok' => false, 'reason' => 'else', 'message' => 'Odd.'], false) === ['error', 'Odd.'] && $S::verdict(['ok' => false], false)[1] === 'The target could not be checked.', 'every other answer of the check has its sentence, and an unknown one the server\'s own');
+    $all = $S::summary(true, $existing, 2, true, false, 'clients');
+    $check(str_starts_with($all, 'Send all 2 apps of this server to clients, with their databases?') && str_contains($all, 'their database there is replaced') && str_contains($all, 'Nothing is removed or stopped on this server.'), 'the confirmation says what is sent, where, and what is replaced there');
+    $check(str_starts_with($S::summary(false, ['docs'], 2, false, false, '203.0.113.9'), 'Send the app docs to 203.0.113.9, without databases or uploaded files')
+        && ! str_contains($S::summary(false, ['docs'], 2, false, false, 'x'), 'is replaced') && str_contains($S::summary(false, ['a', 'b'], 5, true, true, 'x'), '2 apps (a, b)')
+        && str_contains($S::summary(false, ['a', 'b'], 5, true, true, 'x'), 'their database and storage there is replaced') && str_starts_with($S::summary(true, ['a'], 1, false, true, 'x'), 'Send the app of this server to x, with their uploaded files?'), 'one app, some apps, with and without data');
+
+    $syncTrait = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesSync.php');
+    $syncView = (string) file_get_contents($root.'/resources/views/partials/server-sync.blade.php');
+    $apiClient = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    $check(str_contains($manageClass, 'use ManagesSync;') && str_contains($manageClass, "'sync' => 'Transfer'") && str_contains($manageClass, "'sync' => fn () => \$this->loadSync()")
+        && str_contains($manageClass, '$this->syncAfterJob($data);'), 'the server page has the tab, loads it on demand and tells it when a job ends');
+    $check(str_contains((string) file_get_contents($root.'/resources/views/livewire/server-manage.blade.php'), "@elseif(\$activeTab === 'sync')\n") && str_contains((string) file_get_contents($root.'/resources/views/livewire/server-manage.blade.php'), "@include('cipi-gui::partials.server-sync')"), 'and shows it');
+    $check(str_contains($apiClient, "\$this->get('/sync/key')") && str_contains($apiClient, "'/sync/check', data: ['host' => \$host, 'port' => \$port]") && str_contains($apiClient, "\$this->request('post', '/sync/trust', data: ['key' => \$key])")
+        && str_contains($apiClient, "\$this->request('delete', '/sync/trust', data: ['key' => \$key])") && str_contains($apiClient, "\$this->request('post', '/sync/push', data: \$payload)"), 'the client: key, check, trust, untrust, push');
+    $check(str_contains((string) file_get_contents($root.'/config/cipi-gui.php'), "'zt-manage', 'sync-manage',"), 'sync-manage is one of the abilities the panel asks a token for');
+    $check(substr_count($syncTrait, '$this->serverAllowed(Access::MANAGE, (int) $this->serverId)') >= 3 && substr_count($syncTrait, 'Access::canManageServer($this->panelUser(), $peer->id)') === 2
+        && str_contains($syncTrait, "return \$this->manageableServers()->where('id', '!=', (int) \$this->serverId)->values();"), 'checking, starting and removing need Manage on this server; a target of the panel is one the user manages too');
+    $check(! preg_match('/passphrase|password/i', str_replace("\$this->syncCheck['auto_passphrase']", '', preg_replace('#/\*.*?\*/|//[^\n]*#s', '', $syncTrait))) && ! str_contains($syncView, 'type="password"') && ! preg_match('/wire:model[.a-z]*="[^"]*pass/i', $syncView)
+        && ! str_contains($apiClient, 'auto_passphrase\' =>') && str_contains($syncView, 'never passes through this panel'), 'no passphrase anywhere in the wizard: no field, no property, nothing sent — and the page says so');
+    $check(str_contains($syncTrait, "empty(\$this->syncCheck['ok']) || empty(\$this->syncCheck['auto_passphrase'])") && str_contains($syncTrait, "(\$this->syncCheck['host'] ?? null) !== trim(\$this->syncHost)")
+        && (bool) preg_match('/public function updatedSyncHost\(\): void\s+\{\s+\$this->syncCheck = null;/', $syncTrait) && (bool) preg_match('/public function updatedSyncPort\(\): void\s+\{\s+\$this->syncCheck = null;/', $syncTrait),
+        'a transfer starts only after a check that said yes for this very address and port');
+    $check((bool) preg_match('/#\[Locked\]\s+public \?array \$syncCheck = null;/', $syncTrait) && (bool) preg_match('/#\[Locked\]\s+public int \$syncTrustedPeerId = 0;/', $syncTrait)
+        && (bool) preg_match('/#\[Locked\]\s+public array \$syncSourceApps = \[\];/', $syncTrait) && (bool) preg_match('/#\[Locked\]\s+public \?array \$syncKey = null;/', $syncTrait), 'what the server said — the check, the key, the apps, where the key was added — cannot be set from the browser');
+    $check(str_contains($syncTrait, "if ((\$data['type'] ?? '') !== 'sync-push') {") && str_contains($syncTrait, 'if ($this->syncTrustedPeerId !== 0 && ! $this->syncKeepTrust) {')
+        && str_contains($syncTrait, "if (! empty(\$trusted['changed'])) {\n                        \$this->syncTrustedPeerId = \$peer->id;"), 'the key the wizard added is taken back when the transfer ends, whatever its end — not one that was trusted before it');
+    $check(str_contains($syncView, 'data-sync-step="what"') && str_contains($syncView, 'data-sync-step="where"') && str_contains($syncView, 'data-sync-step="go"') && str_contains($syncView, 'data-sync-receive')
+        && str_contains($syncView, "['serverId' => \$peer->id, 'tab' => 'sync', 'to' => \$server->id]") && str_contains($syncView, 'data-sync-forget'), 'the view: three steps, and the way in from the server that receives');
+    $check(str_contains($syncView, '$syncMovable = \\CipiGui\\Support\\Sync::movable($syncSourceApps);') && str_contains($syncView, 'data-sync-node') && str_contains($syncView, "@if(\$item['kind'] === 'node')")
+        && str_contains($syncTrait, 'Sync::movable($this->syncSourceApps)'), 'Node apps are shown as not moved, and never counted or sent');
+    $check(substr_count($syncView, '@if(') === substr_count($syncView, '@endif') && substr_count($syncView, '<div') === substr_count($syncView, '</div>') && substr_count($syncView, '<section') === substr_count($syncView, '</section>'), 'server-sync: every @if, div and section is closed');
+    preg_match_all('/<x-cipi::icon name="([a-z-]+)"/', $syncView, $syncIcons);
+    $iconsSrc = (string) file_get_contents($root.'/src/Support/Icons.php');
+    $check($syncIcons[1] !== [] && array_filter($syncIcons[1], fn ($n) => ! str_contains($iconsSrc, "'{$n}' =>")) === [], 'every icon of the tab exists');
+    $check(! preg_match('/Cipi \d+\.\d+|API \d+\.\d+/', $syncView) && ! str_contains($syncView, "\$syncCheck['cipi']"), 'no version is named in the tab, not even the target\'s');
+    $check(str_contains($demoApi, "if (\$r('/sync/(key|check|trust|push)')) {") && str_contains($demoApi, 'function syncPushJob(array &$state, string $profile, array $p): array'), 'the demo API has the four routes and the job');
+
+    echo "--- Backups: SFTP destinations; Server → Updates: signature and delay\n";
+    require_once $root.'/src/Support/BackupSftp.php';
+    require_once $root.'/src/Support/UpdatePolicy.php';
+    $B = \CipiGui\Support\BackupSftp::class;
+    $check($B::errors('box', 'u1.your-storagebox.de', '23', 'u1', 'cipi') === [] && $B::errors('vps', 'fd7a::1', '22', 'backup', '/srv/backups') === [], 'an SFTP destination: a name, a host, a port, a user, a folder');
+    $check(array_keys($B::errors('s3', 'a;b', '0', 'a b', '../x')) === ['sftpName', 'sftpHost', 'sftpPort', 'sftpUser', 'sftpPath'] && array_keys($B::errors('box', 'h', '22', 'u', '', ['local', 'box'])) === ['sftpName'], 'each field refused as the server would; a name that is taken');
+    $check($B::isStorageBox(['host' => 'u1.your-storagebox.de']) && ! $B::isStorageBox(['host' => 'backup.example.com']) && $B::storageBoxCommand(['name' => 'box', 'port' => 23, 'user' => 'u1', 'host' => 'u1.your-storagebox.de']) === 'ssh-copy-id -p 23 -s -f -i cipi-backup-box.pub u1@u1.your-storagebox.de'
+        && str_contains($B::authorizedKeysCommand("ssh-ed25519 AAAA x'y"), "echo 'ssh-ed25519 AAAA xy' >> ~/.ssh/authorized_keys"), 'how to install the key: ssh-copy-id -s for a Storage Box, authorized_keys elsewhere — no quote can break the line');
+    $mb = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesBackups.php');
+    $bv = (string) file_get_contents($root.'/resources/views/partials/server-backups.blade.php');
+    $check(substr_count($mb, 'if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)') >= 6 && (bool) preg_match('/#\[Locked\]\s+public \?array \$sftpAdded = null;/', $mb) && (bool) preg_match('/#\[Locked\]\s+public \?string \$sftpEditing = null;/', $mb), 'SFTP destinations need Manage; what the server answered cannot be set from the browser');
+    $check(! preg_match('/password|secret/i', preg_replace('#/\*.*?\*/|//[^\n]*#s', '', substr($mb, strpos($mb, '// ── SFTP destinations'), 4000))) && ! str_contains($bv, 'type="password"'), 'no password, no secret in the SFTP form');
+    $check(str_contains($bv, 'data-backup-sftp-form') && str_contains($bv, 'data-backup-sftp-install') && str_contains($bv, 'wire:click="sftpPresetStorageBox"') && str_contains($bv, "'sftp' => 'sftp://'"), 'the view: the form, the key with how to install it, a Storage Box preset, sftp:// addresses');
+    $api = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    $check(str_contains($api, "\$this->post('/backups/destinations', ['type' => 'sftp'] + \$payload)") && str_contains($api, "'/self-update/policy'"), 'the client: SFTP destinations, the update policy');
+    $up = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesUpdatePolicy.php');
+    $uv = (string) file_get_contents($root.'/resources/views/partials/server-updates.blade.php');
+    $check(str_contains($manageClass, "'updates' => 'Updates'") && str_contains($manageClass, "'updates' => fn () => \$this->loadUpdatePolicy()") && str_contains((string) file_get_contents($root.'/resources/views/livewire/server-manage.blade.php'), "@include('cipi-gui::partials.server-updates')"), 'the server page has an Updates tab');
+    $check(str_contains($up, "\$firstTrust = \$this->upVerify && empty(\$this->updatePolicy['signers_ready']);") && str_contains($up, "preg_match('#^SHA256:[A-Za-z0-9+/]{43}\$#', \$fp)") && (bool) preg_match('/#\[Locked\]\s+public \?array \$updatePolicy = null;/', $up), 'the first trust takes a fingerprint the person pasted; what the server said is locked');
+    $check(! preg_match("/'\\/self-update'|selfUpdate\(\)|self-update --now'/", $api) && str_contains($uv, 'Starting an update is not done from the panel'), 'the panel never starts an update');
+    $check(array_keys(\CipiGui\Support\UpdatePolicy::DELAYS) === [0, 6, 12, 24, 48, 72, 168] && str_contains((string) file_get_contents($root.'/config/cipi-gui.php'), "'updates-view', 'updates-manage',"), 'delays up to a week; the token asks for updates-view and updates-manage');
+    $check(substr_count($uv, '@if(') + substr_count($uv, '@if (') === substr_count($uv, '@endif') && substr_count($uv, '<div') === substr_count($uv, '</div>'), 'server-updates: balanced');
+    preg_match_all('/<x-cipi::icon name="([a-z-]+)"/', $uv.$bv, $ic);
+    $iconsSrc = (string) file_get_contents($root.'/src/Support/Icons.php');
+    $check(array_filter(array_unique($ic[1]), fn ($n) => ! str_contains($iconsSrc, "'{$n}' =>")) === [], 'every icon of the two tabs exists');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);

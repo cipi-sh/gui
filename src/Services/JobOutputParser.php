@@ -9,6 +9,9 @@ class JobOutputParser
      */
     private const DEPLOYER_USAGE_PATTERN = '/\n\s*deploy \[-p\|--parallel\].*$/s';
 
+    /** The steps of a deploy that build the frontend: the ones Cipi gives 30 minutes, not Deployer's 5. */
+    private const BUILD_STEPS = ['cipi:node_build', 'node:install', 'node:build'];
+
     /** Outcomes of `cipi yml apply` in an `app-yml-apply` job result. */
     public const YML_OUTCOMES = ['applied', 'unchanged', 'partial', 'blocked', 'invalid', 'no-file'];
 
@@ -39,6 +42,16 @@ class JobOutputParser
         }
 
         $text = $this->cleanOutput($output);
+
+        // A step stopped on the clock: "Deploy failed (exit 1)" says less than that.
+        if ($timeout = $this->deployTimeout($text)) {
+            return $this->deployTimeoutError($timeout);
+        }
+
+        // The API gave the job up (its own limit): the line it left says so.
+        if (preg_match('/\[cipi-api\]\s*(Stopped after \d+ minutes[^\n]*)/', $text, $m)) {
+            return trim($m[1]);
+        }
 
         if (preg_match('/\[ERROR\]\s*(.+?)(?:\n|$)/', $text, $m)) {
             return trim($m[1]);
@@ -99,10 +112,84 @@ class JobOutputParser
     }
 
     /**
+     * A deploy that Deployer stopped on its clock ("The command "…" exceeded
+     * the timeout of 300 seconds"): the step that was running and the seconds
+     * it had. Null for every other failure.
+     *
+     * @return array{step: ?string, seconds: int, build: bool}|null
+     */
+    public function deployTimeout(string $output): ?array
+    {
+        $text = $this->stripAnsi($output);
+        if (! preg_match('/exceeded the timeout of (\d+) seconds/', $text, $m, PREG_OFFSET_CAPTURE)) {
+            return null;
+        }
+
+        // The last step announced before the error; deploy:failed comes after it.
+        $step = null;
+        if (preg_match_all('/^\s*(?:\[[^\]\n]*\]\s*)?(?:➤ Executing )?task ([A-Za-z0-9:_-]+)\s*$/mu', substr($text, 0, $m[0][1]), $steps)) {
+            $step = end($steps[1]) ?: null;
+        }
+
+        return [
+            'step' => $step,
+            'seconds' => (int) $m[1][0],
+            'build' => in_array($step, self::BUILD_STEPS, true),
+        ];
+    }
+
+    /**
+     * @param  array{step: ?string, seconds: int, build: bool}  $timeout
+     */
+    public function deployTimeoutError(array $timeout): string
+    {
+        $seconds = $timeout['seconds'];
+        $ran = $seconds >= 60 && $seconds % 60 === 0
+            ? ($seconds / 60).' minutes'
+            : $seconds.' seconds';
+        $what = $timeout['build']
+            ? "The build ({$timeout['step']})"
+            : ($timeout['step'] ? "The step {$timeout['step']}" : 'A step of the deploy');
+
+        return "{$what} ran for {$ran}, the most it is given, and was stopped.";
+    }
+
+    /**
+     * What to check after a failed deploy. With the job's output, a deploy
+     * that ran out of time gets the hints for that — not the ones about the
+     * Git repository, which have nothing to do with it.
+     *
      * @return array<int, string>
      */
-    public function deployHints(): array
+    public function deployHints(string $output = ''): array
     {
+        $live = 'Nothing was published: the previous release is still live.';
+
+        if ($timeout = $this->deployTimeout($output)) {
+            if ($timeout['build'] && $timeout['seconds'] <= 300) {
+                return [
+                    'The frontend build is the long step of a deploy: an up-to-date Cipi gives it 30 minutes, not 5. Run cipi self-update on the server, then deploy again.',
+                    'On a server that is up to date, the deploy.php of this app was edited by hand and kept the old limit: the output names the command that writes it again.',
+                    $live,
+                ];
+            }
+
+            return [
+                $timeout['build']
+                    ? 'A build that needs this long is usually short of memory (the server swaps) or waiting for an answer nobody gives: the deploy log shows where it stopped.'
+                    : 'Every step of a deploy has 5 minutes, the frontend build 30: the deploy log shows what this one was doing.',
+                'Run it on the server to watch it: cipi deploy <app>',
+                $live,
+            ];
+        }
+
+        if (str_contains($this->stripAnsi($output), '[cipi-api] Stopped after')) {
+            return [
+                'The API closes a job that runs longer than it lets one run (the line above says after how long). Whether the deploy is still running on the server: cipi deploy <app> --status',
+                'If it left a lock behind: use Unlock deploy, then retry.',
+            ];
+        }
+
         return [
             'Verify the app has a Git repository configured (Laravel apps require one).',
             'Add the deploy key to your Git provider: cipi deploy <app> --key',

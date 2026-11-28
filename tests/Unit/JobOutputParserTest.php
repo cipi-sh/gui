@@ -133,4 +133,37 @@ class JobOutputParserTest extends TestCase
         $this->assertNotSame($parser->deployHints(), $parser->publishedDeployHints());
         $this->assertStringContainsString('5.8.1', implode(' ', $parser->publishedDeployHints()));
     }
+
+    #[Test]
+    public function it_says_when_a_deploy_was_stopped_on_the_clock(): void
+    {
+        $parser = new JobOutputParser;
+        $output = "task deploy:vendors\ntask cipi:node_build\n[localhost] Deployer\\Exception\\TimeoutException in deploy.php on line 52:\n\n"
+            ."  The command \"test ! -x /home/iceberg/.deployer/node-build.sh || /home/iceberg/.deployer/node-build.sh /home/iceberg/releases/71\" exceeded the timeout of 300 seconds.\n\n"
+            ."task deploy:failed\ntask deploy:unlock\n\n\e[0;31m[ERROR]\e[0m Deploy failed (exit 1)";
+
+        $this->assertSame(['step' => 'cipi:node_build', 'seconds' => 300, 'build' => true], $parser->deployTimeout($output));
+        $this->assertSame('The build (cipi:node_build) ran for 5 minutes, the most it is given, and was stopped.', $parser->extractError($output));
+        $this->assertStringContainsString('cipi self-update', $parser->deployHints($output)[0]);
+        $this->assertStringNotContainsString('deploy key', implode(' ', $parser->deployHints($output)));
+
+        // The build with its own 30 minutes, used up: nothing to update.
+        $long = str_replace('of 300 seconds', 'of 1800 seconds', $output);
+        $this->assertSame('The build (cipi:node_build) ran for 30 minutes, the most it is given, and was stopped.', $parser->extractError($long));
+        $this->assertStringNotContainsString('self-update', implode(' ', $parser->deployHints($long)));
+
+        // Another step.
+        $migrate = "task artisan:migrate\n  The command \"php artisan migrate --force\" exceeded the timeout of 300 seconds.\n[ERROR] Deploy failed (exit 1)";
+        $this->assertSame('The step artisan:migrate ran for 5 minutes, the most it is given, and was stopped.', $parser->extractError($migrate));
+        $this->assertFalse($parser->deployTimeout($migrate)['build']);
+
+        // A job the API closed after its two hours.
+        $api = "task cipi:node_build\n\n[cipi-api] Stopped after 120 minutes: the time the API gives a job of this kind. The command had not ended.";
+        $this->assertStringStartsWith('Stopped after 120 minutes', $parser->extractError($api));
+        $this->assertStringContainsString('--status', $parser->deployHints($api)[0]);
+
+        // Every other failure keeps its error and its hints.
+        $this->assertNull($parser->deployTimeout("[ERROR] Permission denied (publickey)."));
+        $this->assertSame($parser->deployHints(), $parser->deployHints("[ERROR] Permission denied (publickey)."));
+    }
 }

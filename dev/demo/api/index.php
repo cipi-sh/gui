@@ -324,6 +324,24 @@ function handle(string $method, string $route, array $body, array $query, string
     if ($method === 'GET' && $r('/zt')) {
         return [200, ['data' => $s['zt']]];
     }
+    // The mesh network of Zero Trust (Cipi 5.18): join, leave, locks, Tailscale SSH
+    if ($r('/zt/mesh(/lock|/ssh)?')) {
+        return ztMeshRoute($method, $p(1), $body, $s);
+    }
+
+    // Transfers between servers (`cipi sync`): key, check, trust, push
+    if ($r('/sync/(key|check|trust|push)')) {
+        return syncRoute($method, $p(1), $body, $s, $state, $profile);
+    }
+
+    // Backups: the status, and the SFTP destinations the panel adds (Cipi 5.18)
+    if ($r('/backups(/runs|/destinations|/destinations/test|/destinations/[a-z0-9_-]+(?:/key)?)?')) {
+        return backupsRoute($method, $p(1), $body, $s);
+    }
+    // How the server updates Cipi (Cipi 5.18): signature check and delay
+    if ($r('/self-update/policy')) {
+        return selfUpdateRoute($method, $body, $s);
+    }
 
     // Disk usage (API 1.33+): `cipi disk --json` and `cipi disk db --json`
     if ($method === 'GET' && $r('/disk/dbs')) {
@@ -481,12 +499,25 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
 
         // Deploy config
         case $sub === '/deploy-config' && $method === 'GET':
-            $laravelOnly();
-
-            return [200, ['data' => $a['deploy_config'] + ['app' => $name]]];
         case $sub === '/deploy-config' && $method === 'PUT':
+            // A Node app has deploy options too: the releases kept, the snapshot, the two clocks.
+            if ($isNode) {
+                $nodeKeys = ['keep_releases' => 5, 'predeploy_snapshot' => false, 'build_timeout' => 1800, 'step_timeout' => 300];
+                $a['deploy_config'] = array_intersect_key(($a['deploy_config'] ?? []) + $nodeKeys, $nodeKeys);
+                if ($method === 'PUT') {
+                    if (array_diff_key(array_filter($body, fn ($v) => $v !== null), $nodeKeys) !== []) {
+                        return [422, ['error' => "'{$name}' is a Node app: its recipe has no artisan hooks."]];
+                    }
+                    $a['deploy_config'] = array_merge($a['deploy_config'], array_intersect_key($body, $nodeKeys));
+                }
+
+                return [200, ['data' => ['app' => $name, 'runtime' => 'node'] + $a['deploy_config']]];
+            }
             $laravelOnly();
-            $a['deploy_config'] = array_merge($a['deploy_config'], array_intersect_key($body, $a['deploy_config']));
+            $a['deploy_config'] += ['build_timeout' => 1800, 'step_timeout' => 300];
+            if ($method === 'PUT') {
+                $a['deploy_config'] = array_merge($a['deploy_config'], array_intersect_key($body, $a['deploy_config']));
+            }
 
             return [200, ['data' => $a['deploy_config'] + ['app' => $name]]];
 
@@ -630,6 +661,25 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
             }
 
             return [200, ['data' => pageCacheView($name, $info) + ['cleared' => $cleared]]];
+        case $sub === '/cache/purge' && $method === 'POST':
+            $paths = is_array($body['paths'] ?? null) ? array_values($body['paths']) : [];
+            if ($paths === [] || count($paths) > 500) {
+                throw new DemoHttpError(422, 'paths: from 1 to 500 pages');
+            }
+            foreach ($paths as $p) {
+                if (! is_string($p) || ! preg_match('#^(https?://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?)?/[A-Za-z0-9._~%:@!,;=+/-]{0,2047}\*?$#', $p)) {
+                    throw new DemoHttpError(422, 'paths: a page is a path (/blog/post/), a prefix (/blog/*) or a URL on a domain of the app');
+                }
+            }
+            $view = pageCacheView($name, $info);
+            $on = (bool) ($view['enabled'] ?? false);
+            // About two files a page (http and https, a ?utm variant), never more than there are.
+            $purged = $on ? min((int) ($view['files'] ?? 0), 2 * count($paths)) : 0;
+            if ($on && isset($info['page_cache'])) {
+                $info['page_cache']['files'] = max(0, (int) ($view['files'] ?? 0) - $purged);
+            }
+
+            return [200, ['data' => ['app' => $name, 'enabled' => $on, 'purged' => $purged, 'targets' => $paths]]];
 
         // The PHP of an Octane app (cipi/api 1.47, Cipi 5.17.0).
         case $sub === '/octane' && $method === 'GET':
@@ -830,7 +880,7 @@ function demoFirewall(): array
             $rule('allow', '5432', 'tcp', '10.10.0.0/16', 'v4', 'port'),
         ]],
         'protected_ports' => [22, 80, 443],
-        'zero_trust' => ['lock_http' => false, 'lock_ssh' => false],
+        'zero_trust' => ['lock_http' => false, 'lock_ssh' => false, 'by' => ['http' => [], 'ssh' => []]],
         'fail2ban' => ['installed' => true, 'running' => true, 'attempts' => 3, 'attempts_default' => 3, 'attempts_custom' => null, 'attempts_pending' => false,
             'findtime' => 3600, 'bantime' => 86400, 'jails' => [
                 ['jail' => 'recidive', 'banned' => [], 'count' => 0, 'total' => 2, 'failed' => 0],
@@ -843,10 +893,488 @@ function demoFirewall(): array
     ];
 }
 
+/**
+ * `POST|DELETE /zt/mesh`, `POST|DELETE /zt/mesh/lock`, `PUT /zt/mesh/ssh`: the
+ * mesh network as the server would change it. The demo panel reaches its
+ * servers on their public address, so closing 80/443 is refused the way the
+ * CLI refuses it (fra1's API is on the tunnel: there it goes); SSH is closed
+ * once somebody has signed in over the mesh — which, on a server that has
+ * just joined, nobody has.
+ */
+function ztMeshRoute(string $method, string $action, array $body, array &$s): array
+{
+    $zt = &$s['zt'];
+    if (! is_array($zt['details'] ?? null)) {
+        throw new DemoHttpError(503, 'The mesh network from the panel needs Cipi 5.18.0+ — this server runs Cipi 5.15.2');
+    }
+    $mesh = is_array($zt['details']['mesh'] ?? null) ? $zt['details']['mesh'] : ['enabled' => false, 'provider' => null];
+    $on = ! empty($mesh['enabled']);
+    $labels = ['tailscale' => 'Tailscale', 'netbird' => 'NetBird'];
+    $save = function (array $mesh, string $message) use (&$zt): array {
+        if (! empty($mesh['enabled'])) {
+            $label = $mesh['label'];
+            $seen = $mesh['ssh']['seen'] ?? null;
+            $via = $mesh['panel']['via'] ?? 'public';
+            $mesh['panel'] = ['via' => $via, 'from' => '203.0.113.10', 'client' => null, 'blocked' => [
+                'lock_ssh' => ! empty($mesh['ssh']['provider_ssh'])
+                    ? "{$label} SSH answers on the mesh address and its sessions are not in sshd's log: lock from a session over the network, at the server's shell (cipi zt {$mesh['provider']} lock ssh)."
+                    : ($seen === null ? "Nobody has signed in over SSH through {$label} yet. Do it once from a device of the network (ssh cipi@{$mesh['ip']}): that login is the proof that it works, and then the port can be closed." : null),
+                'lock_http' => in_array($via, ['mesh', 'local', 'tunnel'], true) ? null
+                    : "The panel reaches this server's API on its public address (from 203.0.113.10): with 80/443 closed it could not reach it any more, not even to unlock. Have the panel call the API over {$label} (the API's DNS record on {$mesh['ip']}) or through the Cloudflare tunnel, or lock at the server's shell (cipi zt {$mesh['provider']} lock http).",
+                'disable' => $via === 'mesh' ? "The panel reaches this server over {$label}: leaving the network would cut it off. Do it at the server's shell (cipi zt {$mesh['provider']} disable)." : null,
+            ]];
+        }
+        $zt['details']['mesh'] = $mesh;
+        $zt['mesh'] = ! empty($mesh['enabled']) ? $mesh['provider'] : null;
+        $zt['mesh_state'] = ! empty($mesh['enabled']) ? 'connected' : null;
+        $zt['mesh_ip'] = ! empty($mesh['enabled']) ? $mesh['ip'] : null;
+
+        return [200, ['data' => $zt, 'message' => $message]];
+    };
+
+    if ($action === '' && $method === 'POST') {
+        $provider = (string) ($body['provider'] ?? '');
+        if (! isset($labels[$provider])) {
+            throw new DemoHttpError(422, "'provider' is tailscale or netbird");
+        }
+        if ($on) {
+            throw new DemoHttpError(422, "This server is on {$mesh['label']} already: one mesh network at a time (cipi zt {$mesh['provider']} disable first)");
+        }
+        $key = (string) ($body['key'] ?? '');
+        if ($key === '') {
+            throw new DemoHttpError(422, "{$labels[$provider]} is not installed on this server: give a key to join with");
+        }
+        if (! preg_match('/^[A-Za-z0-9._~:?&=%+\/-]{8,512}$/', $key)) {
+            throw new DemoHttpError(422, 'That does not look like a key (8 to 512 characters, no spaces, no quotes)');
+        }
+        $name = (string) ($body['hostname'] ?? '') ?: (string) ($s['status']['system']['hostname'] ?? 'server');
+        $tags = array_values(array_filter((array) ($body['tags'] ?? [])));
+        $tailscale = $provider === 'tailscale';
+        $ip = $tailscale ? '100.90.14.22' : '100.76.3.41';
+
+        return $save([
+            'enabled' => true, 'provider' => $provider, 'label' => $labels[$provider], 'installed' => true, 'installed_by_cipi' => true,
+            'running' => true, 'connected' => true, 'state' => $tailscale ? 'Running' : 'Connected', 'online' => true,
+            'interface' => $tailscale ? 'tailscale0' : 'wt0', 'interface_up' => true, 'ip' => $ip, 'ip6' => null, 'name' => $name,
+            'fqdn' => $tailscale ? $name.'.tail1234.ts.net' : $name.'.netbird.cloud', 'network' => $tailscale ? 'example.org' : null,
+            'control_url' => ($body['control_url'] ?? '') ?: null, 'version' => $tailscale ? '1.80.2' : '0.36.5', 'tags' => $tailscale ? $tags : [],
+            // An untagged Tailscale machine has a node key that expires: lock ssh will ask for that to be settled.
+            'key_expiry' => $tailscale && $tags === [] ? gmdate('Y-m-d\TH:i:s\Z', time() + 180 * 86400) : null,
+            'key_expires_in_days' => $tailscale && $tags === [] ? 180 : null,
+            'peers' => ['total' => 4, 'online' => 3],
+            'ssh' => ['provider_ssh' => $tailscale && ! empty($body['ssh']), 'ports' => [22], 'command' => 'ssh cipi@'.$ip, 'seen' => null],
+            'lock' => ['ssh' => false, 'http' => false], 'direct' => ['port' => $tailscale ? 41641 : 51820, 'open' => ! empty($body['direct'])],
+            'accept_dns' => ! empty($body['accept_dns']), 'accept_routes' => ! empty($body['accept_routes']),
+            'firewall_active' => true, 'http01_apps' => [], 'enabled_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'warnings' => $tailscale && $tags === [] ? ['The node key expires in 180 days: disable key expiry for this machine, or join with a tagged key'] : [],
+        ], "Installing {$labels[$provider]}...\n{$labels[$provider]}: {$name} is on the network as {$ip}\nNothing was closed: SSH and 80/443 answer as before.");
+    }
+
+    if (! $on) {
+        throw new DemoHttpError(422, 'This server is on no mesh network');
+    }
+    $label = (string) $mesh['label'];
+    $blocked = (array) ($mesh['panel']['blocked'] ?? []);
+
+    if ($action === '' && $method === 'DELETE') {
+        if (! empty($blocked['disable'])) {
+            throw new DemoHttpError(422, (string) $blocked['disable']);
+        }
+
+        return $save(['enabled' => false, 'provider' => null, 'active' => null], "Reopening what the locks closed...\n{$label} removed: this server left the network.");
+    }
+    if ($action === '/lock') {
+        $port = (string) ($body['port'] ?? '');
+        if (! in_array($port, ['ssh', 'http'], true)) {
+            throw new DemoHttpError(422, "'port' is ssh or http");
+        }
+        if ($method === 'POST') {
+            if (! empty($blocked['lock_'.$port])) {
+                throw new DemoHttpError(422, (string) $blocked['lock_'.$port]);
+            }
+            if ($port === 'ssh' && ! empty($mesh['key_expiry'])) {
+                throw new DemoHttpError(422, 'The node key of this machine expires on '.substr((string) $mesh['key_expiry'], 0, 10).": that day the server leaves the network, and with port 22 closed the provider's console is the only way in. Disable key expiry for the machine, or join again with a tagged key.");
+            }
+            $mesh['lock'][$port] = true;
+
+            return $save($mesh, $port === 'ssh' ? "SSH is closed to the world: port 22 answers on {$label} only." : "80/443 are closed to the world: they answer on {$label} only.");
+        }
+        if ($method === 'DELETE') {
+            $mesh['lock'][$port] = false;
+
+            return $save($mesh, $port === 'ssh' ? 'SSH is open to the world again.' : '80/443 are open to the world again.');
+        }
+    }
+    if ($action === '/ssh' && $method === 'PUT') {
+        if ($mesh['provider'] !== 'tailscale') {
+            throw new DemoHttpError(422, "NetBird's own SSH server is not turned on by Cipi: SSH over NetBird is OpenSSH, with the server's keys");
+        }
+        $mesh['ssh']['provider_ssh'] = ! empty($body['enabled']);
+
+        return $save($mesh, 'Tailscale SSH is '.($mesh['ssh']['provider_ssh'] ? 'on' : 'off').'.');
+    }
+
+    throw new DemoHttpError(405, 'Method not allowed');
+}
+
+/**
+ * The firewall as Zero Trust leaves it: who holds a lock (`zero_trust.by`),
+ * and the rules a lock replaces — the mesh interface let through, the SSH
+ * port and 80/443 no longer open to everyone while a lock holds them.
+ */
+function demoFirewallZeroTrust(array &$fw, array $zt): void
+{
+    $d = is_array($zt['details'] ?? null) ? $zt['details'] : [];
+    $cf = ! empty($d['enabled']) && is_array($d['lock'] ?? null) ? $d['lock'] : [];
+    $mesh = is_array($d['mesh'] ?? null) && ! empty($d['mesh']['enabled']) ? $d['mesh'] : null;
+    $by = ['http' => [], 'ssh' => []];
+    foreach (['http', 'ssh'] as $port) {
+        if (! empty($cf[$port])) {
+            $by[$port][] = 'cloudflare';
+        }
+        if ($mesh !== null && ! empty($mesh['lock'][$port])) {
+            $by[$port][] = (string) $mesh['provider'];
+        }
+    }
+    $fw['zero_trust'] = ['lock_http' => $by['http'] !== [], 'lock_ssh' => $by['ssh'] !== [], 'by' => $by];
+
+    $rule = fn (string $port, string $from, string $family, string $comment, string $interface = '') => [
+        'action' => 'allow', 'port' => $port, 'proto' => $port === 'any' ? 'any' : 'tcp', 'from' => $from, 'to' => 'any', 'direction' => 'in', 'interface' => $interface, 'app' => '',
+        'comment' => $comment, 'family' => $family, 'log' => false, 'kind' => $port === 'any' ? 'other' : 'port', 'managed_by' => $comment === '' ? '' : 'zero-trust',
+        'protected' => $comment === '', 'removable' => false,
+    ];
+    // What the server is reached on, as the locks leave it — ahead of the other allows, after the blocks.
+    $reach = [];
+    if ($mesh !== null) {
+        $reach[] = $rule('any', 'any', 'both', 'cipi-zt-mesh', (string) ($mesh['interface'] ?? ''));
+    }
+    if ($by['ssh'] === []) {
+        $reach[] = $rule('22', 'any', 'both', '');
+    }
+    if ($by['http'] === []) {
+        $reach[] = $rule('80', 'any', 'both', '');
+        $reach[] = $rule('443', 'any', 'both', '');
+    } elseif (in_array('cloudflare', $by['http'], true) && ($cf['http_mode'] ?? '') !== 'dark' && count($by['http']) === 1) {
+        $reach[] = $rule('80,443', 'Cloudflare (22 ranges)', 'both', 'cipi-zt-cf');
+    }
+    $rules = (array) ($fw['ufw']['rules'] ?? []);
+    $blocks = array_values(array_filter($rules, fn ($r) => ($r['kind'] ?? '') === 'block'));
+    $others = array_values(array_filter($rules, fn ($r) => ($r['kind'] ?? '') !== 'block' && ($r['managed_by'] ?? '') !== 'zero-trust' && empty($r['protected'])));
+    $fw['ufw']['rules'] = array_merge($blocks, $reach, $others);
+}
+
+/**
+ * `GET /sync/key`, `POST /sync/check`, `POST|DELETE /sync/trust`, `POST /sync/push`:
+ * the apps of one server sent to another (`cipi sync`). The demo servers reach
+ * each other on the addresses of their fixtures; any other host does not answer.
+ */
+function syncRoute(string $method, string $action, array $body, array &$s, array &$state, string $profile): array
+{
+    $s['sync'] ??= ['trusted' => []];
+    $hostRe = '/^[A-Za-z0-9]([A-Za-z0-9.:-]{0,252}[A-Za-z0-9])?$/';
+    $target = function () use ($body, $hostRe): array {
+        $host = trim((string) ($body['host'] ?? ''));
+        $port = (int) ($body['port'] ?? 22);
+        if (! preg_match($hostRe, $host)) {
+            throw new DemoHttpError(422, 'host must be an IP address or a hostname');
+        }
+        if ($port < 1 || $port > 65535) {
+            throw new DemoHttpError(422, 'port must be between 1 and 65535');
+        }
+
+        return [$host, $port];
+    };
+    $keyOf = function () use ($body): array {
+        $key = preg_replace('/\s+/', ' ', trim((string) ($body['key'] ?? '')));
+        if (! preg_match('#^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)) [A-Za-z0-9+/=]{40,} ?[\w@.:+-]{0,128}$#', $key)) {
+            throw new DemoHttpError(422, 'That is not one SSH public key (type, key, comment — on one line)');
+        }
+        [$type, $blob] = explode(' ', $key);
+
+        return ['key' => $key, 'type' => $type, 'blob' => $blob, 'comment' => explode(' ', $key, 3)[2] ?? '',
+            'fingerprint' => 'SHA256:'.rtrim(base64_encode(hash('sha256', (string) base64_decode($blob), true)), '=')];
+    };
+
+    if ($action === 'key' && $method === 'GET') {
+        return [200, ['data' => syncDemoKey($s, $profile)]];
+    }
+    if ($action === 'check' && $method === 'POST') {
+        [$host, $port] = $target();
+        $base = ['ok' => false, 'host' => $host, 'port' => $port, 'user' => 'cipi', 'cipi' => null, 'auto_passphrase' => false, 'reason' => null, 'message' => ''];
+        $peer = syncDemoPeer($state, $host);
+        if ($peer === $profile) {
+            throw new DemoHttpError(422, 'That address is this server');
+        }
+        if ($peer === null || $port !== 22) {
+            return [200, ['data' => ['reason' => 'unreachable', 'message' => "No SSH answer from {$host}:{$port}"] + $base]];
+        }
+        $mine = explode(' ', syncDemoKey($s, $profile)['key'])[1];
+        $trusted = array_column($state['servers'][$peer]['sync']['trusted'] ?? [], 'blob');
+        if (! in_array($mine, $trusted, true)) {
+            return [200, ['data' => ['reason' => 'not-trusted', 'message' => "{$host} does not accept this server's key"] + $base]];
+        }
+
+        return [200, ['data' => ['ok' => true, 'cipi' => '5.18.0', 'auto_passphrase' => true] + $base]];
+    }
+    if ($action === 'trust' && in_array($method, ['POST', 'DELETE'], true)) {
+        $key = $keyOf();
+        $at = array_search($key['blob'], array_column($s['sync']['trusted'], 'blob'), true);
+        $changed = $method === 'POST' ? $at === false : $at !== false;
+        if ($method === 'POST' && $at === false) {
+            $s['sync']['trusted'][] = $key;
+        } elseif ($method === 'DELETE' && $at !== false) {
+            array_splice($s['sync']['trusted'], (int) $at, 1);
+        }
+        unset($key['blob']);
+
+        return [200, ['data' => $key + ['changed' => $changed],
+            'message' => $method === 'POST' ? 'The key is trusted: its server can push apps here.' : 'The key is no longer trusted here.']];
+    }
+    if ($action === 'push' && $method === 'POST') {
+        [$host, $port] = $target();
+        $apps = array_values(array_map('strval', is_array($body['apps'] ?? null) ? $body['apps'] : []));
+        foreach ($apps as $app) {
+            if (! isset($s['apps'][$app])) {
+                throw new DemoHttpError(422, "App '{$app}' is not on this server");
+            }
+        }
+
+        return [202, dispatchJob($state, $profile, 'sync-push', [
+            'host' => $host, 'port' => $port, 'user' => 'cipi', 'apps' => $apps,
+            'with_db' => ! empty($body['with_db']), 'with_storage' => ! empty($body['with_storage']),
+        ])];
+    }
+
+    throw new DemoHttpError(405, "Method {$method} not allowed on /api/sync/{$action}");
+}
+
+/** A demo server's sync key: the same at every call, different on every server. */
+function syncDemoKey(array $s, string $profile): array
+{
+    $raw = hash('sha256', 'cipi-demo-sync-'.$profile, true);
+    $blob = base64_encode("\0\0\0\x0bssh-ed25519\0\0\0\x20".$raw);
+    $comment = 'cipi@'.($s['status']['system']['hostname'] ?? $profile);
+
+    return ['key' => "ssh-ed25519 {$blob} {$comment}", 'type' => 'ssh-ed25519', 'comment' => $comment,
+        'fingerprint' => 'SHA256:'.rtrim(base64_encode(hash('sha256', (string) base64_decode($blob), true)), '=')];
+}
+
+/** The demo server that answers on this address, if one does. */
+function syncDemoPeer(array $state, string $host): ?string
+{
+    foreach ($state['servers'] as $name => $server) {
+        $system = $server['status']['system'] ?? [];
+        if (in_array($host, array_filter([$system['ip'] ?? null, $system['ipv6'] ?? null, $system['hostname'] ?? null, $server['zt']['mesh_ip'] ?? null]), true)) {
+            return (string) $name;
+        }
+    }
+
+    return null;
+}
+
+/** A finished transfer: the apps of the source are on the target too. [ok, output, result] */
+function syncPushJob(array &$state, string $profile, array $p): array
+{
+    $source = &$state['servers'][$profile];
+    $peer = syncDemoPeer($state, (string) $p['host']);
+    $names = $p['apps'] !== [] ? $p['apps'] : array_keys($source['apps']);
+    $out = ['→ Exporting '.count($names).' app(s)'.($p['with_db'] ? ', with databases' : '').($p['with_storage'] ? ', with storage' : '').'…',
+        '→ Encrypting the archive (AES-256, one-time passphrase)…'];
+    $mine = explode(' ', syncDemoKey($source, $profile)['key'])[1];
+    if ($peer === null || ! in_array($mine, array_column($state['servers'][$peer]['sync']['trusted'] ?? [], 'blob'), true)) {
+        return [false, implode("\n", $out)."\n✗ {$p['host']} does not accept this server's key — nothing was sent", null];
+    }
+
+    $target = &$state['servers'][$peer];
+    $out[] = "→ Sending it to cipi@{$p['host']}:{$p['port']}…";
+    $out[] = '→ Importing on the target…';
+    $created = $updated = [];
+    foreach ($names as $name) {
+        if (! isset($source['apps'][$name])) {
+            continue;
+        }
+        if (! empty($source['apps'][$name]['info']['node'])) {
+            $out[] = "  skipped  {$name} (a Node app: sync does not handle Node apps yet)";
+
+            continue;
+        }
+        isset($target['apps'][$name]) ? $updated[] = $name : $created[] = $name;
+        $target['apps'][$name] = $source['apps'][$name];
+        if ($p['with_db']) {
+            foreach ($source['dbs'] ?? [] as $db) {
+                if (($db['name'] ?? '') === $name && ! in_array($name, array_column($target['dbs'] ?? [], 'name'), true)) {
+                    $target['dbs'][] = $db;
+                }
+            }
+        }
+        $out[] = '  '.(in_array($name, $created, true) ? 'created' : 'updated')."  {$name}";
+    }
+    $out[] = '→ Archive removed from both servers';
+    $out[] = '✓ '.count($created).' created, '.count($updated).' updated on '.$p['host'];
+
+    return [true, implode("\n", $out), ['host' => $p['host'], 'created' => $created, 'updated' => $updated]];
+}
+
+/**
+ * `GET /backups`, `GET /backups/runs`, `POST /backups/destinations/test` and the
+ * SFTP destinations (`POST /backups/destinations`, `PUT|DELETE
+ * /backups/destinations/{name}`, `GET …/{name}/key`) — what `cipi backup status
+ * --json` and `cipi backup sftp …` answer. One nightly profile to the default
+ * bucket; no S3 destination can be added here, as on a real panel.
+ */
+function backupsRoute(string $method, string $sub, array $body, array &$s): array
+{
+    $s['backup_demo'] ??= [
+        'destinations' => [
+            ['name' => 'local', 'type' => 'local', 'path' => '/var/backups/cipi', 'default' => false],
+            ['name' => 's3', 'type' => 's3', 'bucket' => 'acme-backups', 'endpoint' => 'https://fsn1.your-objectstorage.com', 'default' => true],
+        ],
+        'keys' => [],
+    ];
+    $b = &$s['backup_demo'];
+    $apps = array_keys($s['apps']);
+    $dbs = array_map(fn ($a) => ['engine' => 'mariadb', 'name' => $a], array_values(array_filter($apps, fn ($a) => empty($s['apps'][$a]['info']['node']))));
+    $profiles = [[
+        'name' => 'nightly', 'enabled' => true, 'scope' => 'all', 'apps' => '*', 'databases' => '*', 'every' => '1d', 'cron' => '0 2 * * *',
+        'destinations' => ['s3'], 'keep_days' => 14, 'encrypt' => true, 'running' => false,
+        'last' => ['status' => 'ok', 'epoch' => time() - 6 * 3600, 'detail' => 'ok'],
+        'covers' => ['apps' => $apps, 'databases' => $dbs],
+    ]];
+    $dests = array_map(function ($d) use ($profiles) {
+        $d['profiles'] = array_values(array_map(fn ($p) => $p['name'], array_filter($profiles, fn ($p) => in_array($d['name'], $p['destinations'], true))));
+
+        return $d;
+    }, $b['destinations']);
+    $find = function (string $name) use (&$b): ?int {
+        foreach ($b['destinations'] as $i => $d) {
+            if ($d['name'] === $name) {
+                return $i;
+            }
+        }
+
+        return null;
+    };
+    $key = fn (string $name) => $b['keys'][$name] ??= 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI'.substr(hash('sha256', $name), 0, 43).' cipi-backup-'.$name.'@fra1-production';
+
+    if ($sub === '' && $method === 'GET') {
+        return [200, ['data' => ['configured' => true, 'host' => 'fra1-production', 'config_file' => '/etc/cipi/backup.json', 'local_dir' => '/var/backups/cipi', 'encryption_key' => true,
+            'destinations' => $dests, 'profiles' => $profiles, 'apps' => $apps, 'databases' => $dbs, 'uncovered' => ['apps' => [], 'databases' => []]]]];
+    }
+    if ($sub === '/runs' && $method === 'GET') {
+        $runs = [];
+        for ($i = 0; $i < 5; $i++) {
+            $runs[] = ['run' => gmdate('Y-m-d_020000', time() - $i * 86400), 'destinations' => ['s3']];
+        }
+
+        return [200, ['data' => ['profiles' => ['nightly' => $runs], 'errors' => []]]];
+    }
+    if ($sub === '/destinations/test' && $method === 'POST') {
+        $names = isset($body['name']) ? [(string) $body['name']] : array_column(array_filter($b['destinations'], fn ($d) => $d['type'] !== 'local'), 'name');
+        $out = [];
+        foreach ($names as $n) {
+            $i = $find($n);
+            if ($i === null) {
+                throw new DemoHttpError(404, "No such destination: {$n}");
+            }
+            $d = $b['destinations'][$i];
+            $out[] = $d['type'] === 'sftp' ? "  {$n}  sftp://{$d['user']}@{$d['host']}:{$d['port']}/{$d['path']}  OK — a file written and removed" : "  {$n}  s3://{$d['bucket']}  OK";
+        }
+
+        return [200, ['data' => ['ok' => true, 'output' => implode("\n", $out)]]];
+    }
+    if ($sub === '/destinations' && $method === 'POST') {
+        if (($body['type'] ?? '') !== 'sftp') {
+            throw new DemoHttpError(422, 'Only SFTP destinations are added through the API — an S3 bucket takes a secret key: cipi backup destination add on the server');
+        }
+        $name = (string) ($body['name'] ?? '');
+        if (preg_match('/^[a-z0-9][a-z0-9_-]{0,31}$/', $name) !== 1 || $find($name) !== null) {
+            throw new DemoHttpError(422, "Destination '{$name}' already exists or is not a name");
+        }
+        $d = ['name' => $name, 'type' => 'sftp', 'host' => (string) ($body['host'] ?? ''), 'port' => (int) ($body['port'] ?? 22), 'user' => (string) ($body['user'] ?? ''), 'path' => (string) ($body['path'] ?? ''), 'default' => false];
+        $b['destinations'][] = $d;
+
+        return [201, ['data' => $d + ['public_key' => $key($name)]]];
+    }
+    if (preg_match('#^/destinations/([a-z0-9_-]+)(/key)?$#', $sub, $dm) === 1) {
+        $i = $find($dm[1]);
+        if ($i === null || $b['destinations'][$i]['type'] !== 'sftp') {
+            throw new DemoHttpError(404, "No SFTP destination '{$dm[1]}'");
+        }
+        if (($dm[2] ?? '') === '/key' && $method === 'GET') {
+            return [200, ['data' => ['name' => $dm[1], 'public_key' => $key($dm[1])]]];
+        }
+        if ($method === 'PUT') {
+            foreach (['host', 'user', 'path'] as $k) {
+                if (isset($body[$k])) {
+                    $b['destinations'][$i][$k] = (string) $body[$k];
+                }
+            }
+            if (isset($body['port'])) {
+                $b['destinations'][$i]['port'] = (int) $body['port'];
+            }
+            if (! empty($body['new_key'])) {
+                unset($b['keys'][$dm[1]]);
+                $b['keys'][$dm[1]] = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI'.substr(hash('sha256', $dm[1].microtime()), 0, 43).' cipi-backup-'.$dm[1].'@fra1-production';
+            }
+
+            return [200, ['data' => $b['destinations'][$i] + ['public_key' => $key($dm[1])]]];
+        }
+        if ($method === 'DELETE') {
+            array_splice($b['destinations'], $i, 1);
+            unset($b['keys'][$dm[1]]);
+
+            return [200, ['data' => ['name' => $dm[1], 'removed' => true]]];
+        }
+    }
+
+    throw new DemoHttpError(404, "No demo route for {$method} /api/backups{$sub}");
+}
+
+/**
+ * `GET|PUT /self-update/policy` — `cipi self-update policy --json`. The demo
+ * ships one signer; turning the check on the first time takes its fingerprint.
+ */
+function selfUpdateRoute(string $method, array $body, array &$s): array
+{
+    $shipped = [['fingerprint' => 'SHA256:q2mB7tVd0bW3cN5rXy8kZf1HsLp9GjU4oAiE6TwQeRc', 'principal' => 'releases@cipi.sh', 'type' => 'ssh-ed25519']];
+    $s['selfupdate_demo'] ??= ['verify' => false, 'delay_hours' => 0, 'signers' => [],
+        'pending' => null, 'held' => null, 'installed_sha' => 'a3f1c2e9b8d74f0e6c5b4a39281706f5e4d3c2b1'];
+    $u = &$s['selfupdate_demo'];
+    if ($method === 'PUT') {
+        if (array_key_exists('delay_hours', $body)) {
+            $h = $body['delay_hours'];
+            if (! is_int($h) || $h < 0 || $h > 168) {
+                throw new DemoHttpError(422, 'delay_hours is 0 to 168');
+            }
+            $u['delay_hours'] = $h;
+            $u['pending'] = $h > 0 ? ['sha' => '5e0d7c1a9b2f48e3a6d0c9b8a7f6e5d4c3b2a190', 'version' => '5.18.1', 'first_seen' => time() - 3 * 3600] : null;
+        }
+        if (array_key_exists('verify', $body)) {
+            if ($body['verify'] === true && $u['signers'] === []) {
+                if (($body['fingerprint'] ?? '') !== $shipped[0]['fingerprint']) {
+                    throw new DemoHttpError(422, 'Say which key you checked: the fingerprint published at https://cipi.sh/docs/self-update#signers — nothing changed');
+                }
+                $u['signers'] = $shipped;
+            }
+            $u['verify'] = (bool) $body['verify'];
+        }
+    } elseif ($method !== 'GET') {
+        throw new DemoHttpError(405, 'GET or PUT');
+    }
+
+    return [200, ['data' => [
+        'verify' => $u['verify'], 'delay_hours' => $u['delay_hours'], 'delay_default_hours' => 12,
+        'signers_file' => '/etc/cipi/release-signers', 'signers' => $u['signers'], 'signers_ready' => $u['signers'] !== [],
+        'shipped_signers' => $shipped, 'version' => $s['status']['version'] ?? '5.18.0', 'installed_sha' => $u['installed_sha'],
+        'pending' => $u['pending'], 'held' => $u['pending'] ? ['reason' => 'delay: v5.18.1 (5e0d7c1a9b2f) first seen 3 hours ago; installed in 9 hours (delay 12h)', 'at' => time() - 3 * 3600] : null,
+    ]]];
+}
+
 function firewallRoute(string $method, string $action, array $body, array &$s, array &$state, string $profile): array
 {
     $s['firewall'] ??= demoFirewall();
     $fw = &$s['firewall'];
+    demoFirewallZeroTrust($fw, (array) ($s['zt'] ?? []));
     $addr = function (string $v): bool {
         [$ip, $mask] = array_pad(explode('/', $v, 2), 2, null);
 
@@ -1057,7 +1585,9 @@ function jobView(array &$state, string $id): array
         } elseif ($age < JOB_PENDING_SECONDS + JOB_RUNNING_SECONDS + (str_contains($job['type'], 'install') ? 2.5 : 0)) {
             $job['status'] = 'running';
         } else {
-            [$ok, $output, $result] = runJob($state['servers'][$job['profile']], $job['type'], $job['params']);
+            [$ok, $output, $result] = $job['type'] === 'sync-push'
+                ? syncPushJob($state, $job['profile'], $job['params'])
+                : runJob($state['servers'][$job['profile']], $job['type'], $job['params']);
             $job['finished'] = true;
             $job['status'] = $ok ? 'completed' : 'failed';
             $job['exit_code'] = $ok ? 0 : 1;
@@ -1081,6 +1611,7 @@ function jobView(array &$state, string $id): array
 function liveOutput(string $type, float $seconds): string
 {
     $steps = match (true) {
+        $type === 'sync-push' => ['→ Exporting the apps…', '→ Encrypting the archive (AES-256)…', '→ Sending it over SSH…', '→ Importing on the target…'],
         $type === 'app-deploy' => ['→ Deploying…', 'task deploy:info', 'task deploy:lock', 'task deploy:release', 'task deploy:update_code', 'task deploy:vendors', 'task artisan:migrate', 'task deploy:symlink'],
         str_contains($type, 'install') => ['→ Reading package lists…', '→ Downloading…', '→ Unpacking…', '→ Setting up…'],
         default => ['→ Running…'],

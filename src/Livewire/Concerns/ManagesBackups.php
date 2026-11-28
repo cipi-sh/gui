@@ -5,6 +5,7 @@ namespace CipiGui\Livewire\Concerns;
 use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
 use CipiGui\Services\CipiApiException;
+use Livewire\Attributes\Locked;
 
 /**
  * The Backups tab of a server (API 1.39+ / Cipi ≥ 5.9.0): `cipi backup` from
@@ -70,6 +71,27 @@ trait ManagesBackups
     public string $bpKeepWeeks = '0';
 
     public bool $bpEncrypt = false;
+
+    // ── SFTP destinations: a server over SSH, a key Cipi makes ──
+
+    public bool $showSftpForm = false;
+
+    #[Locked]
+    public ?string $sftpEditing = null;
+
+    public string $sftpName = '';
+
+    public string $sftpHost = '';
+
+    public string $sftpPort = '22';
+
+    public string $sftpUser = '';
+
+    public string $sftpPath = '';
+
+    /** The destination just added or changed, with the key the remote must accept. */
+    #[Locked]
+    public ?array $sftpAdded = null;
 
     public const BACKUP_EVERY = ['15m' => 'Every 15 minutes', '30m' => 'Every 30 minutes', '1h' => 'Every hour', '6h' => 'Every 6 hours', '12h' => 'Every 12 hours', '1d' => 'Every day (02:00)', '7d' => 'Every 7 days (02:00)'];
 
@@ -236,8 +258,140 @@ trait ManagesBackups
 
         try {
             $this->backupTest = $this->client()->testBackupDestinations();
-            $this->dispatch('notify', type: $this->backupTest['ok'] ? 'success' : 'error', message: $this->backupTest['ok'] ? 'Every S3 destination answered.' : 'A destination could not be reached — see the output.');
+            $this->dispatch('notify', type: $this->backupTest['ok'] ? 'success' : 'error', message: $this->backupTest['ok'] ? 'Every destination answered.' : 'A destination could not be reached — see the output.');
         } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    // ── SFTP destinations ─────────────────────────────────────────────
+
+    /** A Hetzner Storage Box: its address, port 23. */
+    public function sftpPresetStorageBox(): void
+    {
+        $this->sftpPort = '23';
+        if ($this->sftpUser !== '' && $this->sftpHost === '') {
+            $this->sftpHost = $this->sftpUser.'.your-storagebox.de';
+        }
+    }
+
+    public function openSftpForm(string $name = ''): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+        $this->resetErrorBag();
+        $this->sftpAdded = null;
+        $dest = $name === '' ? null : collect($this->backup['destinations'] ?? [])->firstWhere('name', $name);
+        if ($name !== '' && (($dest['type'] ?? '') !== 'sftp')) {
+            return;
+        }
+        $this->sftpEditing = $dest !== null ? $name : null;
+        $this->sftpName = $dest !== null ? $name : '';
+        $this->sftpHost = (string) ($dest['host'] ?? '');
+        $this->sftpPort = (string) ($dest['port'] ?? '22');
+        $this->sftpUser = (string) ($dest['user'] ?? '');
+        $this->sftpPath = (string) ($dest['path'] ?? '');
+        $this->showSftpForm = true;
+    }
+
+    public function closeSftpForm(): void
+    {
+        $this->showSftpForm = false;
+        $this->sftpEditing = null;
+    }
+
+    public function saveSftpDestination(bool $newKey = false): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+        $this->resetErrorBag();
+        $this->sftpHost = trim($this->sftpHost);
+        $this->sftpUser = trim($this->sftpUser);
+        $this->sftpPath = trim(trim($this->sftpPath), ' ');
+        $errors = \CipiGui\Support\BackupSftp::errors($this->sftpEditing ?? $this->sftpName, $this->sftpHost, $this->sftpPort, $this->sftpUser, $this->sftpPath, $this->sftpEditing === null ? array_column($this->backup['destinations'] ?? [], 'name') : []);
+        foreach ($errors as $field => $message) {
+            $this->addError($field, $message);
+        }
+        if ($errors !== []) {
+            return;
+        }
+        $payload = ['host' => $this->sftpHost, 'port' => (int) $this->sftpPort, 'user' => $this->sftpUser, 'path' => rtrim($this->sftpPath, '/')];
+
+        try {
+            $this->sftpAdded = $this->sftpEditing === null
+                ? $this->client()->createSftpDestination(['name' => $this->sftpName] + $payload)
+                : $this->client()->updateSftpDestination($this->sftpEditing, $payload + ($newKey ? ['new_key' => true] : []));
+            $this->showSftpForm = false;
+            $this->dispatch('notify', type: 'success', message: $this->sftpEditing === null
+                ? "Destination {$this->sftpName} added — install its key on the remote, then test it."
+                : ($newKey ? "A new key for {$this->sftpEditing} — install it on the remote." : "Destination {$this->sftpEditing} updated."));
+            $this->sftpEditing = null;
+            $this->loadBackups();
+        } catch (CipiApiException $e) {
+            if ($e->getStatusCode() === 422) {
+                $this->addError('sftpHost', self::plainCliText($e->getMessage()));
+
+                return;
+            }
+            if (in_array($e->getStatusCode(), [404, 405], true) || $e->getStatusCode() === 503) {
+                $this->addError('sftpHost', 'SFTP destinations need an up-to-date Cipi on this server (cipi self-update && cipi api update).');
+
+                return;
+            }
+            $this->handleApiError($e);
+        }
+    }
+
+    /** Show the key of an SFTP destination again. */
+    public function showSftpKey(string $name): void
+    {
+        if (! $this->serverAllowed(Access::VIEW, (int) $this->serverId)) {
+            return;
+        }
+
+        try {
+            $dest = collect($this->backup['destinations'] ?? [])->firstWhere('name', $name);
+            $this->sftpAdded = ($dest ?? ['name' => $name]) + ['public_key' => $this->client()->backupDestinationKey($name)];
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function testBackupDestination(string $name): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)) {
+            return;
+        }
+
+        try {
+            $this->backupTest = $this->client()->testBackupDestinations($name);
+            $this->dispatch('notify', type: $this->backupTest['ok'] ? 'success' : 'error', message: $this->backupTest['ok'] ? "{$name} answered: a file was written and removed there." : "{$name} could not be reached — see the output.");
+        } catch (CipiApiException $e) {
+            $this->handleApiError($e);
+        }
+    }
+
+    public function deleteBackupDestination(string $name): void
+    {
+        if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId) || in_array($name, ['local', 's3'], true)) {
+            return;
+        }
+
+        try {
+            $this->client()->deleteBackupDestination($name);
+            if (($this->sftpAdded['name'] ?? null) === $name) {
+                $this->sftpAdded = null;
+            }
+            $this->dispatch('notify', type: 'success', message: "Destination {$name} removed — the archives on it stay there.");
+            $this->loadBackups();
+        } catch (CipiApiException $e) {
+            if ($e->getStatusCode() === 422) {
+                $this->dispatch('notify', type: 'error', message: self::plainCliText($e->getMessage()));
+
+                return;
+            }
             $this->handleApiError($e);
         }
     }

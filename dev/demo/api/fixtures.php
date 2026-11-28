@@ -298,7 +298,8 @@ return [
         ],
         'zt' => [
             'enabled' => true, 'cloudflared' => 'running', 'tunnel' => 'fra1-prod', 'real_ip' => 'CF-Connecting-IP',
-            'lock_http' => 'true (cf-ips)', 'lock_ssh' => 'false', 'ssh_hostname' => 'ssh-fra1.example.com', 'raw' => '',
+            'lock_http' => 'true (cf-ips)', 'lock_ssh' => 'false', 'ssh_hostname' => 'ssh-fra1.example.com',
+            'mesh' => 'tailscale', 'mesh_state' => 'connected', 'mesh_ip' => '100.101.102.103', 'raw' => '',
             // `cipi zt status --json` (Cipi 5.16): what the tab shows in full.
             'details' => [
                 'enabled' => true, 'token' => true, 'account_id' => 'demo',
@@ -318,6 +319,22 @@ return [
                 'service_tokens' => [['name' => 'panel', 'for' => 'api', 'client_id' => '1a2b3c4d.access', 'duration' => '8760h', 'created_at' => '2026-11-20T09:00:00Z'], ['name' => 'github-actions', 'for' => 'api', 'client_id' => '5e6f7a8b.access', 'duration' => '8760h', 'created_at' => '2026-11-21T09:00:00Z']],
                 'previews' => [['app' => 'shopfeaturecheckout', 'parent' => 'shop', 'branch' => 'feature/checkout', 'hostname' => 'feature-checkout-shop.example.com', 'public' => false]],
                 'missing' => ['shopapi'],
+                // The mesh network next to the tunnel (Cipi 5.18): the sites through Cloudflare,
+                // the people who run the server through Tailscale — SSH from the tailnet only.
+                'mesh' => [
+                    'enabled' => true, 'provider' => 'tailscale', 'label' => 'Tailscale', 'installed' => true, 'installed_by_cipi' => true,
+                    'running' => true, 'connected' => true, 'state' => 'Running', 'online' => true, 'interface' => 'tailscale0', 'interface_up' => true,
+                    'ip' => '100.101.102.103', 'ip6' => 'fd7a:115c:a1e0::6f01', 'name' => 'fra1-prod', 'fqdn' => 'fra1-prod.tail1234.ts.net', 'network' => 'example.com',
+                    'control_url' => null, 'version' => '1.80.2', 'tags' => ['tag:cipi'], 'key_expiry' => null, 'key_expires_in_days' => null,
+                    'peers' => ['total' => 6, 'online' => 4],
+                    'ssh' => ['provider_ssh' => false, 'ports' => [22], 'command' => 'ssh cipi@100.101.102.103',
+                        'seen' => ['at' => '2026-11-27T09:14:02', 'from' => '100.88.12.7']],
+                    'lock' => ['ssh' => true, 'http' => false], 'direct' => ['port' => 41641, 'open' => false],
+                    'accept_dns' => false, 'accept_routes' => false, 'firewall_active' => true, 'http01_apps' => [],
+                    'enabled_at' => '2026-11-27T09:00:00Z', 'warnings' => [],
+                    // The API of this server is on the tunnel: closing 80/443 would not cut the panel off.
+                    'panel' => ['via' => 'tunnel', 'from' => '203.0.113.10', 'client' => null, 'blocked' => ['lock_ssh' => null, 'lock_http' => null, 'disable' => null]],
+                ],
             ],
         ],
         // `cipi disk --json` / `cipi disk db --json` (API 1.33+). blog sits at 93% of its 2.5 GB
@@ -548,9 +565,17 @@ return [
                 ['check' => 'load', 'config' => ['enabled' => true, 'factor' => 4, 'runs' => 2], 'state' => 'ok', 'last_alert' => null],
             ],
         ],
+        // No tunnel, no mesh: the Zero Trust tab offers to join a network.
         'zt' => [
             'enabled' => false, 'cloudflared' => 'not installed', 'tunnel' => null, 'real_ip' => null,
-            'lock_http' => 'false', 'lock_ssh' => 'false', 'ssh_hostname' => null, 'raw' => "Zero Trust: disabled\ncloudflared: not installed",
+            'lock_http' => 'false', 'lock_ssh' => 'false', 'ssh_hostname' => null,
+            'mesh' => null, 'mesh_state' => null, 'mesh_ip' => null, 'raw' => '',
+            'details' => [
+                'enabled' => false, 'token' => false, 'tunnel' => null, 'real_ip' => false,
+                'lock' => ['http' => false, 'http_mode' => null, 'ssh' => false],
+                'hostnames' => [], 'gui' => null, 'api' => null, 'ssh' => null, 'tcp' => [], 'service_tokens' => [], 'previews' => [], 'missing' => [],
+                'mesh' => ['enabled' => false, 'provider' => null, 'active' => null],
+            ],
         ],
         'disk' => $diskReport('/', 76.0, 23.4, [
             $diskApp('crm', 4.6, 1.12, 10),

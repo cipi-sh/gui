@@ -161,6 +161,45 @@ class CreateAppTest extends TestCase
     }
 
     #[Test]
+    public function a_custom_app_can_be_created_with_a_database_of_its_own(): void
+    {
+        $form = $this->createForm()->call('setAppKind', 'custom')
+            ->assertSeeHtml('data-create-db')
+            ->assertSee('New database')
+            ->set('repository', '')
+            ->set('dbName', 'WP-Blog')
+            ->call('createApp')
+            ->assertHasErrors(['dbName']);
+        $this->assertNull($this->createPayload(), 'a name that is not a database name never reaches the server');
+
+        $form->set('dbName', ' wpblog ')->call('createApp')->assertHasNoErrors();
+
+        $payload = $this->createPayload();
+        $this->assertTrue($payload['custom']);
+        $this->assertSame('wpblog', $payload['db'] ?? null);
+        // One engine on the server: it is the one, without a list to choose from.
+        $this->assertSame('mariadb', $payload['engine'] ?? null);
+    }
+
+    #[Test]
+    public function a_laravel_app_is_not_offered_a_second_database_and_none_is_sent_without_a_name(): void
+    {
+        $this->createForm()->assertDontSeeHtml('data-create-db')->set('dbName', 'extra')->call('createApp')->assertHasNoErrors();
+        $this->assertArrayNotHasKey('db', $this->createPayload());
+    }
+
+    #[Test]
+    public function a_custom_app_without_a_database_name_sends_neither_db_nor_engine(): void
+    {
+        $this->createForm()->call('setAppKind', 'custom')->call('createApp')->assertHasNoErrors();
+
+        $payload = $this->createPayload();
+        $this->assertTrue($payload['custom']);
+        $this->assertArrayNotHasKey('db', $payload);
+        $this->assertArrayNotHasKey('engine', $payload);
+    }
+
+    #[Test]
     public function a_refused_repository_is_shown_with_the_fix_to_copy(): void
     {
         $this->jobResult = [

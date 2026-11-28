@@ -745,12 +745,19 @@
                     'ssh '.$app['app'].chr(64).($serverIp ?: 'your-server')." '".$pcClear."'",
                 ];
                 $pcWordpress = [
-                    '<?php',
-                    '// wp-content/mu-plugins/cipi-page-cache.php',
-                    "add_action('save_post', function () {",
-                    "    exec('".$pcClear." > /dev/null 2>&1 &');",
-                    '});',
+                    '# as the app\'s user, in its WordPress folder',
+                    'cd ~/htdocs',
+                    'wp plugin install '.\CipiGui\Support\PageCache::WP_PLUGIN_ZIP.' --activate',
+                    'wp cipi-cache status',
                 ];
+                $pcPhp = [
+                    'composer require cipi/cache',
+                    '',
+                    '// the pages a change touches, once at the end of the request',
+                    "CipiCache::purge('/blog/hello-world/', '/blog/*');",
+                    "CipiCache::purgeRoute('posts.show', \$post);",
+                ];
+                $pcSome = $pcClear." /blog/hello-world/ '/blog/*'";
                 $pcCheck = 'curl -sI '.$this->siteUrl().' | grep -i x-cache-status';
                 // The app's own paths: shown when the server gives them.
                 $pcHasExclude = $pageCacheLoaded && array_key_exists('exclude', $pc) && ($pc['supported'] ?? true);
@@ -887,6 +894,32 @@
                         </div>
                     @endif
 
+                    @if($pcOn && $pcMayClear)
+                        <div class="card" data-page-cache-purge-some>
+                            <div class="card-header">
+                                <div>
+                                    <h2 class="card-title flex items-center gap-2"><x-cipi::icon name="trash" /> Purge some pages</h2>
+                                    <p class="card-subtitle">Only those pages: the rest of the cache stays warm.</p>
+                                </div>
+                            </div>
+                            <form wire:submit="purgePageCache" class="space-y-3">
+                                <div>
+                                    <label for="cache-purge">One page per line</label>
+                                    <textarea id="cache-purge" wire:model="cachePurge" rows="4" class="font-mono text-sm" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/blog/hello-world/&#10;/category/news/*&#10;/"></textarea>
+                                    @error('cachePurge') <p class="field-error">{{ $message }}</p> @enderror
+                                    <p class="field-hint"><code>/blog/hello-world/</code> is that page on every domain of the app, over http and https, with its <code>?utm_…</code> variants. <code>/category/news/*</code> is every page under it — its pagination and its feed too. A full URL is that page on that domain only. Up to {{ \CipiGui\Support\PageCache::PURGE_MAX }}.</p>
+                                </div>
+                                @if($cachePurgeRefused)
+                                    <x-cipi::alert type="danger" title="Refused — nothing was purged" data-page-cache-purge-refused>
+                                        <span class="font-mono text-xs break-words">{{ $cachePurgeRefused }}</span>
+                                    </x-cipi::alert>
+                                @endif
+                                <button type="submit" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="purgePageCache" data-page-cache-purge-save><x-cipi::icon name="trash" /> Purge these pages</button>
+                            </form>
+                            <p class="field-hint mt-3">On the server: <code>cipi cache {{ $app['app'] }} purge /blog/hello-world/</code>.</p>
+                        </div>
+                    @endif
+
                     <div class="card" data-page-cache-purge>
                         <div class="card-header">
                             <div>
@@ -904,13 +937,23 @@
                                 @endif
                             </dd>
                             <dt>From this page</dt><dd><em>Empty the cache now</em>, above — or <code>cipi cache {{ $app['app'] }} clear</code> on the server.</dd>
-                            <dt>Anything else</dt><dd>One command, as the app's own user (no password asked, and it can empty this app's cache only):</dd>
+                            <dt>Anything else</dt><dd>One command, as the app's own user (no password asked, and it can empty this app's cache only) — every page, or the ones named:</dd>
                         </dl>
                         <x-cipi::secret label="Command" :value="$pcClear" />
+                        <div class="mt-2"><x-cipi::secret label="Some pages" :value="$pcSome" /></div>
                         <p class="stat-label mt-5 mb-2">In a deploy recipe of your own</p>
                         @include('cipi-gui::partials.terminal', ['lines' => $pcRecipe, 'title' => 'deploy recipe', 'autoScroll' => false])
-                        <p class="stat-label mt-5 mb-2">When a post is published (WordPress)</p>
-                        @include('cipi-gui::partials.terminal', ['lines' => $pcWordpress, 'title' => 'mu-plugin', 'autoScroll' => false])
+                        <div class="mt-5" data-page-cache-wordpress>
+                            <p class="stat-label mb-1">WordPress: the Cipi Cache plugin</p>
+                            <p class="text-sm text-soft mb-2">Purges the pages a change touches — the post, its categories and tags, its author, its archives, the home page, the feeds — when a post is published, updated or deleted, a comment approved, a menu or the theme changed. <a href="{{ \CipiGui\Support\PageCache::WP_PLUGIN_REPO }}" target="_blank" rel="noopener" class="text-link">cipi-sh/cache-wp <x-cipi::icon name="external" /></a></p>
+                            @include('cipi-gui::partials.terminal', ['lines' => $pcWordpress, 'title' => 'install', 'autoScroll' => false])
+                            <p class="field-hint">Or download <a href="{{ \CipiGui\Support\PageCache::WP_PLUGIN_ZIP }}" class="text-link">cipi-cache.zip</a> and upload it under Plugins → Add New. Then Tools → Cipi Cache → <em>Check the connection</em>.</p>
+                        </div>
+                        <div class="mt-5" data-page-cache-php>
+                            <p class="stat-label mb-1">Laravel and any PHP app: cipi/cache</p>
+                            <p class="text-sm text-soft mb-2">Purge by path, by prefix or by route from the code that changes the content, and mark which routes nginx may keep. <a href="{{ \CipiGui\Support\PageCache::PHP_PACKAGE_REPO }}" target="_blank" rel="noopener" class="text-link">cipi-sh/cache-php <x-cipi::icon name="external" /></a></p>
+                            @include('cipi-gui::partials.terminal', ['lines' => $pcPhp, 'title' => 'composer', 'autoScroll' => false])
+                        </div>
                         <p class="field-hint">Or leave it to the time above: with pages kept {{ $pageCacheLoaded ? \CipiGui\Support\PageCache::ttlLabel((string) ($pc['ttl'] ?? '10m')) : '10 minutes' }}, an edit shows up by itself within that time.</p>
                     </div>
                 </div>
@@ -1218,8 +1261,8 @@
                     @endif
                 </div>
 
-                @if($isLaravel)
-                    <div class="card lg:col-span-3">
+                @if($isLaravel || $isNode)
+                    <div class="card lg:col-span-3" data-deploy-pipeline="{{ $isNode ? 'node' : 'laravel' }}">
                         <div class="card-header">
                             <div>
                                 <h2 class="card-title">Deploy pipeline</h2>
@@ -1231,6 +1274,43 @@
                         @elseif(! $deployConfigLoaded)
                             <div class="skeleton h-20 w-full"></div>
                         @else
+                            {{-- How long a step may run: the same two numbers for every app with releases. --}}
+                            @php
+                                $dcMinutes = fn ($s) => is_numeric($s) && (int) $s > 0
+                                    ? ((int) $s % 60 === 0 ? ((int) $s / 60).' min' : intdiv((int) $s, 60).' min '.((int) $s % 60).' s')
+                                    : '';
+                            @endphp
+                            @if($isNode)
+                            <form wire:submit="saveDeployConfig" class="space-y-4" data-deploy-pipeline-form="node">
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <label for="dc-keep">Releases to keep</label>
+                                        <input id="dc-keep" type="number" wire:model="dcKeepReleases" min="1" max="20">
+                                        @error('dcKeepReleases') <p class="field-error">{{ $message }}</p> @enderror
+                                    </div>
+                                    @if($dcTimeouts)
+                                        <div>
+                                            <label for="dc-build-timeout">Install and build time limit <span class="text-subtle font-normal">(seconds)</span></label>
+                                            <input id="dc-build-timeout" type="number" wire:model="dcBuildTimeout" min="60" max="3600" step="1" data-dc-build-timeout>
+                                            <p class="field-hint">{{ $dcMinutes($dcBuildTimeout) }} each, for installing the packages and for the build. 60 to 3600; 1800 unless changed.</p>
+                                            @error('dcBuildTimeout') <p class="field-error">{{ $message }}</p> @enderror
+                                        </div>
+                                        <div>
+                                            <label for="dc-step-timeout">Every other step <span class="text-subtle font-normal">(seconds)</span></label>
+                                            <input id="dc-step-timeout" type="number" wire:model="dcStepTimeout" min="60" max="1800" step="1" data-dc-step-timeout>
+                                            <p class="field-hint">{{ $dcMinutes($dcStepTimeout) }} per command: the clone, the switch. 60 to 1800; 300 unless changed.</p>
+                                            @error('dcStepTimeout') <p class="field-error">{{ $message }}</p> @enderror
+                                        </div>
+                                    @endif
+                                </div>
+                                <label class="check-card" style="max-width:22rem;">
+                                    <input type="checkbox" wire:model="dcPredeploySnapshot">
+                                    <span><span class="check-card-title font-mono text-xs">DB snapshot</span><span class="check-card-text">Dump the app's database before each deploy</span></span>
+                                </label>
+                                <p class="field-hint">The build command, the start command and the output folder of a Node app are on its <strong>Node</strong> tab.</p>
+                                <div class="flex justify-end"><button type="submit" class="btn btn-primary">Save pipeline</button></div>
+                            </form>
+                            @else
                             <form wire:submit="saveDeployConfig" class="space-y-4">
                                 {{-- queue:restart and horizon:terminate are both on by default, and an app runs
                                      either queue workers or Horizon: say which of the two hooks does something here. --}}
@@ -1272,12 +1352,29 @@
                                         @error('dcNodeBuild') <p class="field-error">{{ $message }}</p> @enderror
                                     </div>
                                 </div>
+                                @if($dcTimeouts)
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4" data-dc-timeouts>
+                                        <div>
+                                            <label for="dc-build-timeout">Asset build time limit <span class="text-subtle font-normal">(seconds)</span></label>
+                                            <input id="dc-build-timeout" type="number" wire:model="dcBuildTimeout" min="60" max="3600" step="1" data-dc-build-timeout>
+                                            <p class="field-hint">{{ $dcMinutes($dcBuildTimeout) }}. How long the asset build may run before the deploy is stopped. 60 to 3600; 1800 unless changed.</p>
+                                            @error('dcBuildTimeout') <p class="field-error">{{ $message }}</p> @enderror
+                                        </div>
+                                        <div>
+                                            <label for="dc-step-timeout">Every other step <span class="text-subtle font-normal">(seconds)</span></label>
+                                            <input id="dc-step-timeout" type="number" wire:model="dcStepTimeout" min="60" max="1800" step="1" data-dc-step-timeout>
+                                            <p class="field-hint">{{ $dcMinutes($dcStepTimeout) }} per command: the clone, Composer, the migrations. 60 to 1800; 300 unless changed.</p>
+                                            @error('dcStepTimeout') <p class="field-error">{{ $message }}</p> @enderror
+                                        </div>
+                                    </div>
+                                @endif
                                 <div>
                                     <label for="dc-extra">Extra Artisan commands <span class="text-subtle font-normal">(one per line, after migrations)</span></label>
                                     <textarea id="dc-extra" wire:model="dcExtraArtisan" rows="3" class="font-mono" placeholder="scout:sync-index-settings"></textarea>
                                 </div>
                                 <div class="flex justify-end"><button type="submit" class="btn btn-primary">Save pipeline</button></div>
                             </form>
+                            @endif
                         @endif
                     </div>
                 @endif
