@@ -2,9 +2,13 @@
 
 ## [4.10.0] — 2026-11-27
 
-The mesh network of Zero Trust — Tailscale or NetBird — **managed from the Zero Trust tab**: join a network, close SSH and 80/443 to the world, Tailscale SSH, leave. **Apps moved from one server to another from the panel** (Server → Transfer). The time a deploy step may take, a database with a custom or Node app, and a Firewall that says who holds a lock. For Cipi 5.18.0 and cipi/api 1.48. Two new token abilities: `zt-manage` and `sync-manage`.
+The mesh network of Zero Trust — Tailscale or NetBird — **managed from the Zero Trust tab**: join a network, close SSH and 80/443 to the world, Tailscale SSH, leave. **Apps moved from one server to another from the panel** (Server → Transfer). The time a deploy step may take, a database with a custom or Node app, and a Firewall that says who holds a lock. For Cipi 5.18.0 and cipi/api 1.48. New token abilities: `zt-manage`, `sync-manage`, `updates-view`, `updates-manage`.
 
 ### Added
+
+- **Backups → Add an SFTP server**: a destination reached over SSH — a VPS with a backup user, a **Hetzner Storage Box** (a button fills port 23 and its address). Name, host, port, user, folder; Cipi makes a key for it on the server and the panel shows the public half with how to install it: `ssh-copy-id -p 23 -s …` for a Storage Box, the `authorized_keys` line for a server of yours. Nothing secret passes through the panel. Each SFTP destination has *Key*, *Test*, *Edit* (and *Save with a new key*) and, when no profile uses it, *Remove*; profiles choose it in *Where* like any other destination.
+- **Server → Updates**: how the server updates Cipi — *Install only signed releases* and *Wait before installing a new release* (6 hours to a week; 12 hours recommended). Both off unless turned on. The first trust shows the keys shipped with the release and takes the fingerprint you compared with the one on cipi.sh. The card beside says what is trusted, what is waiting and why the last update was held. The panel never starts an update.
+- Token abilities: `updates-view`, `updates-manage` in the token command.
 
 - **Page cache → Purge some pages** — the pages typed, one per line, and nothing else: `/blog/hello-world/` (every domain of the app, http and https, its `?utm_…` variants), `/category/news/*` (every page under it), a URL of the app. Checked as the server checks them before anything is sent; up to 500. With the cache on, for whoever may empty it (Deploy or Edit).
 - **Page cache → WordPress and PHP**: the **Cipi Cache** plugin ([cipi-sh/cache-wp](https://github.com/cipi-sh/cache-wp)) — what it purges and the `wp plugin install` line for this app — in place of the five-line snippet; the **cipi/cache** package ([cipi-sh/cache-php](https://github.com/cipi-sh/cache-php)) for Laravel and any PHP app; and the command for some pages next to the one for all.

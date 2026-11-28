@@ -1130,6 +1130,8 @@
                 </div>
             @endif
 
+        @elseif($activeTab === 'updates')
+            @include('cipi-gui::partials.server-updates')
         @elseif($activeTab === 'sync')
             @include('cipi-gui::partials.server-sync')
 

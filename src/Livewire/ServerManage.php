@@ -7,6 +7,7 @@ use CipiGui\Livewire\Concerns\ManagesAsyncJobs;
 use CipiGui\Livewire\Concerns\ManagesBackups;
 use CipiGui\Livewire\Concerns\ManagesMesh;
 use CipiGui\Livewire\Concerns\ManagesSync;
+use CipiGui\Livewire\Concerns\ManagesUpdatePolicy;
 use CipiGui\Models\CipiServer;
 use CipiGui\Services\Access;
 use CipiGui\Services\CipiApiClient;
@@ -25,6 +26,7 @@ class ServerManage extends Component
     use ManagesBackups;
     use ManagesMesh;
     use ManagesSync;
+    use ManagesUpdatePolicy;
 
     public const TABS = [
         'overview' => 'Overview',
@@ -44,6 +46,7 @@ class ServerManage extends Component
         'packages' => 'Packages',
         'zt' => 'Zero Trust',
         'sync' => 'Transfer',
+        'updates' => 'Updates',
         'ip' => 'API access',
     ];
 
@@ -327,6 +330,7 @@ class ServerManage extends Component
             'packages' => fn () => $this->packages = $this->client()->listPackages(),
             'zt' => fn () => $this->zt = $this->loadZt(),
             'sync' => fn () => $this->loadSync(),
+            'updates' => fn () => $this->loadUpdatePolicy(),
             'ip' => fn () => $this->ipWhitelist = $this->client()->getIpWhitelist(),
             default => null,
         };

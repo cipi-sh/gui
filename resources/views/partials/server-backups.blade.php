@@ -57,21 +57,109 @@
             <div class="card-header">
                 <div>
                     <h2 class="card-title">Destinations</h2>
-                    <p class="card-subtitle">Where archives go. A bucket is added on the server (<code>cipi backup destination add</code>): it takes a secret key, which the panel never handles.</p>
+                    <p class="card-subtitle">Where archives go. An <strong>SFTP</strong> server — a VPS with a backup user, a Hetzner Storage Box — is added here: Cipi makes a key for it, nothing secret passes through the panel. An S3 bucket is added on the server (<code>cipi backup destination add</code>): it takes a secret key, which the panel never handles.</p>
                 </div>
-                @if($canManage && count($destinations) > 1)
-                    <button type="button" wire:click="testBackupDestinations" class="btn btn-secondary btn-sm"><x-cipi::icon name="signal" /> Test buckets</button>
-                @endif
+                <div class="flex flex-wrap gap-2">
+                    @if($canManage && count($destinations) > 1)
+                        <button type="button" wire:click="testBackupDestinations" class="btn btn-secondary btn-sm"><x-cipi::icon name="signal" /> Test all</button>
+                    @endif
+                    @if($canManage)
+                        <button type="button" wire:click="openSftpForm" class="btn btn-secondary btn-sm" data-backup-sftp-add><x-cipi::icon name="server-stack" /> Add an SFTP server</button>
+                    @endif
+                </div>
             </div>
             <div class="flex flex-wrap gap-2">
                 @foreach($destinations as $dest)
-                    <div class="backup-dest" wire:key="backup-dest-{{ $dest['name'] }}">
-                        <p class="font-semibold text-strong flex items-center gap-1.5"><x-cipi::icon :name="($dest['type'] ?? '') === 'local' ? 'server' : 'cloud'" class="h-3.5 w-3.5 text-muted" /> {{ $dest['name'] }}@if(!empty($dest['default'])) <span class="badge badge-mono">default bucket</span>@endif</p>
-                        <p class="text-xs text-muted font-mono truncate" title="{{ ($dest['type'] ?? '') === 'local' ? ($dest['path'] ?? '') : 's3://'.($dest['bucket'] ?? '').(!empty($dest['endpoint']) ? ' · '.$dest['endpoint'] : '') }}">{{ ($dest['type'] ?? '') === 'local' ? ($dest['path'] ?? '') : 's3://'.($dest['bucket'] ?? '') }}</p>
+                    @php
+                        $dType = $dest['type'] ?? '';
+                        $dWhere = match ($dType) {
+                            'local' => (string) ($dest['path'] ?? ''),
+                            'sftp' => 'sftp://'.($dest['user'] ?? '').'@'.($dest['host'] ?? '').':'.($dest['port'] ?? 22).'/'.($dest['path'] ?? ''),
+                            default => 's3://'.($dest['bucket'] ?? ''),
+                        };
+                    @endphp
+                    <div class="backup-dest" wire:key="backup-dest-{{ $dest['name'] }}" data-backup-dest="{{ $dType }}">
+                        <p class="font-semibold text-strong flex items-center gap-1.5"><x-cipi::icon :name="match ($dType) { 'local' => 'server', 'sftp' => 'server-stack', default => 'cloud' }" class="h-3.5 w-3.5 text-muted" /> {{ $dest['name'] }}@if(!empty($dest['default'])) <span class="badge badge-mono">default bucket</span>@endif @if($dType === 'sftp')<span class="badge badge-mono">SFTP</span>@endif</p>
+                        <p class="text-xs text-muted font-mono truncate" title="{{ $dWhere }}{{ $dType === 's3' && !empty($dest['endpoint']) ? ' · '.$dest['endpoint'] : '' }}">{{ $dWhere }}</p>
                         <p class="text-2xs text-subtle mt-1">{{ ($n = count((array) ($dest['profiles'] ?? []))) === 0 ? 'not used by a profile' : 'used by '.$n.' '.($n === 1 ? 'profile' : 'profiles') }}</p>
+                        @if($dType === 'sftp')
+                            <div class="flex flex-wrap gap-1 mt-2">
+                                <button type="button" wire:click="showSftpKey(@js($dest['name']))" class="btn btn-ghost btn-xs" data-backup-sftp-key><x-cipi::icon name="key" /> Key</button>
+                                @if($canManage)
+                                    <button type="button" wire:click="testBackupDestination(@js($dest['name']))" class="btn btn-ghost btn-xs" data-backup-sftp-test><x-cipi::icon name="signal" /> Test</button>
+                                    <button type="button" wire:click="openSftpForm(@js($dest['name']))" class="btn btn-ghost btn-xs"><x-cipi::icon name="pencil" /> Edit</button>
+                                    @if(count((array) ($dest['profiles'] ?? [])) === 0)
+                                        <button type="button" wire:click="deleteBackupDestination(@js($dest['name']))" data-confirm="Remove the destination {{ $dest['name'] }}? The archives on it stay there; Cipi stops pruning them, and its key is deleted on this server." class="btn btn-ghost btn-xs danger" data-backup-sftp-remove><x-cipi::icon name="trash" /></button>
+                                    @endif
+                                @endif
+                            </div>
+                        @endif
                     </div>
                 @endforeach
             </div>
+
+            @if($showSftpForm && $canManage)
+                <form wire:submit="saveSftpDestination" class="mt-4 p-4 rounded-lg bg-raised space-y-3" data-backup-sftp-form>
+                    <div class="flex items-center justify-between gap-2">
+                        <p class="font-semibold text-strong">{{ $sftpEditing ? 'SFTP destination '.$sftpEditing : 'A new SFTP destination' }}</p>
+                        @unless($sftpEditing)
+                            <button type="button" wire:click="sftpPresetStorageBox" class="btn btn-ghost btn-xs" data-backup-sftp-storagebox>Hetzner Storage Box</button>
+                        @endunless
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <div>
+                            <label for="sftp-name">Name</label>
+                            <input id="sftp-name" type="text" wire:model="sftpName" placeholder="box" @disabled($sftpEditing) autocomplete="off" spellcheck="false">
+                            @error('sftpName') <p class="field-error">{{ $message }}</p> @enderror
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label for="sftp-host">Host</label>
+                            <input id="sftp-host" type="text" wire:model="sftpHost" placeholder="u1234.your-storagebox.de" autocomplete="off" spellcheck="false">
+                            @error('sftpHost') <p class="field-error">{{ $message }}</p> @enderror
+                        </div>
+                        <div>
+                            <label for="sftp-port">Port</label>
+                            <input id="sftp-port" type="text" inputmode="numeric" wire:model="sftpPort" placeholder="22">
+                            @error('sftpPort') <p class="field-error">{{ $message }}</p> @enderror
+                        </div>
+                        <div>
+                            <label for="sftp-user">User</label>
+                            <input id="sftp-user" type="text" wire:model="sftpUser" placeholder="u1234" autocomplete="off" spellcheck="false">
+                            @error('sftpUser') <p class="field-error">{{ $message }}</p> @enderror
+                        </div>
+                        <div class="sm:col-span-3">
+                            <label for="sftp-path">Folder on the remote</label>
+                            <input id="sftp-path" type="text" wire:model="sftpPath" placeholder="cipi (empty: the login's home)" autocomplete="off" spellcheck="false">
+                            @error('sftpPath') <p class="field-error">{{ $message }}</p> @enderror
+                        </div>
+                    </div>
+                    <p class="field-hint">Cipi signs in with a key it makes for this destination — never with a password. Only SFTP is asked of the remote: a chrooted <code>internal-sftp</code> account works. Runs go to <code>&lt;folder&gt;/cipi/&lt;profile&gt;/&lt;run&gt;/</code>.</p>
+                    <div class="flex flex-wrap gap-2">
+                        <button type="submit" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="saveSftpDestination" data-backup-sftp-save><x-cipi::icon name="check" /> {{ $sftpEditing ? 'Save' : 'Add it' }}</button>
+                        @if($sftpEditing)
+                            <button type="button" wire:click="saveSftpDestination(true)" data-confirm="Make a new key for {{ $sftpEditing }}? The old one stops working here: install the new one on the remote." class="btn btn-secondary btn-sm"><x-cipi::icon name="key" /> Save with a new key</button>
+                        @endif
+                        <button type="button" wire:click="closeSftpForm" class="btn btn-ghost btn-sm">Cancel</button>
+                    </div>
+                </form>
+            @endif
+
+            @if($sftpAdded && !empty($sftpAdded['public_key']))
+                @php $sb = \CipiGui\Support\BackupSftp::isStorageBox($sftpAdded); @endphp
+                <div class="mt-4 p-4 rounded-lg bg-raised space-y-3" data-backup-sftp-install>
+                    <p class="font-semibold text-strong flex items-center gap-1.5"><x-cipi::icon name="key" /> The remote has to accept this key — {{ $sftpAdded['name'] ?? '' }}</p>
+                    <x-cipi::secret label="Public key" :value="$sftpAdded['public_key']" />
+                    @if($sb)
+                        <p class="text-sm text-soft">A Hetzner Storage Box: save the key above as <code>cipi-backup-{{ $sftpAdded['name'] ?? 'box' }}.pub</code> on your computer, then run — it asks the box's password once:</p>
+                        <x-cipi::secret label="Command" :value="\CipiGui\Support\BackupSftp::storageBoxCommand($sftpAdded)" />
+                        <p class="field-hint">Or in Hetzner's console: the Storage Box → SSH keys. Turn on <em>SSH support</em> for the box first.</p>
+                    @else
+                        <p class="text-sm text-soft">On the remote, as <code>{{ $sftpAdded['user'] ?? 'the backup user' }}</code>:</p>
+                        <x-cipi::secret label="Command" :value="\CipiGui\Support\BackupSftp::authorizedKeysCommand((string) $sftpAdded['public_key'])" />
+                    @endif
+                    <p class="text-sm text-soft">Then <strong>Test</strong> it, and choose it in a profile's <em>Where</em>.</p>
+                </div>
+            @endif
             @if($backupTest)
                 <div class="mt-3">@include('cipi-gui::partials.terminal', ['lines' => explode("\n", $backupTest['output'] !== '' ? $backupTest['output'] : ($backupTest['ok'] ? 'reachable' : 'no output')), 'title' => 'cipi backup destination test', 'autoScroll' => false])</div>
             @endif

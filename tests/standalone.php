@@ -872,6 +872,32 @@ namespace {
     $check(! preg_match('/Cipi \d+\.\d+|API \d+\.\d+/', $syncView) && ! str_contains($syncView, "\$syncCheck['cipi']"), 'no version is named in the tab, not even the target\'s');
     $check(str_contains($demoApi, "if (\$r('/sync/(key|check|trust|push)')) {") && str_contains($demoApi, 'function syncPushJob(array &$state, string $profile, array $p): array'), 'the demo API has the four routes and the job');
 
+    echo "--- Backups: SFTP destinations; Server → Updates: signature and delay\n";
+    require_once $root.'/src/Support/BackupSftp.php';
+    require_once $root.'/src/Support/UpdatePolicy.php';
+    $B = \CipiGui\Support\BackupSftp::class;
+    $check($B::errors('box', 'u1.your-storagebox.de', '23', 'u1', 'cipi') === [] && $B::errors('vps', 'fd7a::1', '22', 'backup', '/srv/backups') === [], 'an SFTP destination: a name, a host, a port, a user, a folder');
+    $check(array_keys($B::errors('s3', 'a;b', '0', 'a b', '../x')) === ['sftpName', 'sftpHost', 'sftpPort', 'sftpUser', 'sftpPath'] && array_keys($B::errors('box', 'h', '22', 'u', '', ['local', 'box'])) === ['sftpName'], 'each field refused as the server would; a name that is taken');
+    $check($B::isStorageBox(['host' => 'u1.your-storagebox.de']) && ! $B::isStorageBox(['host' => 'backup.example.com']) && $B::storageBoxCommand(['name' => 'box', 'port' => 23, 'user' => 'u1', 'host' => 'u1.your-storagebox.de']) === 'ssh-copy-id -p 23 -s -f -i cipi-backup-box.pub u1@u1.your-storagebox.de'
+        && str_contains($B::authorizedKeysCommand("ssh-ed25519 AAAA x'y"), "echo 'ssh-ed25519 AAAA xy' >> ~/.ssh/authorized_keys"), 'how to install the key: ssh-copy-id -s for a Storage Box, authorized_keys elsewhere — no quote can break the line');
+    $mb = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesBackups.php');
+    $bv = (string) file_get_contents($root.'/resources/views/partials/server-backups.blade.php');
+    $check(substr_count($mb, 'if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)') >= 6 && (bool) preg_match('/#\[Locked\]\s+public \?array \$sftpAdded = null;/', $mb) && (bool) preg_match('/#\[Locked\]\s+public \?string \$sftpEditing = null;/', $mb), 'SFTP destinations need Manage; what the server answered cannot be set from the browser');
+    $check(! preg_match('/password|secret/i', preg_replace('#/\*.*?\*/|//[^\n]*#s', '', substr($mb, strpos($mb, '// ── SFTP destinations'), 4000))) && ! str_contains($bv, 'type="password"'), 'no password, no secret in the SFTP form');
+    $check(str_contains($bv, 'data-backup-sftp-form') && str_contains($bv, 'data-backup-sftp-install') && str_contains($bv, 'wire:click="sftpPresetStorageBox"') && str_contains($bv, "'sftp' => 'sftp://'"), 'the view: the form, the key with how to install it, a Storage Box preset, sftp:// addresses');
+    $api = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    $check(str_contains($api, "\$this->post('/backups/destinations', ['type' => 'sftp'] + \$payload)") && str_contains($api, "'/self-update/policy'"), 'the client: SFTP destinations, the update policy');
+    $up = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesUpdatePolicy.php');
+    $uv = (string) file_get_contents($root.'/resources/views/partials/server-updates.blade.php');
+    $check(str_contains($manageClass, "'updates' => 'Updates'") && str_contains($manageClass, "'updates' => fn () => \$this->loadUpdatePolicy()") && str_contains((string) file_get_contents($root.'/resources/views/livewire/server-manage.blade.php'), "@include('cipi-gui::partials.server-updates')"), 'the server page has an Updates tab');
+    $check(str_contains($up, "\$firstTrust = \$this->upVerify && empty(\$this->updatePolicy['signers_ready']);") && str_contains($up, "preg_match('#^SHA256:[A-Za-z0-9+/]{43}\$#', \$fp)") && (bool) preg_match('/#\[Locked\]\s+public \?array \$updatePolicy = null;/', $up), 'the first trust takes a fingerprint the person pasted; what the server said is locked');
+    $check(! preg_match("/'\\/self-update'|selfUpdate\(\)|self-update --now'/", $api) && str_contains($uv, 'Starting an update is not done from the panel'), 'the panel never starts an update');
+    $check(array_keys(\CipiGui\Support\UpdatePolicy::DELAYS) === [0, 6, 12, 24, 48, 72, 168] && str_contains((string) file_get_contents($root.'/config/cipi-gui.php'), "'updates-view', 'updates-manage',"), 'delays up to a week; the token asks for updates-view and updates-manage');
+    $check(substr_count($uv, '@if(') + substr_count($uv, '@if (') === substr_count($uv, '@endif') && substr_count($uv, '<div') === substr_count($uv, '</div>'), 'server-updates: balanced');
+    preg_match_all('/<x-cipi::icon name="([a-z-]+)"/', $uv.$bv, $ic);
+    $iconsSrc = (string) file_get_contents($root.'/src/Support/Icons.php');
+    $check(array_filter(array_unique($ic[1]), fn ($n) => ! str_contains($iconsSrc, "'{$n}' =>")) === [], 'every icon of the two tabs exists');
+
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);
 }

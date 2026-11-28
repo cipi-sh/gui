@@ -1362,6 +1362,45 @@ class CipiApiClient
         return ['ok' => (bool) ($data['ok'] ?? false), 'output' => (string) ($data['output'] ?? '')];
     }
 
+    // SFTP backup destinations (API 1.48+ / Cipi ≥ 5.18.0): a server over SSH,
+    // with a key the server makes — no secret goes through the panel.
+
+    /** @param  array{name: string, host: string, user: string, port?: int, path?: string}  $payload */
+    public function createSftpDestination(array $payload): array
+    {
+        return $this->post('/backups/destinations', ['type' => 'sftp'] + $payload)['data'] ?? [];
+    }
+
+    /** @param  array<string, mixed>  $payload  host, port, user, path, new_key */
+    public function updateSftpDestination(string $name, array $payload): array
+    {
+        return $this->put('/backups/destinations/'.rawurlencode($name), $payload)['data'] ?? [];
+    }
+
+    public function backupDestinationKey(string $name): string
+    {
+        return (string) ($this->get('/backups/destinations/'.rawurlencode($name).'/key')['data']['public_key'] ?? '');
+    }
+
+    public function deleteBackupDestination(string $name): array
+    {
+        return $this->request('delete', '/backups/destinations/'.rawurlencode($name))['data'] ?? [];
+    }
+
+    // How the server updates Cipi (API 1.48+ / Cipi ≥ 5.18.0): the release
+    // signature check and the delay. Both off unless turned on.
+
+    public function selfUpdatePolicy(): array
+    {
+        return $this->get('/self-update/policy')['data'] ?? [];
+    }
+
+    /** @param  array{verify?: bool, delay_hours?: int, fingerprint?: string}  $payload */
+    public function setSelfUpdatePolicy(array $payload): array
+    {
+        return $this->put('/self-update/policy', $payload)['data'] ?? [];
+    }
+
     public function backupDatabase(string $name, ?string $engine = null): array
     {
         $payload = [];
