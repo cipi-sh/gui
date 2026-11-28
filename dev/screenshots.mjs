@@ -77,7 +77,8 @@ async function jobDone() { await waitFor(`!!document.querySelector('.job-status-
 async function shoot(name, { full = true, height } = {}) {
   if (ONLY.length && !ONLY.includes(name)) return;
   // An autofocused field may have scrolled the page: the fixed header and sidebar must sit at the top of the capture.
-  await evaluate('window.scrollTo(0, 0)'); await sleep(150);
+  // A toast of the action just done would sit over the page.
+  await evaluate(`document.querySelectorAll('.toast').forEach((t) => (t.style.display = 'none')); window.scrollTo(0, 0)`); await sleep(150);
   let h = height ?? vp.height;
   if (full) h = Math.max(h, await evaluate('document.documentElement.scrollHeight'));
   const r = await send('Page.captureScreenshot', { format: 'webp', quality: 88, captureBeyondViewport: true, clip: { x: 0, y: 0, width: vp.width, height: h, scale: 1 } });
