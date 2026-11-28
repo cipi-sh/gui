@@ -26,7 +26,7 @@
         $bkFile = $backup['config_file'] ?? null;
     @endphp
     <div class="card" data-backup-unconfigured>
-        <x-cipi::empty icon="cloud" title="Backups are not set up on this server">
+        <x-cipi::empty icon="cloud" title="Backups are not configured on this server">
             They start here: a nightly profile takes every app and every database and keeps them on this server. Then add an <strong>S3 bucket</strong> and/or an <strong>SFTP server</strong> — a copy only on this server is lost with it.
             <x-slot:actions>
                 @if($canManage)
