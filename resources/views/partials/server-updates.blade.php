@@ -4,6 +4,8 @@
     $upSigners = (array) ($up['signers'] ?? []);
     $upShipped = (array) ($up['shipped_signers'] ?? []);
     $upReady = (bool) ($up['signers_ready'] ?? false);
+    // Signed releases: false until a release ships a signer (Cipi says so in signed_releases).
+    $upSigned = array_key_exists('signed_releases', $up) ? (bool) $up['signed_releases'] : ($upShipped !== [] || $upSigners !== []);
     $upPending = $up['pending'] ?? null;
     $upHeld = $up['held'] ?? null;
     $upWhen = fn ($t) => is_numeric($t) ? \Illuminate\Support\Carbon::createFromTimestamp((int) $t)->diffForHumans() : '';
@@ -24,14 +26,17 @@
             @else
                 <form wire:submit="saveUpdatePolicy" class="space-y-5">
                     <div data-updates-verify>
-                        <label class="check-card">
-                            <input type="checkbox" wire:model.live="upVerify" @disabled(! $canManage)>
+                        <label @class(['check-card', 'opacity-60' => ! $upSigned && empty($up['verify'])])>
+                            <input type="checkbox" wire:model.live="upVerify" @disabled(! $canManage || (! $upSigned && empty($up['verify'])))>
                             <span>
-                                <span class="check-card-title">Install only signed releases</span>
+                                <span class="check-card-title">Install only signed releases @unless($upSigned)<span class="badge badge-neutral">not available yet</span>@endunless</span>
                                 <span class="check-card-text">A release goes in only when its tag is signed by a key this server trusts, and points at exactly what was downloaded. A release that is not is not installed, and you are notified.</span>
                             </span>
                         </label>
-                        @if($upVerify && ! $upReady)
+                        @unless($upSigned)
+                            <p class="field-hint mt-2" data-updates-unsigned>Signed releases are not available at the moment: Cipi releases are not signed yet, so this cannot be turned on. The delay below is the safeguard to use meanwhile.</p>
+                        @endunless
+                        @if($upVerify && ! $upReady && $upSigned)
                             <div class="mt-3 p-4 rounded-lg bg-raised space-y-2" data-updates-first-trust>
                                 <p class="text-sm text-soft"><strong class="text-strong">The first trust is yours.</strong> These are the keys that came with the installed release. Compare a fingerprint with the one published at <a href="https://cipi.sh/docs/self-update#signers" target="_blank" rel="noopener" class="text-link">cipi.sh/docs/self-update <x-cipi::icon name="external" /></a>, and paste it below.</p>
                                 @forelse($upShipped as $s)

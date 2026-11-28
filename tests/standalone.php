@@ -655,7 +655,7 @@ namespace {
     }
 
     echo "--- 4.10.0: the mesh network (Tailscale, NetBird) in the Zero Trust tab, who holds a firewall lock\n";
-    $check(str_contains($theme, "VERSION = '4.10.0'") && str_contains($theme, "API = '1.48'") && str_contains($changelog, '## [4.10.0]'), 'version 4.10.0 for API 1.48');
+    $check(str_contains($changelog, '## [4.10.0]'), 'CHANGELOG 4.10.0');
     $check($FW::zeroTrustLocks(['lock_http' => false, 'lock_ssh' => false, 'by' => ['http' => [], 'ssh' => []]]) === null && $FW::zeroTrustLocks([]) === null, 'no lock: no notice');
     $l = $FW::zeroTrustLocks(['lock_http' => true, 'lock_ssh' => true]);
     $check($l['text'] === 'Zero Trust keeps 80/443 to Cloudflare and SSH closed: opening them to everyone from here is refused.' && $l['commands'] === ['cipi zt unlock http', 'cipi zt ssh unlock'], 'a server that does not say who holds a lock: Cloudflare, as before');
@@ -882,7 +882,7 @@ namespace {
     $check($B::isStorageBox(['host' => 'u1.your-storagebox.de']) && ! $B::isStorageBox(['host' => 'backup.example.com']) && $B::storageBoxCommand(['name' => 'box', 'port' => 23, 'user' => 'u1', 'host' => 'u1.your-storagebox.de']) === 'ssh-copy-id -p 23 -s -f -i cipi-backup-box.pub u1@u1.your-storagebox.de'
         && str_contains($B::authorizedKeysCommand("ssh-ed25519 AAAA x'y"), "echo 'ssh-ed25519 AAAA xy' >> ~/.ssh/authorized_keys"), 'how to install the key: ssh-copy-id -s for a Storage Box, authorized_keys elsewhere — no quote can break the line');
     $mb = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesBackups.php');
-    $bv = (string) file_get_contents($root.'/resources/views/partials/server-backups.blade.php');
+    $bv = (string) file_get_contents($root.'/resources/views/partials/server-backups.blade.php').(string) file_get_contents($root.'/resources/views/partials/server-backups-sftp-form.blade.php');
     $check(substr_count($mb, 'if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)') >= 6 && (bool) preg_match('/#\[Locked\]\s+public \?array \$sftpAdded = null;/', $mb) && (bool) preg_match('/#\[Locked\]\s+public \?string \$sftpEditing = null;/', $mb), 'SFTP destinations need Manage; what the server answered cannot be set from the browser');
     $check(! preg_match('/password|secret/i', preg_replace('#/\*.*?\*/|//[^\n]*#s', '', substr($mb, strpos($mb, '// ── SFTP destinations'), 4000))) && ! str_contains($bv, 'type="password"'), 'no password, no secret in the SFTP form');
     $check(str_contains($bv, 'data-backup-sftp-form') && str_contains($bv, 'data-backup-sftp-install') && str_contains($bv, 'wire:click="sftpPresetStorageBox"') && str_contains($bv, "'sftp' => 'sftp://'"), 'the view: the form, the key with how to install it, a Storage Box preset, sftp:// addresses');
@@ -898,6 +898,44 @@ namespace {
     preg_match_all('/<x-cipi::icon name="([a-z-]+)"/', $uv.$bv, $ic);
     $iconsSrc = (string) file_get_contents($root.'/src/Support/Icons.php');
     $check(array_filter(array_unique($ic[1]), fn ($n) => ! str_contains($iconsSrc, "'{$n}' =>")) === [], 'every icon of the two tabs exists');
+
+    echo "--- Backups set up and managed from the panel: S3 buckets, the default bucket, the key, the retention\n";    $check(str_contains($theme, "VERSION = '4.11.0'") && str_contains($theme, "API = '1.49'") && str_contains($changelog, '## [4.11.0]'), 'version 4.11.0 for API 1.49');
+
+    require_once $root.'/src/Support/BackupS3.php';
+    $S = \CipiGui\Support\BackupS3::class;
+    $check($S::errors('offsite', 'acme-offsite', 'AKIAEXAMPLE', 'sEcReT/+=xyz', 'eu-central-1', '', true) === [] && $S::errors(null, 'acme-backups', '', '', 'fsn1', 'https://fsn1.your-objectstorage.com', false) === [], 'an S3 bucket: a new one needs its keys, a change keeps them when left empty');
+    $check(array_keys($S::errors('s3', 'Bad Bucket', 'AK IA', "x'y", 'eu central', 'ftp://x', true)) === ['s3Name', 's3Bucket', 's3Key', 's3Secret', 's3Region', 's3Endpoint'] && array_keys($S::errors('offsite', 'b1', 'k', 's', 'auto', '', true, ['local', 'offsite'])) === ['s3Name'], 'each field refused as the server would; a name that is taken');
+    $check(array_keys($S::errors(null, 'b1', "AK\nIA", "s\\", 'auto', 'https://<account-id>.r2.cloudflarestorage.com', false)) === ['s3Key', 's3Secret', 's3Endpoint'], 'a key with a line break, a secret with a backslash, an endpoint still to fill in: refused (they are written to /root/.aws/credentials)');
+    $check($S::providerOf('') === 'aws' && $S::providerOf('https://nbg1.your-objectstorage.com') === 'hetzner' && $S::providerOf('https://abc.r2.cloudflarestorage.com') === 'r2' && $S::providerOf('https://minio.example.com') === 'other' && array_keys($S::PROVIDERS)[0] === 'aws', 'the provider of an endpoint, for a bucket being changed');
+    $s3v = (string) file_get_contents($root.'/resources/views/partials/server-backups-s3-form.blade.php');
+    $mb = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesBackups.php');
+    $bv = (string) file_get_contents($root.'/resources/views/partials/server-backups.blade.php');
+    $check(str_contains($s3v, 'type="password" wire:model="s3Secret"') && str_contains($s3v, 'autocomplete="new-password"') && substr_count($mb, "\$this->s3Secret = '';") >= 3, 'the secret: a password field, cleared after every save and every refusal');
+    $check((bool) preg_match('/#\[Locked\]\s+public \?string \$s3Editing = null;/', $mb) && (bool) preg_match('/#\[Locked\]\s+public \?string \$backupKeyShown = null;/', $mb), 'which bucket is edited, and the key shown: not set from the browser');
+    $s3Section = substr($mb, strpos($mb, '// ── S3 buckets'), (int) strpos($mb, '// ── SFTP destinations') - (int) strpos($mb, '// ── S3 buckets'));
+    $check(substr_count($s3Section, 'if (! $this->serverAllowed(Access::MANAGE, (int) $this->serverId)') >= 5 && str_contains($s3Section, "if (! \$this->backupAllowed('', allowAll: true))"), 'every S3, setup, key and retention action needs Manage');
+    $check(! preg_match('/Log::|logger\(|report\(/', $s3Section) && ! str_contains($s3Section, 'session('), 'the secret is never logged nor put in the session');
+    $check(substr_count($bv, "@include('cipi-gui::partials.server-backups-s3-form')") === 2 && substr_count($bv, "@include('cipi-gui::partials.server-backups-sftp-form')") === 2 && str_contains($bv, 'wire:click="configureLocalBackups"') && str_contains($bv, "wire:click=\"openS3Form('s3')\"") && str_contains($bv, 'wire:click="openSftpSetup"') && ! str_contains($bv, 'Run <code>cipi backup configure</code> on the server once'), 'a server without backups is set up here: an S3 bucket, an SFTP server, or this server only');
+    $check(str_contains($mb, "configureBackups(['type' => 'sftp', 'name' => \$this->sftpName] + \$payload)") && str_contains($mb, "configureBackups(['type' => 'local'])") && (bool) preg_match('/#\[Locked\]\s+public bool \$sftpSetup = false;/', $mb), 'the setup: type sftp with the form\'s fields, type local; which form is a setup is not set from the browser');
+    $check(str_contains($bv, 'data-backup-s3-add') && str_contains($bv, 'data-backup-s3-edit') && str_contains($bv, 'data-backup-s3-remove') && str_contains($bv, 'data-backup-key-show') && str_contains($bv, 'data-backup-key-rotate') && str_contains($bv, 'wire:click="pruneBackups(true)"') && str_contains($bv, 'wire:click="pruneBackups(false)"'), 'the tab: S3 buckets added, changed and removed; the key shown and rotated; the retention previewed and applied');
+    $check(str_contains($bv, 'data-confirm="Show the backup encryption key?') && str_contains($bv, 'data-confirm="Make a new encryption key?') && str_contains($bv, 'data-confirm="Apply every profile') , 'showing the key, rotating it and applying the retention are confirmed');
+    $check(! str_contains($bv, 'which the panel never handles') && ! str_contains($bv, "'s3://'.(\$dest['bucket'] ?? '') }}</span></span></label>"), 'no "S3 on the server only" left; a profile\'s Where names an SFTP server as one');
+    $api = (string) file_get_contents($root.'/src/Services/CipiApiClient.php');
+    $check(str_contains($api, "\$this->post('/backups/destinations', ['type' => 's3'] + \$payload)") && str_contains($api, "\$this->put('/backups/config', \$payload)") && str_contains($api, "\$this->get('/backups/key')") && str_contains($api, "\$this->post('/backups/key/rotate')") && str_contains($api, "\$this->post('/backups/prune'"), 'the client: S3 destinations, the setup, the key, the retention');
+    $check(! str_contains($api, "'/backups/fetch'") && ! str_contains($mb, 'fetch'), 'downloading a run stays on the server');
+    $uv = (string) file_get_contents($root.'/resources/views/partials/server-updates.blade.php');
+    $up = (string) file_get_contents($root.'/src/Livewire/Concerns/ManagesUpdatePolicy.php');
+    $check(str_contains($uv, "array_key_exists('signed_releases', \$up)") && str_contains($uv, 'data-updates-unsigned') && str_contains($uv, '@disabled(! $canManage || (! $upSigned && empty($up[\'verify\'])))') && str_contains($up, 'Signed releases are not available at the moment'), 'signed releases: not available yet — said, the box cannot be ticked, a save is refused before it is sent');
+    $demo = (string) file_get_contents($root.'/dev/demo/api/index.php');
+    $check(str_contains($demo, "\$sub === '/config' && \$method === 'PUT'") && str_contains($demo, "case 'backup-prune':") && str_contains($demo, "'signed_releases' => \$shipped !== []") && str_contains($demo, '$shipped = [];'), 'the demo API: the setup, S3 buckets, the key, the retention; no signed release');
+    foreach ([$s3v, $bv, $uv] as $v) {
+        $check(! preg_match('/\b(Cipi|API|cipi\/api|cipi\/gui) \d+\.\d+/', $v), 'no version is named in the view');
+    }
+    $sfv = (string) file_get_contents($root.'/resources/views/partials/server-backups-sftp-form.blade.php');
+    $check(substr_count($sfv, '@if(') + substr_count($sfv, '@if (') === substr_count($sfv, '@endif') && substr_count($sfv, '<div') === substr_count($sfv, '</div>') && str_contains($sfv, "data-backup-sftp-form=\"{{ \$sftpSetup ? 'setup'"), 'the SFTP form: balanced, a setup said as one');
+    $check(substr_count($s3v, '@if(') + substr_count($s3v, '@if (') === substr_count($s3v, '@endif') && substr_count($s3v, '<div') === substr_count($s3v, '</div>') && substr_count($bv, '@if(') + substr_count($bv, '@if (') === substr_count($bv, '@endif') && substr_count($bv, '<div') === substr_count($bv, '</div>'), 'server-backups and the S3 form: balanced');
+    preg_match_all('/<x-cipi::icon name="([a-z-]+)"/', $s3v.$bv.$uv, $ic);
+    $check(array_filter(array_unique($ic[1]), fn ($n) => ! str_contains($iconsSrc, "'{$n}' =>")) === [], 'every icon of the S3 form exists');
 
     echo "\n=== {$pass} passed, {$fail} failed ===\n";
     exit($fail === 0 ? 0 : 1);

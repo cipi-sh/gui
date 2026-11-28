@@ -1387,6 +1387,53 @@ class CipiApiClient
         return $this->request('delete', '/backups/destinations/'.rawurlencode($name))['data'] ?? [];
     }
 
+    // Backups set up from the panel (API 1.49+ / Cipi ≥ 5.19.0): S3 buckets,
+    // the default bucket, the encryption key, the retention now. A secret key
+    // is sent once, in the body of a synchronous request; the API hands it to
+    // the CLI on its standard input and never answers it.
+
+    /** @param  array{name: string, bucket: string, key: string, secret: string, region?: string, endpoint?: string}  $payload */
+    public function createS3Destination(array $payload): array
+    {
+        return $this->post('/backups/destinations', ['type' => 's3'] + $payload)['data'] ?? [];
+    }
+
+    /** @param  array<string, string>  $payload  bucket, key, secret (left out: kept), region, endpoint */
+    public function updateS3Destination(string $name, array $payload): array
+    {
+        return $this->put('/backups/destinations/'.rawurlencode($name), $payload)['data'] ?? [];
+    }
+
+    /**
+     * `cipi backup configure`, where backups go: `type` local (this server
+     * only), s3 (the default bucket: bucket, key, secret, region, endpoint) or
+     * sftp (host, user, port, path, name).
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed> data (the backup status after it), type, destination (an SFTP one with its public_key)
+     */
+    public function configureBackups(array $payload): array
+    {
+        return $this->put('/backups/config', $payload);
+    }
+
+    /** The encryption key — shown once, never kept by the panel. */
+    public function backupKey(): string
+    {
+        return (string) ($this->get('/backups/key')['data']['key'] ?? '');
+    }
+
+    public function rotateBackupKey(): array
+    {
+        return $this->post('/backups/key/rotate')['data'] ?? [];
+    }
+
+    /** The retention applied now: a job (`backup-prune`). */
+    public function pruneBackups(?string $profile = null, bool $dryRun = false): array
+    {
+        return $this->post('/backups/prune', array_filter(['profile' => $profile, 'dry_run' => $dryRun ?: null], fn ($v) => $v !== null));
+    }
+
     // How the server updates Cipi (API 1.48+ / Cipi ≥ 5.18.0): the release
     // signature check and the delay. Both off unless turned on.
 

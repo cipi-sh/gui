@@ -1,5 +1,23 @@
 # Changelog
 
+## [4.11.0] — 2026-11-28
+
+**Backups set up and managed from the panel.** A server without backups is set up from the Backups tab — to an S3 bucket, to an SFTP server, or on the server only — and then S3 buckets are added, changed, tested and removed like SFTP servers; the encryption key is shown and rotated; the retention is previewed and applied. A secret key is sent to the server once, on the CLI's standard input, and never kept by the panel. **Signed releases** are said to be not available yet. For Cipi 5.19.0 and cipi/api 1.49.
+
+### Added
+
+- **Backups → set up**: a server where backups are not configured shows three ways to start — **Use an S3 bucket** (the default bucket), **Use an SFTP server** (Cipi makes its key and the panel shows it with how to install it, as for any SFTP destination) and **On this server only** (asked first: such a copy is lost with the server). A nightly profile then takes every app and every database there. Before, the card said to run `cipi backup configure` on the server.
+- **Backups → Add an S3 bucket**: a provider (AWS, Hetzner Object Storage, Cloudflare R2, DigitalOcean Spaces, Backblaze B2, Scaleway, any S3-compatible service) fills in the endpoint and the region and says what to change; then the name, the bucket and the keys. The server reaches the bucket with the keys **before it saves anything** — a wrong key changes nothing, and the panel says why. The secret is a password field, sent once and cleared from the form after every save and every refusal. Each S3 destination has *Test*, *Edit* — an empty key or secret keeps the one the server has — and, when no profile uses it, *Remove*. The default bucket has *Edit* too, and *Set the default bucket* is there when there is none.
+- **Backups → Encryption key**: *Show the key* (asked first: the server logs it and notifies its owner), *Hide*, *Rotate* (asked first: the archives already made keep needing the old key, which stays on the server).
+- **Backups → Stored runs**: *Preview the retention* (what it would delete) and *Apply the retention* (asked first), as a job.
+- `CipiApiClient`: `createS3Destination()`, `updateS3Destination()`, `configureBackups()` (`type` local, s3 or sftp), `backupKey()`, `rotateBackupKey()`, `pruneBackups()`. `Support\BackupS3` — the providers and the fields checked as the server checks them, without the framework (`tests/standalone.php`).
+- Demo API: the setup (the staging server has no backups yet), S3 buckets, the key, the retention as a job.
+
+### Changed
+
+- **Server → Updates → Install only signed releases** cannot be ticked while no release is signed — *not available yet*, with the delay as the safeguard to use meanwhile — and a save that asks for it is refused before it is sent.
+- A profile's *Where* names an SFTP destination as `sftp://host` (it read `s3://`).
+
 ## [4.10.0] — 2026-11-27
 
 The mesh network of Zero Trust — Tailscale or NetBird — **managed from the Zero Trust tab**: join a network, close SSH and 80/443 to the world, Tailscale SSH, leave. **Apps moved from one server to another from the panel** (Server → Transfer). The time a deploy step may take, a database with a custom or Node app, and a Firewall that says who holds a lock. For Cipi 5.18.0 and cipi/api 1.48. New token abilities: `zt-manage`, `sync-manage`, `updates-view`, `updates-manage`.
