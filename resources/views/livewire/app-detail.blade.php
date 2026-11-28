@@ -356,7 +356,7 @@
                         @endif
                     </div>
                     @if($healthUnsupported)
-                        <p class="text-muted">Healthchecks need an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>health-view</code> / <code>health-manage</code> abilities.</p>
+                        <p class="text-muted">Healthchecks need an up-to-date Cipi on the server (<code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>) and the <code>health-view</code> / <code>health-manage</code> abilities.</p>
                     @else
                         <form wire:submit="saveHealth" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-start">
                             <div class="sm:col-span-3">
@@ -398,11 +398,11 @@
                             @endif
                         </div>
                         @if($searchUnsupported)
-                            <p class="text-muted">Needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>search-view</code> ability.</p>
+                            <p class="text-muted">Needs an up-to-date Cipi on the server (<code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>) and the <code>search-view</code> ability.</p>
                         @elseif($searchStatus === null)
                             <button wire:click="loadSearchStatus" class="btn btn-secondary btn-sm">Load search status</button>
                         @elseif(empty($searchStatus['installed']))
-                            <p class="text-muted">Meilisearch is not installed on this server. Install it on the host with <code>cipi search install</code>.</p>
+                            <p class="text-muted">Meilisearch is not installed on this server. Install it on the host with <code>sudo cipi search install</code>.</p>
                         @else
                             <p class="text-sm text-muted mb-3">
                                 Meilisearch {{ $searchStatus['version'] ?? '' }} · {{ !empty($searchStatus['running']) ? 'running' : 'stopped' }}
@@ -487,7 +487,7 @@
                         <button type="button" wire:click="installSsl" class="btn btn-primary"><x-cipi::icon name="shield" /> Issue / renew certificate</button>
                         <button type="button" wire:click="forceSsl" class="btn btn-secondary">Re-apply HTTPS redirect</button>
                     </div>
-                    <p class="field-hint mt-3">Wildcard (<code>*.domain</code>) certificates need DNS-01 with a Cloudflare token — run <code>cipi ssl install {{ $app['app'] }} --dns=cloudflare --wildcard</code> on the host.</p>
+                    <p class="field-hint mt-3">Wildcard (<code>*.domain</code>) certificates need DNS-01 with a Cloudflare token — run <code>sudo cipi ssl install {{ $app['app'] }} --dns=cloudflare --wildcard</code> on the host.</p>
                 </div>
 
                 <div class="card lg:col-span-2">
@@ -499,7 +499,7 @@
                         <button wire:click="loadWwwStatus" class="btn btn-ghost btn-sm"><x-cipi::icon name="refresh" /> Refresh</button>
                     </div>
                     @if($wwwUnsupported)
-                        <p class="text-muted">Needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>www-manage</code> ability.</p>
+                        <p class="text-muted">Needs an up-to-date Cipi on the server (<code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>) and the <code>www-manage</code> ability.</p>
                     @elseif($wwwStatus === null)
                         <div class="skeleton h-12 w-full"></div>
                     @else
@@ -525,7 +525,7 @@
         @elseif($activeTab === 'routing')
             @if($routingUnsupported)
                 <x-cipi::alert type="warn" title="Routing needs a newer server">
-                    Redirects and proxies need an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>), plus the abilities
+                    Redirects and proxies need an up-to-date Cipi on the server (<code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>), plus the abilities
                     <code>redirects-view</code>, <code>redirects-manage</code>, <code>proxies-view</code>, <code>proxies-manage</code>.
                 </x-cipi::alert>
             @elseif(! $routingLoaded)
@@ -708,7 +708,7 @@
                                             </ul>
                                         </x-cipi::alert>
                                     @endif
-                                    <p class="field-hint">From the panel a subset of nginx's language is accepted: no <code>access_log</code> or <code>error_log</code> path, <code>include</code>, <code>listen</code>, <code>server_name</code>, <code>*_pass</code> or certificates; <code>root</code> and <code>alias</code> under <code>/home/{{ $app['app'] }}/</code>. Reverse proxies and redirects are the cards above. The whole language is <code>cipi nginx edit {{ $app['app'] }}</code> on the server.</p>
+                                    <p class="field-hint">From the panel a subset of nginx's language is accepted: no <code>access_log</code> or <code>error_log</code> path, <code>include</code>, <code>listen</code>, <code>server_name</code>, <code>*_pass</code> or certificates; <code>root</code> and <code>alias</code> under <code>/home/{{ $app['app'] }}/</code>. Reverse proxies and redirects are the cards above. The whole language is <code>sudo cipi nginx edit {{ $app['app'] }}</code> on the server.</p>
                                     <div class="btn-group mt-3">
                                         <button type="submit" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="saveNginx">Save and reload nginx</button>
                                         @if(trim($nginxSaved) !== '')
@@ -810,7 +810,7 @@
                                                 @endforeach
                                             </select>
                                             @error('cacheTtl') <p class="field-error">{{ $message }}</p> @enderror
-                                            <p class="field-hint">For pages that say nothing themselves: a <code>Cache-Control: max-age</code> of the app wins. Any other time: <code>cipi cache {{ $app['app'] }} ttl 45m</code>.</p>
+                                            <p class="field-hint">For pages that say nothing themselves: a <code>Cache-Control: max-age</code> of the app wins. Any other time: <code>sudo cipi cache {{ $app['app'] }} ttl 45m</code>.</p>
                                         </div>
                                         <div>
                                             <label for="cache-size">Use up to</label>
@@ -890,7 +890,7 @@
                                 </ul>
                                 <p class="field-hint">Changing the list needs the Edit ability on this app.</p>
                             @endif
-                            <p class="field-hint mt-3">On the server: <code>cipi cache {{ $app['app'] }} exclude add '/cart*'</code>.</p>
+                            <p class="field-hint mt-3">On the server: <code>sudo cipi cache {{ $app['app'] }} exclude add '/cart*'</code>.</p>
                         </div>
                     @endif
 
@@ -916,7 +916,7 @@
                                 @endif
                                 <button type="submit" class="btn btn-secondary btn-sm" wire:loading.attr="disabled" wire:target="purgePageCache" data-page-cache-purge-save><x-cipi::icon name="trash" /> Purge these pages</button>
                             </form>
-                            <p class="field-hint mt-3">On the server: <code>cipi cache {{ $app['app'] }} purge /blog/hello-world/</code>.</p>
+                            <p class="field-hint mt-3">On the server: <code>sudo cipi cache {{ $app['app'] }} purge /blog/hello-world/</code>.</p>
                         </div>
                     @endif
 
@@ -931,12 +931,12 @@
                             <dt>A Cipi deploy</dt>
                             <dd>
                                 @if(! $pageCacheLoaded || ($pc['clear_on_deploy'] ?? true))
-                                    Nothing to add: Cipi empties the cache by itself after every successful deploy and rollback — <code>cipi deploy</code>, the Git webhook, the Deploy button here.
+                                    Nothing to add: Cipi empties the cache by itself after every successful deploy and rollback — <code>sudo cipi deploy</code>, the Git webhook, the Deploy button here.
                                 @else
                                     <span class="text-warn">Not emptied</span> — "Empty it after every deploy" is off for this app: the old pages stay until they expire.
                                 @endif
                             </dd>
-                            <dt>From this page</dt><dd><em>Empty the cache now</em>, above — or <code>cipi cache {{ $app['app'] }} clear</code> on the server.</dd>
+                            <dt>From this page</dt><dd><em>Empty the cache now</em>, above — or <code>sudo cipi cache {{ $app['app'] }} clear</code> on the server.</dd>
                             <dt>Anything else</dt><dd>One command, as the app's own user (no password asked, and it can empty this app's cache only) — every page, or the ones named:</dd>
                         </dl>
                         <x-cipi::secret label="Command" :value="$pcClear" />
@@ -1109,10 +1109,10 @@
                     <div class="card">
                         <div class="card-header"><h2 class="card-title">On the server</h2></div>
                         <dl class="kv">
-                            <dt>What it runs</dt><dd><code>cipi frankenphp php {{ $app['app'] }}</code></dd>
-                            <dt>Switch PHP</dt><dd><code>cipi frankenphp php {{ $app['app'] }} 8.5</code></dd>
-                            <dt>Update the build</dt><dd><code>cipi frankenphp upgrade {{ $app['app'] }}</code></dd>
-                            <dt>Restart</dt><dd><code>cipi frankenphp restart {{ $app['app'] }}</code></dd>
+                            <dt>What it runs</dt><dd><code>sudo cipi frankenphp php {{ $app['app'] }}</code></dd>
+                            <dt>Switch PHP</dt><dd><code>sudo cipi frankenphp php {{ $app['app'] }} 8.5</code></dd>
+                            <dt>Update the build</dt><dd><code>sudo cipi frankenphp upgrade {{ $app['app'] }}</code></dd>
+                            <dt>Restart</dt><dd><code>sudo cipi frankenphp restart {{ $app['app'] }}</code></dd>
                             <dt>Log</dt><dd><code>/var/log/cipi-apps/{{ $app['app'] }}/octane.log</code> — the Logs tab</dd>
                         </dl>
                     </div>
@@ -1183,7 +1183,7 @@
                         </div>
                     </div>
                     @if($auditUnsupported)
-                        <div class="px-5 pb-5"><p class="text-muted">The audit needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>deploy-manage</code> ability.</p></div>
+                        <div class="px-5 pb-5"><p class="text-muted">The audit needs an up-to-date Cipi on the server (<code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>) and the <code>deploy-manage</code> ability.</p></div>
                     @elseif(! $auditLoaded)
                         <div class="px-5 pb-5"><div class="skeleton h-24 w-full"></div></div>
                     @elseif(empty($auditRecords) && ! $this->deployBanner())
@@ -1270,7 +1270,7 @@
                             </div>
                         </div>
                         @if($deployConfigUnsupported)
-                            <p class="text-muted">Needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>apps-deploy-config</code> ability.</p>
+                            <p class="text-muted">Needs an up-to-date Cipi on the server (<code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>) and the <code>apps-deploy-config</code> ability.</p>
                         @elseif(! $deployConfigLoaded)
                             <div class="skeleton h-20 w-full"></div>
                         @else
@@ -1389,8 +1389,8 @@
                 </x-cipi::alert>
             @elseif($ymlUnsupported === 'server')
                 <x-cipi::alert type="warn" title="cipi.yml needs a newer server">
-                    Requires an up-to-date Cipi — run <code>cipi self-update &amp;&amp; cipi api update</code> on the server, then give the token
-                    <code>yml-view</code> and <code>yml-manage</code>. Until then: <code>cipi yml plan {{ $app['app'] }}</code> and <code>cipi yml apply {{ $app['app'] }}</code> over SSH.
+                    Requires an up-to-date Cipi — run <code>sudo cipi self-update &amp;&amp; sudo cipi api update</code> on the server, then give the token
+                    <code>yml-view</code> and <code>yml-manage</code>. Until then: <code>sudo cipi yml plan {{ $app['app'] }}</code> and <code>sudo cipi yml apply {{ $app['app'] }}</code> over SSH.
                     @if($ymlUnsupportedDetail)
                         <p class="mt-2">The server said: <code>{{ $ymlUnsupportedDetail }}</code></p>
                     @endif
@@ -1456,7 +1456,7 @@
                         @if($ymlFile === null)
                             <p class="text-sm text-muted">
                                 Commit a <code>cipi.yml</code> — or a <code>{{ $ymlFiles[0] }}</code> for this environment only — at the root of the repository and deploy. To start from what this server already has, run
-                                <code>cipi yml generate {{ $app['app'] }} &gt; cipi.yml</code> on the server.
+                                <code>sudo cipi yml generate {{ $app['app'] }} &gt; cipi.yml</code> on the server.
                             </p>
                         @else
                             <div class="space-y-3">
@@ -1515,7 +1515,7 @@
                         <div class="flex flex-wrap items-center justify-between gap-3 mt-5 pt-4 border-t">
                             <p class="text-xs text-subtle">
                                 @if($ymlCanApply)
-                                    Runs <code>cipi yml apply {{ $app['app'] }}</code> on the server.
+                                    Runs <code>sudo cipi yml apply {{ $app['app'] }}</code> on the server.
                                 @elseif($ymlFile === null)
                                     Nothing to apply without a cipi.yml.
                                 @elseif($yml['valid'] === false)
@@ -1543,7 +1543,7 @@
                         </p>
                         @if($yml['auto'] && $ymlSudoers === false)
                             <x-cipi::alert type="warn" class="mb-4">
-                                The sudo rule that lets webhook deploys apply the file is missing — run <code>cipi yml auto {{ $app['app'] }} on</code> on the server.
+                                The sudo rule that lets webhook deploys apply the file is missing — run <code>sudo cipi yml auto {{ $app['app'] }} on</code> on the server.
                             </x-cipi::alert>
                         @endif
                         @if($yml['auto'])
@@ -1567,14 +1567,14 @@
                         <div class="flex flex-wrap items-center gap-2">
                             <div class="search-input"><x-cipi::icon name="search" /><input type="search" x-model="filter" placeholder="Filter keys…" class="input-sm" aria-label="Filter variables"></div>
                             <button type="button" wire:click="openEnvText('paste')" class="btn btn-secondary btn-sm" title="Paste a block of KEY=value lines: they are split into the list"><x-cipi::icon name="plus" /> Paste variables</button>
-                            <button type="button" wire:click="openEnvText('edit')" class="btn btn-secondary btn-sm" title="The whole list as text, to edit by hand"><x-cipi::icon name="code" /> Edit as text</button>
+                            <button type="button" wire:click="openEnvText('edit')" class="btn btn-secondary btn-sm" title="The whole .env as text, as it is: comments, blank lines and spaces"><x-cipi::icon name="code" /> Edit as text</button>
                             <button wire:click="loadEnv" class="btn btn-ghost btn-icon btn-sm" aria-label="Reload"><x-cipi::icon name="refresh" /></button>
                         </div>
                     @endif
                 </div>
 
                 @if($envUnsupported)
-                    <p class="text-muted">.env editing needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>apps-env</code> ability.</p>
+                    <p class="text-muted">.env editing needs an up-to-date Cipi on the server (<code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>) and the <code>apps-env</code> ability.</p>
                 @elseif(! $envLoaded)
                     <div class="skeleton h-40 w-full"></div>
                 @else
@@ -1583,12 +1583,27 @@
                         $orderChanged = $this->envOrderChanged();
                         $envLast = count($envRows) - 1;
                     @endphp
-                    {{-- The .env as text: a block pasted from a README or a chat is split into the
-                         list (paste), or the whole list is edited by hand (edit). Applying changes
-                         the rows only; Save sends them, as it does for a row edited one by one. --}}
-                    @if($envTextMode)
+                    {{-- The .env as text. Edit: the file itself, as the server has it — comments,
+                         blank lines, spaces — saved exactly as typed (nothing quoted, trimmed or
+                         moved). Paste: a block from a README or a chat is split into the list.
+                         On a server that cannot give the file as text, edit shows the list as
+                         KEY=value lines and applies them to the list, as paste does. --}}
+                    @php $envTextFile = $envTextMode === 'edit' && $envTextRaw; @endphp
+                    @if($envTextFile)
+                        <form wire:submit="saveEnvText" wire:key="env-text-file" class="mb-4" data-env-text="file">
+                            <label for="env-text">The <code>.env</code> file</label>
+                            <textarea id="env-text" wire:model="envText" class="font-mono text-xs" wrap="off" rows="{{ min(30, max(8, substr_count($envText, "\n") + 2)) }}"
+                                      spellcheck="false" autocomplete="off" autocapitalize="none" x-init="$nextTick(() => $el.focus())"></textarea>
+                            @error('envText') <p class="field-error">{{ $message }}</p> @enderror
+                            <p class="field-hint">The file as it is on the server — comments, blank lines and spaces included. Save writes exactly what is here: nothing is quoted, trimmed or moved, so a value with spaces goes in double quotes.</p>
+                            <div class="btn-group mt-3">
+                                <button type="submit" class="btn btn-primary btn-sm" wire:loading.attr="disabled" wire:target="saveEnvText">Save .env</button>
+                                <button type="button" wire:click="closeEnvText" class="btn btn-ghost btn-sm">Cancel</button>
+                            </div>
+                        </form>
+                    @elseif($envTextMode)
                         @php $envTextEdit = $envTextMode === 'edit'; @endphp
-                        <form wire:submit="applyEnvText" class="mb-4" data-env-text="{{ $envTextMode }}">
+                        <form wire:submit="applyEnvText" wire:key="env-text-{{ $envTextMode }}" class="mb-4" data-env-text="{{ $envTextMode }}">
                             <label for="env-text">{{ $envTextEdit ? 'The list as text' : 'Paste variables' }}</label>
                             <textarea id="env-text" wire:model="envText" class="font-mono text-xs" rows="{{ $envTextEdit ? min(24, max(8, count($envRows) + 2)) : 8 }}"
                                       spellcheck="false" autocomplete="off" autocapitalize="none" x-init="$nextTick(() => $el.focus())"
@@ -1667,6 +1682,7 @@
                     @error('envNewKey') <p class="field-error">{{ $message }}</p> @enderror
                     @endif
 
+                    @unless($envTextFile)
                     <div class="flex flex-wrap items-center justify-between gap-3 mt-4">
                         <p class="text-xs {{ $changes ? 'text-accent' : 'text-subtle' }}">{{ $changes ? $changes.' unsaved '.\Illuminate\Support\Str::plural('change', $changes).($orderChanged ? ' · new order' : '') : count($envRows).' variables · drag ⠿ to reorder · sensitive values are hidden' }}</p>
                         <div class="btn-group">
@@ -1676,6 +1692,7 @@
                             <button type="button" wire:click="saveEnv" class="btn btn-primary" wire:loading.attr="disabled" wire:target="saveEnv">Save .env</button>
                         </div>
                     </div>
+                    @endunless
                 @endif
             </div>
 
@@ -1692,7 +1709,7 @@
                     @endif
                 </div>
                 @if($authJsonUnsupported)
-                    <p class="text-muted">Needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>apps-auth</code> ability.</p>
+                    <p class="text-muted">Needs an up-to-date Cipi on the server (<code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>) and the <code>apps-auth</code> ability.</p>
                 @elseif(! $authJsonLoaded)
                     <div class="skeleton h-40 w-full"></div>
                 @else
@@ -1740,7 +1757,7 @@
                     </div>
                 </div>
                 @if($runUnsupported)
-                    <p class="text-muted">Needs an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>apps-run</code> ability.</p>
+                    <p class="text-muted">Needs an up-to-date Cipi on the server (<code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>) and the <code>apps-run</code> ability.</p>
                 @else
                     @include('cipi-gui::partials.preset-list', ['kind' => 'run', 'presets' => $runPresets, 'use' => 'useRunPreset', 'canEdit' => $canEditPresets, 'editing' => $presetEditing === 'run', 'custom' => $presetsCustom['run']])
                     <form wire:submit="runAppCommand">
@@ -1860,7 +1877,7 @@
                 <div class="modal-body space-y-3">
                     @if($auditLogMissing)
                         <x-cipi::alert type="info" title="Not in the part of the log the panel reads">
-                            This deploy is older than the last 2000 lines of the deploy log. On the server: <code>cipi deploy {{ $app['app'] }} --log=5000</code>.
+                            This deploy is older than the last 2000 lines of the deploy log. On the server: <code>sudo cipi deploy {{ $app['app'] }} --log=5000</code>.
                         </x-cipi::alert>
                     @else
                         <p class="text-xs text-muted">From the start banner of this deploy to the post-deploy steps, cipi.yml apply and healthcheck verdict that followed it.</p>

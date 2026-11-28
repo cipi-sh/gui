@@ -19,7 +19,7 @@
     @elseif($unsupported)
         <x-cipi::alert type="warn" title="Notifications are not available on this server" data-notifications-unsupported>
             Channels and triggers need an up-to-date Cipi on the server:
-            <code>cipi self-update &amp;&amp; cipi api update</code>.
+            <code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>.
             @if($unsupportedReason !== '')
                 <p class="mt-2">The server answered: <span class="font-mono text-xs break-words">{{ $unsupportedReason }}</span></p>
             @endif
@@ -251,7 +251,7 @@
                                 <div>
                                     <label for="ch-id">Channel id</label>
                                     <input id="ch-id" type="text" wire:model="formId" class="font-mono" placeholder="ops" autocomplete="off" spellcheck="false" @disabled($editing !== null)>
-                                    <p class="field-hint">How it is named in <code>cipi notification</code>: lowercase letters, digits, dashes.</p>
+                                    <p class="field-hint">How it is named in <code>sudo cipi notification</code>: lowercase letters, digits, dashes.</p>
                                     @error('formId') <p class="field-error">{{ $message }}</p> @enderror
                                 </div>
                             @endif
@@ -301,7 +301,7 @@
                                     @if($formEventsExtra !== [])
                                         <p class="field-hint mt-2">Also, set at the server: @foreach($formEventsExtra as $e)<code>{{ $e }}</code>@if(! $loop->last), @endif @endforeach — kept as they are.</p>
                                     @endif
-                                    <p class="field-hint mt-2">A trigger reaches this channel when it is on (Triggers, below) and is in one of the kinds chosen here. For a single trigger: <code>cipi notification events {{ $formType === 'smtp' ? 'smtp' : ($formId ?: '<id>') }} backup_fail,…</code> at the server.</p>
+                                    <p class="field-hint mt-2">A trigger reaches this channel when it is on (Triggers, below) and is in one of the kinds chosen here. For a single trigger: <code>sudo cipi notification events {{ $formType === 'smtp' ? 'smtp' : ($formId ?: '<id>') }} backup_fail,…</code> at the server.</p>
                                 @endif
                                 @error('formEvents') <p class="field-error">{{ $message }}</p> @enderror
                             </div>

@@ -21,7 +21,7 @@
         </div>
     @elseif($unsupported)
         <x-cipi::alert type="warn" title="The firewall is not available on this server" data-firewall-unsupported>
-            It needs an up-to-date Cipi on the server — <code>cipi self-update &amp;&amp; cipi api update</code> —
+            It needs an up-to-date Cipi on the server — <code>sudo cipi self-update &amp;&amp; sudo cipi api update</code> —
             and a token with <code>firewall-view</code> and <code>firewall-manage</code> (recreate it from <a href="{{ route('cipi-gui.servers') }}" class="text-link">Connections</a>).
             @if($unsupportedReason !== '')
                 <p class="mt-2">The server answered: <span class="font-mono text-xs break-words">{{ $unsupportedReason }}</span></p>
@@ -278,7 +278,7 @@
                 </div>
 
                 @if($rip === null)
-                    <p class="text-sm text-muted" data-real-ip-unsupported>Not available on this server yet: update Cipi on it (<code>cipi self-update</code>). Until then it is turned on at the server with <code>cipi nginx real-ip cloudflare</code>.</p>
+                    <p class="text-sm text-muted" data-real-ip-unsupported>Not available on this server yet: update Cipi on it (<code>sudo cipi self-update</code>). Until then it is turned on at the server with <code>sudo cipi nginx real-ip cloudflare</code>.</p>
                 @elseif(($rip['kept_by'] ?? null) === 'other')
                     <x-cipi::alert type="info">nginx already has a <code>real_ip</code> configuration Cipi did not write (<code>set_real_ip_from</code> in /etc/nginx): it is changed at the server, not here.</x-cipi::alert>
                 @elseif(! empty($rip['enabled']))
@@ -341,7 +341,7 @@
                     <dl class="kv mb-4">
                         <dt>Bouncer</dt><dd>{{ $cs['bouncer'] ?? '—' }}@if(($cs['mode'] ?? '') !== '') <span class="text-muted">· {{ $cs['mode'] }}</span>@endif</dd>
                         <dt>Decisions</dt><dd>{{ count((array) ($cs['decisions'] ?? [])) }} — in <em>Banned now</em> above</dd>
-                        <dt>Rescue</dt><dd>{{ $cs['rescue'] ?? '—' }}@if(! empty($cs['rescue_port'])) <span class="text-muted">· port {{ $cs['rescue_port'] }}</span>@endif <span class="block text-xs text-muted">Break-glass, at the server only: <code>cipi crowdsec rescue token</code></span></dd>
+                        <dt>Rescue</dt><dd>{{ $cs['rescue'] ?? '—' }}@if(! empty($cs['rescue_port'])) <span class="text-muted">· port {{ $cs['rescue_port'] }}</span>@endif <span class="block text-xs text-muted">Break-glass, at the server only: <code>sudo cipi crowdsec rescue token</code></span></dd>
                     </dl>
                     @if(! empty($cs['running']) && ($cs['bouncer'] ?? '') !== 'running')
                         <x-cipi::alert type="danger" class="mb-4">The engine is up but the bouncer is not: its decisions are not enforced. Restart <code>crowdsec-firewall-bouncer</code> from the Services tab.</x-cipi::alert>

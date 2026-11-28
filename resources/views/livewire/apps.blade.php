@@ -377,7 +377,7 @@
 
                     @if($appKind === 'node')
                         @if($nodeUnsupported)
-                            <x-cipi::alert type="warn">Node apps need an up-to-date Cipi on the server (<code>cipi self-update &amp;&amp; cipi api update</code>) and the <code>node-view</code> ability. You can still submit — the server answers if it cannot.</x-cipi::alert>
+                            <x-cipi::alert type="warn">Node apps need an up-to-date Cipi on the server (<code>sudo cipi self-update &amp;&amp; sudo cipi api update</code>) and the <code>node-view</code> ability. You can still submit — the server answers if it cannot.</x-cipi::alert>
                         @endif
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <div>

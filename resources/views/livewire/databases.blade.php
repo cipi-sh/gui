@@ -181,7 +181,7 @@
             <p class="text-xs text-subtle mt-3">
                 {{ count($visible) }} of {{ $scopedCount }} databases
                 @if($scopeServer) on {{ $scopeServer->name }} @elseif($multiServer) on {{ $servers->count() }} servers @endif
-                · Dropping a database stays on the server CLI (<code>cipi db delete</code>) by design.
+                · Dropping a database stays on the server CLI (<code>sudo cipi db delete</code>) by design.
             </p>
         @endif
     @endif
@@ -330,7 +330,7 @@
                         <div>
                             <label for="restore-file">Dump file on the server</label>
                             <input id="restore-file" type="text" wire:model="restoreFile" class="font-mono" placeholder="/home/cipi/backups/{{ $restoreName }}_2026-10-07_0300.sql.gz">
-                            <p class="field-hint">A <code>.sql.gz</code> created by Backup or <code>cipi db backup</code>.</p>
+                            <p class="field-hint">A <code>.sql.gz</code> created by Backup or <code>sudo cipi db backup</code>.</p>
                             @error('restoreFile') <p class="field-error">{{ $message }}</p> @enderror
                         </div>
                         <div>

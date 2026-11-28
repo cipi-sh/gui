@@ -27,6 +27,9 @@ class AppPageExtrasTest extends TestCase
     /** @var array<string, string> the .env on the server */
     private array $env = ['APP_NAME' => 'Shop', 'APP_ENV' => 'production', 'DB_PASSWORD' => 's3cret'];
 
+    /** The .env as text (GET|PUT …/env/raw); null: a server without it (404). */
+    private ?string $rawEnv = null;
+
     /** @var array<string, mixed> GET /api/jobs/job-1, next to id and type */
     private array $job = ['status' => 'running', 'exit_code' => null, 'output' => null, 'result' => null];
 
@@ -49,6 +52,9 @@ class AppPageExtrasTest extends TestCase
             return match (true) {
                 $path === '/api/apps/shop' && $request->method() === 'GET' => Http::response(['data' => $this->shop]),
                 $path === '/api/apps/shop/env' && $request->method() === 'GET' => Http::response(['data' => ['app' => 'shop', 'vars' => $this->env]]),
+                $path === '/api/apps/shop/env/raw' && $this->rawEnv === null => Http::response(['message' => 'Not Found'], 404),
+                $path === '/api/apps/shop/env/raw' && $request->method() === 'GET' => Http::response(['data' => ['app' => 'shop', 'text' => $this->rawEnv]]),
+                $path === '/api/apps/shop/env/raw' => Http::response(['data' => ['app' => 'shop', 'text' => $this->rawEnv = (string) ($request->data()['text'] ?? '')]]),
                 $path === '/api/apps/shop/env' => Http::response(['data' => ['app' => 'shop', 'vars' => $this->env = $this->applied($request->data())]]),
                 $path === '/api/apps/shop/deploy' && $request->method() === 'POST' => Http::response(['job_id' => 'job-1', 'status' => 'pending'], 202),
                 $path === '/api/apps/shop/deploy/status' => Http::response(['data' => $this->deployStatus]),
@@ -126,8 +132,52 @@ class AppPageExtrasTest extends TestCase
     }
 
     #[Test]
+    public function the_file_edited_as_text_is_shown_and_saved_as_it_is(): void
+    {
+        $this->rawEnv = "APP_NAME=Shop\n\n# Mail\nMAIL_MAILER=ses      # aligned\nMAIL_FROM_NAME=\"\${APP_NAME}\"\n";
+        $typed = "APP_NAME=Shop\n\n# Mail\nMAIL_MAILER=ses      # aligned\nMAIL_FROM_ADDRESS=\"noreply@example.com\"   \nMAIL_FROM_NAME=\"\${APP_NAME}\"\n";
+
+        $page = $this->envTab()
+            ->call('openEnvText', 'edit')
+            ->assertSet('envTextMode', 'edit')
+            ->assertSet('envTextRaw', true)
+            ->assertSet('envText', $this->rawEnv)
+            ->assertSeeHtml('data-env-text="file"')
+            ->assertSeeHtml('wire:submit="saveEnvText"')
+            ->assertDontSeeHtml('wire:model="envNewKey"')
+            ->call('saveEnvText')
+            ->assertSet('envTextMode', 'edit'); // nothing changed: nothing sent
+
+        $this->assertTrue(Http::recorded(fn (Request $r) => $r->method() === 'PUT' && str_ends_with((string) parse_url($r->url(), PHP_URL_PATH), '/env/raw'))->isEmpty());
+
+        $page->set('envText', $typed)
+            ->call('saveEnvText')
+            ->assertHasNoErrors()
+            ->assertSet('envTextMode', null)
+            ->assertSet('envTextRaw', false);
+
+        $sent = Http::recorded(fn (Request $r) => $r->method() === 'PUT' && parse_url($r->url(), PHP_URL_PATH) === '/api/apps/shop/env/raw');
+        $this->assertCount(1, $sent);
+        $this->assertSame($typed, $sent->first()[0]->data()['text'], 'byte for byte: no quotes added, no blanks trimmed, the comments and the blank line kept');
+        $this->assertNull($this->envSaved(), 'not through set/unset');
+    }
+
+    #[Test]
+    public function the_file_is_not_opened_over_unsaved_changes_in_the_list(): void
+    {
+        $this->rawEnv = "APP_NAME=Shop\n";
+
+        $this->envTab()
+            ->set('envRows.0.value', 'Other')
+            ->call('openEnvText', 'edit')
+            ->assertSet('envTextMode', null)
+            ->assertDispatched('notify');
+    }
+
+    #[Test]
     public function the_list_edited_as_text_replaces_it_a_line_taken_out_removes_the_key(): void
     {
+        // A server that cannot give the file as text ($rawEnv null: 404): the list as text.
         $page = $this->envTab()
             ->call('openEnvText', 'edit')
             ->assertSet('envTextMode', 'edit')

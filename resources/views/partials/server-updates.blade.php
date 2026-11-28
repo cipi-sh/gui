@@ -104,7 +104,7 @@
         <div class="card">
             <div class="card-header"><h2 class="card-title">On the server</h2></div>
             <div class="space-y-2 text-sm text-soft">
-                <p><code>cipi self-update policy</code> shows the same. <code>cipi self-update --now</code> installs a release held by the delay at once — the signature is still checked.</p>
+                <p><code>sudo cipi self-update policy</code> shows the same. <code>sudo cipi self-update --now</code> installs a release held by the delay at once — the signature is still checked.</p>
                 <p>Starting an update is not done from the panel: it stays the server's, at its shell or every night.</p>
             </div>
         </div>

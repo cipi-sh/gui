@@ -358,7 +358,7 @@ class Servers extends Component
 
         return view('cipi-gui::livewire.servers', [
             'servers' => CipiServer::orderBy('name')->get(),
-            'tokenCommand' => 'cipi api token create --name=gui --abilities='.implode(',', $abilities),
+            'tokenCommand' => 'sudo cipi api token create --name=gui --abilities='.implode(',', $abilities),
             'abilityCount' => count($abilities),
             'panelIp' => Cache::get(self::PANEL_IP_CACHE_KEY),
             'deleting' => $this->confirmDeleteId ? CipiServer::find($this->confirmDeleteId) : null,

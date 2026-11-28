@@ -86,7 +86,7 @@ final class Sync
         }
         if (! empty($check['ok'])) {
             return empty($check['auto_passphrase'])
-                ? ['old', 'The target answers, but its Cipi is too old for a transfer from the panel: update it there (cipi self-update), then check again.']
+                ? ['old', 'The target answers, but its Cipi is too old for a transfer from the panel: update it there (sudo cipi self-update), then check again.']
                 : ['ok', 'The target accepts this server\'s key and Cipi answers there.'];
         }
 

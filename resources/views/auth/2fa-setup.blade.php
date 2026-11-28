@@ -30,7 +30,7 @@
             <button type="submit" class="btn btn-primary w-full" style="min-height: 2.5rem;">Turn on 2FA and continue</button>
         </form>
 
-        <p class="text-xs text-muted">From now on every sign-in asks for a code from this app. Lost the phone? An admin can reset your 2FA from Team, or on the server: <code>cipi gui reset-user</code>.</p>
+        <p class="text-xs text-muted">From now on every sign-in asks for a code from this app. Lost the phone? An admin can reset your 2FA from Team, or on the server: <code>sudo cipi gui reset-user</code>.</p>
 
         @if($passkeys ?? false)
             <div data-passkey-setup hidden>

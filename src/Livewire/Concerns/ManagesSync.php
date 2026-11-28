@@ -167,7 +167,7 @@ trait ManagesSync
                 } catch (CipiApiException $e) {
                     $this->syncNote = match (true) {
                         $e->getStatusCode() === 403 => "The token of {$peer->name} is missing the sync-manage ability: its key could not be added there. Recreate that token from Connections, or trust the key on the server by hand.",
-                        in_array($e->getStatusCode(), [404, 405, 503], true) => "{$peer->name} needs an update before the panel can prepare it (cipi self-update && cipi api update there). Until then, trust the key on it by hand.",
+                        in_array($e->getStatusCode(), [404, 405, 503], true) => "{$peer->name} needs an update before the panel can prepare it (sudo cipi self-update && sudo cipi api update there). Until then, trust the key on it by hand.",
                         default => "The key could not be added on {$peer->name}: ".$this->friendlyApiError($e),
                     };
                 }
@@ -253,7 +253,7 @@ trait ManagesSync
                 ? "This server's key was removed from {$peer->name}: it is no longer trusted there."
                 : "This server's key is not trusted on {$peer->name}: there was nothing to remove.";
         } catch (CipiApiException $e) {
-            $this->syncNote = "This server's key may still be trusted on {$peer->name} — it could not be removed (".$this->friendlyApiError($e).'). On that server: cipi sync untrust --key="…", with the key shown here.';
+            $this->syncNote = "This server's key may still be trusted on {$peer->name} — it could not be removed (".$this->friendlyApiError($e).'). On that server: sudo cipi sync untrust --key="…", with the key shown here.';
         }
     }
 
@@ -273,7 +273,7 @@ trait ManagesSync
     protected function syncError(CipiApiException $e): void
     {
         $this->error = match (true) {
-            in_array($e->getStatusCode(), [404, 405, 503], true) => 'Transfers from the panel need an update of Cipi on this server (cipi self-update && cipi api update).',
+            in_array($e->getStatusCode(), [404, 405, 503], true) => 'Transfers from the panel need an update of Cipi on this server (sudo cipi self-update && sudo cipi api update).',
             $e->getStatusCode() === 403 && str_contains(strtolower($e->getMessage()), 'ability') => 'The token of this connection is missing the sync-manage ability: recreate it from Connections.',
             default => $this->friendlyApiError($e),
         };

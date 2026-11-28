@@ -177,7 +177,7 @@ trait ManagesMesh
         } catch (CipiApiException $e) {
             $this->meshMessage = null;
             $this->error = match (true) {
-                in_array($e->getStatusCode(), [404, 405], true) => 'Managing the mesh from the panel needs an update of Cipi on this server (cipi self-update && cipi api update).',
+                in_array($e->getStatusCode(), [404, 405], true) => 'Managing the mesh from the panel needs an update of Cipi on this server (sudo cipi self-update && sudo cipi api update).',
                 $e->getStatusCode() === 403 && str_contains(strtolower($e->getMessage()), 'ability') => 'The token of this connection is missing the zt-manage ability: create it again with the command on Connections, on the server.',
                 default => $this->friendlyApiError($e),
             };

@@ -232,6 +232,6 @@ class SftpAndUpdatesTest extends TestCase
     public function a_server_without_the_policy_says_what_to_update(): void
     {
         $this->notFound = true;
-        $this->tab('updates')->assertSeeHtml('data-updates-unsupported')->assertSee('cipi self-update && cipi api update');
+        $this->tab('updates')->assertSeeHtml('data-updates-unsupported')->assertSee('sudo cipi self-update && sudo cipi api update');
     }
 }

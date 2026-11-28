@@ -123,7 +123,7 @@ class SsoController
         $model = config('auth.providers.users.model', 'App\\Models\\User');
 
         if (! Schema::hasColumn((new $model)->getTable(), 'sso_subject')) {
-            throw new OidcException('The panel database is not ready for single sign-on: an admin must run `cipi gui update` on the server.');
+            throw new OidcException('The panel database is not ready for single sign-on: an admin must run `sudo cipi gui update` on the server.');
         }
 
         $user = $model::query()->where('sso_subject', $identity['sub'])->first();

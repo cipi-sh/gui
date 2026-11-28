@@ -110,7 +110,7 @@ class AppYmlTest extends TestCase
             ->assertSee('alias-add')
             ->assertSee('node settings change on the next deploy, before the build:')
             ->assertSeeHtml('data-yml-auto>Off</span>')
-            ->assertSeeHtml('Runs <code>cipi yml apply shop</code> on the server.')
+            ->assertSeeHtml('Runs <code>sudo cipi yml apply shop</code> on the server.')
             ->assertDontSeeHtml('data-yml-blockers')
             ->assertDontSeeHtml('data-yml-in-sync');
     }
@@ -279,7 +279,7 @@ class AppYmlTest extends TestCase
 
         $this->ymlTab()
             ->call('enableYmlAuto')
-            ->assertSet('error', 'cipi yml auto failed — cipi.yml from the panel needs an up-to-date Cipi on this server (cipi self-update && cipi api update).');
+            ->assertSet('error', 'cipi yml auto failed — cipi.yml from the panel needs an up-to-date Cipi on this server (sudo cipi self-update && sudo cipi api update).');
     }
 
     #[Test]

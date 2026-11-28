@@ -48,14 +48,14 @@ php artisan cipi:seed-gui-user --email=admin@example.com --password='a-long-pass
 
 ## Connecting servers
 
-1. Enable the API on the server: `cipi api`
+1. Enable the API on the server: `sudo cipi api <domain>`
 2. Create a token with every ability the panel uses (the **Connections** page shows the same command with a copy button):
 
 ```bash
-cipi api token create --name=gui --abilities=apps-view,apps-create,apps-edit,apps-delete,apps-suspend,apps-basicauth,apps-env,apps-auth,apps-artisan,apps-run,apps-deploy-config,aliases-view,aliases-create,aliases-delete,www-manage,redirects-view,redirects-manage,proxies-view,proxies-manage,node-view,node-manage,search-view,search-manage,deploy-manage,ssl-manage,dbs-view,dbs-create,dbs-manage,php-view,php-manage,ssh-view,ssh-manage,services-view,services-manage,smtp-view,smtp-manage,health-view,health-manage,packages-view,packages-manage,monitor-view,metrics-view,metrics-manage,zt-view,zt-manage,sync-manage,updates-view,updates-manage,disk-view,yml-view,yml-manage,ip-whitelist-view,ip-whitelist-manage,status-view,firewall-view,firewall-manage
+sudo cipi api token create --name=gui --abilities=apps-view,apps-create,apps-edit,apps-delete,apps-suspend,apps-basicauth,apps-env,apps-auth,apps-artisan,apps-run,apps-deploy-config,aliases-view,aliases-create,aliases-delete,www-manage,redirects-view,redirects-manage,proxies-view,proxies-manage,node-view,node-manage,search-view,search-manage,deploy-manage,ssl-manage,dbs-view,dbs-create,dbs-manage,php-view,php-manage,ssh-view,ssh-manage,services-view,services-manage,smtp-view,smtp-manage,health-view,health-manage,packages-view,packages-manage,monitor-view,metrics-view,metrics-manage,zt-view,zt-manage,sync-manage,updates-view,updates-manage,disk-view,yml-view,yml-manage,ip-whitelist-view,ip-whitelist-manage,status-view,firewall-view,firewall-manage
 ```
 
-Or `cipi api token create --name=gui --full-access` (Cipi 5.9.0+): it also passes the abilities later versions add.
+Or `sudo cipi api token create --name=gui --full-access` (Cipi 5.9.0+): it also passes the abilities later versions add.
 
 3. In the panel open **Connections → Add server** and enter a name, the API URL (`https://vps.example.com`) and the token. The connection is tested right away; tokens are encrypted at rest with Laravel's `Crypt`.
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## [4.11.1] — 2026-11-28
+
+**Environment → Edit as text is the file itself.** The text was the list of values written back as `KEY=value` lines: comments, blank lines and the spaces of the file were not there, a value that already had quotes got new ones around them, and blanks after a value ended up inside quotes. Now the text is the `.env` as the server has it, and **Save .env** writes exactly what is typed — nothing quoted, trimmed or moved. For Cipi 5.19.2 and cipi/api 1.49.1; on a server without them, *Edit as text* is the list as text, as before.
+
+### Changed
+
+- **Environment → Edit as text** reads the file (`GET /api/apps/{name}/env/raw`) into a textarea that keeps its columns (no wrapping), and saves it with its own **Save .env** (`PUT …/env/raw`): what is sent is the text as typed. Nothing to save when the text did not change; an empty text is refused. The list, its Save and Discard are hidden while the file is open, and the file is not opened over unsaved changes in the list.
+- **Every `cipi` command the panel shows is `sudo cipi …`**, as the `cipi` user types it: the token card of Connections (its copy button and its terminal, now `cipi@your-server`), the hints of every tab, the messages that ask for an update (`sudo cipi self-update && sudo cipi api update`).
+
+### Added
+
+- `CipiApiClient`: `showEnvRaw()`, `updateEnvRaw()`. Demo API: `GET|PUT /apps/{name}/env/raw`, the text kept as written.
+
 ## [4.11.0] — 2026-11-28
 
 **Backups set up and managed from the panel — on the server first, then S3 buckets and SFTP servers on a par.** A server without backups is set up from the Backups tab: a nightly profile takes every app and database and keeps them on the server. Then S3 buckets are added, changed, tested and removed exactly like SFTP servers — choosing, as each one is added, which profiles send their runs there too. The encryption key is shown and rotated; the retention previewed and applied. A secret key is sent to the server once, on the CLI's standard input, and never kept by the panel. **Signed releases** are said to be not available yet. For Cipi 5.19.0/5.19.1 and cipi/api 1.49.

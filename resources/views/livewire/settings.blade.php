@@ -45,7 +45,7 @@
                     @else
                         <p class="text-sm text-soft">Off — everyone signs in with email and password.</p>
                     @endif
-                    <p class="field-hint mt-4">Set up on the server that hosts the panel, where its <code>.env</code> is written: <code>cipi gui sso set --issuer=… --client-id=… --client-secret=…</code>, then <code>cipi gui sso status</code>, <code>cipi gui sso only on|off</code>, <code>cipi gui sso disable</code>.</p>
+                    <p class="field-hint mt-4">Set up on the server that hosts the panel, where its <code>.env</code> is written: <code>sudo cipi gui sso set --issuer=… --client-id=… --client-secret=…</code>, then <code>sudo cipi gui sso status</code>, <code>sudo cipi gui sso only on|off</code>, <code>sudo cipi gui sso disable</code>.</p>
                 </div>
 
                 @livewire('cipi-gui.connector-accounts')
@@ -164,10 +164,10 @@
                             </div>
                             <button type="submit" class="btn btn-danger field-action">Disable 2FA</button>
                         </form>
-                        <p class="field-hint mt-3"><button type="button" wire:click="startTwoFactorSetup" class="text-link">Move it to a new device</button> · Locked out? On the server: <code>cipi gui reset-user</code>.</p>
+                        <p class="field-hint mt-3"><button type="button" wire:click="startTwoFactorSetup" class="text-link">Move it to a new device</button> · Locked out? On the server: <code>sudo cipi gui reset-user</code>.</p>
                     @endif
                     @if($twoFactorRequired)
-                        <p class="field-hint mt-3">Locked out? An admin resets it from Team, or on the server: <code>cipi gui reset-user</code>.</p>
+                        <p class="field-hint mt-3">Locked out? An admin resets it from Team, or on the server: <code>sudo cipi gui reset-user</code>.</p>
                     @endif
                 @else
                     @if($twoFactorRequired)
@@ -192,7 +192,7 @@
                     @endforeach
                 </dl>
                 <p class="field-hint mt-4">Each server shows the Cipi and API versions it runs at the top of its own page.</p>
-                <p class="field-hint mt-1">Update with <code>cipi gui update</code> on the server that hosts the panel.</p>
+                <p class="field-hint mt-1">Update with <code>sudo cipi gui update</code> on the server that hosts the panel.</p>
             </div>
             <div class="card">
                 <div class="card-header"><h2 class="card-title">Resources</h2></div>

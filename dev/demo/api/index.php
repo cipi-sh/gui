@@ -448,8 +448,34 @@ function appRoute(string $method, string $sub, string $name, array $body, array 
             foreach ((array) ($body['unset'] ?? []) as $k) {
                 unset($a['env'][$k]);
             }
+            unset($a['env_raw']); // the file is the list again
 
             return [200, ['data' => ['app' => $name, 'vars' => $a['env']]]];
+
+        // The .env as text (API 1.49.1 / Cipi 5.19.2): kept as written.
+        case $sub === '/env/raw' && $method === 'GET':
+            $laravelOnly();
+            require_once dirname(__DIR__, 3).'/src/Support/EnvText.php';
+            $rows = [];
+            foreach ($a['env'] as $k => $v) {
+                $rows[] = ['key' => (string) $k, 'value' => (string) $v];
+            }
+
+            return [200, ['data' => ['app' => $name, 'text' => $a['env_raw'] ?? \CipiGui\Support\EnvText::dump($rows)."\n"]]];
+        case $sub === '/env/raw' && $method === 'PUT':
+            $laravelOnly();
+            require_once dirname(__DIR__, 3).'/src/Support/EnvText.php';
+            $text = $body['text'] ?? null;
+            if (! is_string($text) || $text === '') {
+                throw new DemoHttpError(422, 'text is required: the whole .env, as a string');
+            }
+            if (strlen($text) > 65536) {
+                throw new DemoHttpError(422, 'The text is too long (64 KB at most)');
+            }
+            $a['env_raw'] = $text;
+            $a['env'] = \CipiGui\Support\EnvText::parse($text)['vars'];
+
+            return [200, ['data' => ['app' => $name, 'text' => $text]]];
 
         // auth.json
         case $sub === '/auth' && $method === 'GET':

@@ -19,7 +19,7 @@
     </x-cipi::alert>
 @elseif($syncUnsupported === 'server')
     <x-cipi::alert type="warn" title="Transfers from the panel need a newer server">
-        Run <code>cipi self-update &amp;&amp; cipi api update</code> on the server. Until then, over SSH: <code>cipi sync push --host=&lt;target&gt; --import</code>.
+        Run <code>sudo cipi self-update &amp;&amp; sudo cipi api update</code> on the server. Until then, over SSH: <code>sudo cipi sync push --host=&lt;target&gt; --import</code>.
     </x-cipi::alert>
 @else
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4" data-sync>
@@ -97,9 +97,9 @@
                         <p class="field-hint">The address <strong>this server</strong> reaches the target on over SSH — its public IP, or a private or mesh address when the two share a network. The target needs Cipi and room for the apps.</p>
                         @if($syncPeer === null && !empty($syncKey['key']))
                             <div class="mt-3" data-sync-key>
-                                <p class="field-hint">A server that is not in this panel has to be told to trust this one. On the target, as root: <code>cipi sync trust</code>, and paste this key —</p>
+                                <p class="field-hint">A server that is not in this panel has to be told to trust this one. On the target, as root: <code>sudo cipi sync trust</code>, and paste this key —</p>
                                 <x-cipi::copyable :value="$syncKey['key']" label="Copy the key" class="font-mono text-xs break-all" />
-                                <p class="field-hint">Fingerprint <code>{{ $syncKey['fingerprint'] ?? '' }}</code>. To take it back later: <code>cipi sync untrust --key="…"</code> there.</p>
+                                <p class="field-hint">Fingerprint <code>{{ $syncKey['fingerprint'] ?? '' }}</code>. To take it back later: <code>sudo cipi sync untrust --key="…"</code> there.</p>
                             </div>
                         @elseif($syncPeer !== null)
                             <p class="field-hint mt-2" data-sync-managed>{{ $syncPeer->name }} is in this panel: checking the connection adds this server's key to it, and the key is taken out again when the transfer ends — while this page is open to see it end. <button type="button" wire:click="forgetSyncTrust" class="text-link" data-sync-forget>Remove the key from {{ $syncPeer->name }} now</button></p>
@@ -155,7 +155,7 @@
                         <span>From {{ $peer->name }}</span><x-cipi::icon name="chevron-right" />
                     </a>
                 @empty
-                    <p class="field-hint mt-2">No other server in this panel. From a server that is not in it, over SSH there: <code>cipi sync push --host={{ $server->ip ?: '&lt;this server&gt;' }} --import</code>, after <code>cipi sync trust</code> here.</p>
+                    <p class="field-hint mt-2">No other server in this panel. From a server that is not in it, over SSH there: <code>sudo cipi sync push --host={{ $server->ip ?: '&lt;this server&gt;' }} --import</code>, after <code>sudo cipi sync trust</code> here.</p>
                 @endforelse
             </div>
             <div class="card">
